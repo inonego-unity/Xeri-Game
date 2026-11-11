@@ -1,0 +1,13 @@
+{
+  "name": "com.inonego.xeri.game",
+  "version": "0.0.1",
+  "displayName": "Xeri Game",
+  "description": "Reusable game-domain runtime systems for Xeri.",
+  "unity": "6000.0",
+  "author": {
+    "name": "inonego"
+  },
+  "dependencies": {
+    "com.inonego.xeri": "0.0.1"
+  }
+}
