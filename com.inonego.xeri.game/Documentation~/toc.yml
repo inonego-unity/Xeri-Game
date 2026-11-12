@@ -1,0 +1,80 @@
+- name: Xeri Game 문서
+  href: index.md
+- name: 시작하기
+  items:
+    - name: 설치와 시작
+      href: getting-started/installation.md
+    - name: 전체 구조
+      href: concepts/architecture.md
+- name: Foundation
+  href: foundation/index.md
+  items:
+    - name: Entity와 Spawn
+      href: foundation/entity-and-spawn.md
+    - name: State Machine
+      href: foundation/state-machine.md
+    - name: WorldObject와 State
+      href: foundation/world-object.md
+- name: Modules
+  href: modules/index.md
+- name: Action
+  href: modules/action/index.md
+  items:
+    - name: 전체 구조
+      href: modules/action/overview.md
+    - name: Ability
+      href: modules/action/ability.md
+    - name: Execution
+      href: modules/action/execution.md
+    - name: Spatial·Targeting
+      href: modules/action/spatial-targeting.md
+    - name: Delivery·Operation
+      href: modules/action/delivery-operation.md
+- name: Combat
+  href: modules/combat/index.md
+  items:
+    - name: HP
+      href: modules/combat/hp.md
+    - name: Faction
+      href: modules/combat/faction.md
+- name: Interaction
+  href: modules/interaction/index.md
+  items:
+    - name: Use
+      href: modules/interaction/use.md
+    - name: Reaction
+      href: modules/interaction/reaction.md
+- name: World
+  href: modules/world/index.md
+  items:
+    - name: Zone Graph
+      href: modules/world/zone-graph.md
+    - name: Board
+      href: modules/world/board.md
+    - name: Physics Query
+      href: modules/world/physics-query.md
+- name: 기타 모듈
+  items:
+    - name: AI Group / Brain
+      href: modules/ai/group-and-brain.md
+    - name: Character Controller
+      href: modules/character/controller.md
+    - name: Progression / Level
+      href: modules/progression/level.md
+    - name: Billboard
+      href: modules/presentation/billboard.md
+- name: 사용 가이드
+  href: guides/index.md
+  items:
+    - name: Entity Registry 구현
+      href: guides/foundation/create-entity-registry.md
+    - name: Entity Actor Runtime 조립
+      href: guides/foundation/compose-entity-actor-runtime.md
+    - name: State Machine 구성
+      href: guides/foundation/create-state-machine.md
+    - name: Ability·Execution·Delivery 조립
+      href: guides/action/ability-execution-delivery.md
+    - name: Use와 Reaction 연결
+      href: guides/interaction/connect-use-and-reaction.md
+- name: Xeri Core 문서
+  href: https://inonego-unity.github.io/Xeri/

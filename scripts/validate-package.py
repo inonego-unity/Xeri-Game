@@ -12,7 +12,7 @@ PACKAGE = ROOT / "com.inonego.xeri.game"
 def check():
     package = json.loads((PACKAGE / "package.json").read_text(encoding="utf-8-sig"))
     assert package["name"] == "com.inonego.xeri.game"
-    assert package["dependencies"]["com.inonego.xeri"] == "0.0.1"
+    assert package["dependencies"] == {"com.inonego.xeri": "0.0.1"}
     runtime = json.loads(
         (PACKAGE / "Runtime/inonego.Xeri.Game.asmdef").read_text(encoding="utf-8-sig")
     )
@@ -20,7 +20,40 @@ def check():
     assert runtime["rootNamespace"] == "inonego.Xeri.Game"
     assert runtime["references"] == ["inonego.Xeri"]
 
-    files = list(PACKAGE.rglob("*"))
+    # Folder groupings are not CLR namespaces. Every Game Runtime type
+    # belongs to Xeri Game, including the Game.Controller sub-namespace.
+    for source in (PACKAGE / "Runtime").rglob("*.cs"):
+        if source.name == "AssemblyInfo.cs":
+            continue
+        namespaces = re.findall(
+            r"(?m)^namespace\s+([A-Za-z_][A-Za-z_0-9.]*)",
+            source.read_text(encoding="utf-8-sig"),
+        )
+        assert namespaces, f"Missing Runtime namespace: {source}"
+        assert all(
+            name == "inonego.Xeri.Game"
+            or name.startswith("inonego.Xeri.Game.")
+            for name in namespaces
+        ), f"Namespace outside Xeri Game: {source}: {namespaces}"
+
+    for mode in ("EDIT", "PLAY"):
+        tests = json.loads(
+            (PACKAGE / "Tests" / mode / f"inonego.Xeri.Game.TEST.{mode}.asmdef")
+            .read_text(encoding="utf-8-sig")
+        )
+        assert tests["name"] == f"inonego.Xeri.Game.TEST.{mode}"
+        expected = ["inonego.Xeri", "inonego.Xeri.Game"]
+        if mode == "PLAY":
+            expected.append("Unity.InputSystem")
+        assert tests["references"] == expected
+
+    # Unity excludes special package directories ending in "~" from asset import.
+    # Documentation~ is documentation, not an imported Unity asset tree.
+    files = [
+        path
+        for path in PACKAGE.rglob("*")
+        if not any(part.endswith("~") for part in path.relative_to(PACKAGE).parts)
+    ]
     seen = set()
     for meta in (p for p in files if p.is_file() and p.suffix == ".meta"):
         match = re.search(
