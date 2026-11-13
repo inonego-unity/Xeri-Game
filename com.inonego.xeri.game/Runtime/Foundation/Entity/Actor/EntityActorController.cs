@@ -1,11 +1,11 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityActorController.cs
-수정일 : 2026-10-03
+수정일 : 2026-11-14
 
 # 설명
 Entity Actor Factory와 Registry를 조립해 Actor 객체 수명과 Entity binding 수명을 분리 관리한다.
 Actor는 Registered 상태에서 Detached 또는 Bound(Entity)일 수 있으며 Attach/Detach/Rebind를 명시적으로 지원한다.
-선택적으로 EntitySpawnRegistry에 연결하면 Entity 수명에 맞춰 Bound Actor 하나를 자동 생성·반환한다.
+Entity Registry 연결·해제의 트랜잭션 경계를 관리하고 기존 등록 집합을 포함해 Actor를 생성·반환한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -30,12 +30,29 @@ namespace inonego.Xeri.Game
 
     #region 필드
 
+        // ============================================================
+        /// <summary>
+        /// Entity Registry Binding의 트랜잭션 수명.
+        /// </summary>
+        // ============================================================
+        private enum RegistryBindingPhase
+        {
+            Unbound,
+            Binding,
+            Bound,
+            Unbinding
+        }
+
+        [NonSerialized]
+        private RegistryBindingPhase bindingPhase = RegistryBindingPhase.Unbound;
+
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 자동 동기화 중인 Entity Registry.
+        /// 연결이 확정된 Entity Registry.
         /// </summary>
         // ------------------------------------------------------------
-        public EntitySpawnRegistryBase<TEntity> BoundRegistry => boundRegistry;
+        public EntitySpawnRegistryBase<TEntity> BoundRegistry =>
+            bindingPhase == RegistryBindingPhase.Bound ? boundRegistry : null;
 
         [NonSerialized]
         private EntitySpawnRegistryBase<TEntity> boundRegistry = null;
@@ -211,9 +228,9 @@ namespace inonego.Xeri.Game
                 throw new ArgumentNullException(nameof(registry));
             }
 
-            if (boundRegistry != null)
+            if (bindingPhase != RegistryBindingPhase.Unbound)
             {
-                throw new InvalidOperationException("Entity Actor Controller가 이미 Entity Registry에 바인딩되어 있습니다.");
+                throw new InvalidOperationException("Entity Actor Controller의 Binding 수명이 이미 진행 중이거나 연결되어 있습니다.");
             }
 
             if (this.registry.Count > 0)
@@ -221,24 +238,18 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("명시적으로 소유 중인 Actor가 남아 있어 Entity Registry에 바인딩할 수 없습니다.");
             }
 
-            registry.AttachBinding(this);
+            // Registry의 기존 객체 동기화와 rollback까지 하나의 연결 트랜잭션으로 취급한다.
+            bindingPhase = RegistryBindingPhase.Binding;
             boundRegistry = registry;
             this.contextResolver = contextResolver;
 
             try
             {
-                foreach (var (key, entity) in registry.Spawned)
-                {
-                    var context = ResolveContext(key, entity);
-                    CreateBoundCore(entity, context);
-                }
+                registry.AttachBinding(this);
+                bindingPhase = RegistryBindingPhase.Bound;
             }
             catch (Exception bindException)
             {
-                registry.DetachBinding(this);
-                boundRegistry = null;
-                this.contextResolver = null;
-
                 try
                 {
                     ReleaseAllCore(DespawnReason.RegistryCleanup);
@@ -255,6 +266,15 @@ namespace inonego.Xeri.Game
 
                 throw;
             }
+            finally
+            {
+                if (bindingPhase == RegistryBindingPhase.Binding)
+                {
+                    boundRegistry = null;
+                    this.contextResolver = null;
+                    bindingPhase = RegistryBindingPhase.Unbound;
+                }
+            }
         }
 
         // ----------------------------------------------------------------------
@@ -264,34 +284,78 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         public void Unbind()
         {
-            var entityRegistry = boundRegistry;
-
-            if (entityRegistry != null)
+            if (bindingPhase == RegistryBindingPhase.Unbound)
             {
-                entityRegistry.DetachBinding(this);
+                return;
             }
 
-            boundRegistry = null;
-            contextResolver = null;
-            ReleaseAllCore(DespawnReason.RegistryCleanup);
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 현재 Entity Registry 상태를 기준으로 자동 Actor를 다시 생성한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public void RecreateAll()
-        {
-            var entityRegistry = boundRegistry ??
-                throw new InvalidOperationException("Entity Registry가 바인딩되어 있지 않습니다.");
-
-            ReleaseAllCore(DespawnReason.RegistryCleanup);
-
-            foreach (var (key, entity) in entityRegistry.Spawned)
+            if (bindingPhase != RegistryBindingPhase.Bound)
             {
-                var context = ResolveContext(key, entity);
-                CreateBoundCore(entity, context);
+                throw new InvalidOperationException("Entity Actor Controller의 Binding 전환 중에는 해제할 수 없습니다.");
+            }
+
+            var entityRegistry = boundRegistry;
+            Exception detachFailure = null;
+            var didDetach = false;
+
+            bindingPhase = RegistryBindingPhase.Unbinding;
+
+            try
+            {
+                try
+                {
+                    entityRegistry.DetachBinding(this);
+                    didDetach = true;
+                }
+                catch (Exception exception)
+                {
+                    // Registry에 남아 있으면 해제가 시작되지 않았으므로 기존 연결을 유지한다.
+                    if (entityRegistry.IsBindingAttached(this))
+                    {
+                        throw;
+                    }
+
+                    // Registry의 terminal 해제가 끝난 경우 잔여 Actor도 끝까지 반환한다.
+                    didDetach = true;
+                    detachFailure = exception;
+                }
+
+                try
+                {
+                    ReleaseAllCore(DespawnReason.RegistryCleanup);
+                }
+                catch (Exception releaseException)
+                {
+                    if (detachFailure != null)
+                    {
+                        throw new AggregateException
+                        (
+                            "Entity Actor Binding 해제와 잔여 Actor 정리가 모두 실패했습니다.",
+                            detachFailure,
+                            releaseException
+                        );
+                    }
+
+                    throw;
+                }
+
+                if (detachFailure != null)
+                {
+                    throw detachFailure;
+                }
+            }
+            finally
+            {
+                if (didDetach)
+                {
+                    boundRegistry = null;
+                    contextResolver = null;
+                    bindingPhase = RegistryBindingPhase.Unbound;
+                }
+                else
+                {
+                    bindingPhase = RegistryBindingPhase.Bound;
+                }
             }
         }
 
@@ -723,9 +787,9 @@ namespace inonego.Xeri.Game
         // --------------------------------------------------------------------------------
         private void EnsureUnbound()
         {
-            if (boundRegistry != null)
+            if (bindingPhase != RegistryBindingPhase.Unbound)
             {
-                throw new InvalidOperationException("Entity Registry에 바인딩된 동안 명시적 Actor 수명을 변경할 수 없습니다.");
+                throw new InvalidOperationException("Entity Registry Binding 수명 중에는 명시적 Actor 수명을 변경할 수 없습니다.");
             }
         }
 

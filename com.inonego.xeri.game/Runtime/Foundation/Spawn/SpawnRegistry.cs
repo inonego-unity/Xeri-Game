@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : SpawnRegistry.cs
-수정일 : 2026-09-21
+수정일 : 2026-11-13
 
 # 설명
 스폰 레지스트리 베이스·구현체와 스폰된 객체 사전, 디스폰 확장 메서드 정의.
@@ -11,7 +11,7 @@
 - SpawnRegistry<,>            : 파라미터 없는 Acquire/Spawn
 - SpawnRegistry<,,>           : 파라미터 받는 Acquire/Spawn (INeedToInit<TParam> 연동)
 
-등록 사전은 직렬화하며, 진행 중 Spawn·외부 바인딩·전체 디스폰 플래그와 공개 이벤트는 비직렬화 런타임 상태다.
+등록 사전은 직렬화하며, 진행 중 Spawn·Binding 동기화·전체 디스폰 플래그와 공개 이벤트는 비직렬화 런타임 상태다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -152,6 +152,9 @@ namespace inonego.Xeri.Game
         [NonSerialized]
         private bool isDespawningAll = false;
 
+        [NonSerialized]
+        private bool isUpdatingBindings = false;
+
     #endregion
 
     #region 이벤트
@@ -220,6 +223,7 @@ namespace inonego.Xeri.Game
             spawning = new HashSet<T>(ReferenceEqualityComparer<T>.Instance);
             bindings = new List<ISpawnRegistryBinding<TKey, T>>();
             isDespawningAll = false;
+            isUpdatingBindings = false;
 
             foreach (var (key, spawnable) in spawned)
             {
@@ -232,11 +236,11 @@ namespace inonego.Xeri.Game
 
     #region 바인딩
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 필수 lifecycle 바인딩을 실행 순서의 마지막에 연결한다.
+        /// 이미 등록된 객체에도 필수 Binding을 연결하고, 실패하면 연결을 롤백한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         public void AttachBinding(ISpawnRegistryBinding<TKey, T> binding)
         {
             if (binding == null)
@@ -246,20 +250,65 @@ namespace inonego.Xeri.Game
 
             ValidateBindingMutationAllowed();
 
-            for (var index = 0; index < bindings.Count; index++)
+            if (IsBindingAttached(binding))
             {
-                if (ReferenceEquals(bindings[index], binding))
-                {
-                    throw new InvalidOperationException("동일 SpawnRegistry Binding을 중복 연결할 수 없습니다.");
-                }
+                throw new InvalidOperationException("동일 SpawnRegistry Binding을 중복 연결할 수 없습니다.");
             }
 
-            bindings.Add(binding);
+            var existing = new List<KeyValuePair<TKey, T>>(_Spawned);
+            var attachedCount = 0;
+
+            isUpdatingBindings = true;
+
+            try
+            {
+                try
+                {
+                    foreach (var (key, spawnable) in existing)
+                    {
+                        // 예외가 발생한 Binding에도 부분 자원이 남을 수 있으므로 정리에 포함한다.
+                        attachedCount++;
+                        binding.OnSpawned(key, spawnable);
+                    }
+
+                    bindings.Add(binding);
+                }
+                catch (Exception attachException)
+                {
+                    List<Exception> failures = null;
+
+                    for (var index = attachedCount - 1; index >= 0; index--)
+                    {
+                        try
+                        {
+                            var (key, spawnable) = existing[index];
+                            binding.OnDespawning(key, spawnable, DespawnReason.SpawnRollback);
+                        }
+                        catch (Exception exception)
+                        {
+                            failures ??= new List<Exception>();
+                            failures.Add(exception);
+                        }
+                    }
+
+                    if (failures != null)
+                    {
+                        failures.Insert(0, attachException);
+                        throw new AggregateException("SpawnRegistry Binding 연결 및 rollback에 실패했습니다.", failures);
+                    }
+
+                    throw;
+                }
+            }
+            finally
+            {
+                isUpdatingBindings = false;
+            }
         }
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 연결된 동일 lifecycle 바인딩을 해제한다.
+        /// 등록된 객체의 Binding 자원을 정리하고 연결을 해제한다.
         /// </summary>
         // ------------------------------------------------------------
         public bool DetachBinding(ISpawnRegistryBinding<TKey, T> binding)
@@ -271,19 +320,57 @@ namespace inonego.Xeri.Game
 
             ValidateBindingMutationAllowed();
 
-            for (var index = bindings.Count - 1; index >= 0; index--)
-            {
-                if (!ReferenceEquals(bindings[index], binding))
-                {
-                    continue;
-                }
+            var bindingIndex = bindings.FindIndex(item => ReferenceEquals(item, binding));
 
-                bindings.RemoveAt(index);
-                return true;
+            if (bindingIndex < 0)
+            {
+                return false;
             }
 
-            return false;
+            var existing = new List<KeyValuePair<TKey, T>>(_Spawned);
+            List<Exception> failures = null;
+
+            isUpdatingBindings = true;
+
+            try
+            {
+                for (var index = existing.Count - 1; index >= 0; index--)
+                {
+                    try
+                    {
+                        var (key, spawnable) = existing[index];
+                        binding.OnDespawning(key, spawnable, DespawnReason.RegistryCleanup);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures ??= new List<Exception>();
+                        failures.Add(exception);
+                    }
+                }
+
+                // 일부 정리가 실패해도 이후 Spawn에 해당 Binding을 다시 전달하지 않는다.
+                bindings.RemoveAt(bindingIndex);
+            }
+            finally
+            {
+                isUpdatingBindings = false;
+            }
+
+            if (failures != null)
+            {
+                throw new AggregateException("SpawnRegistry Binding 해제 중 일부 정리가 실패했습니다.", failures);
+            }
+
+            return true;
         }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 동일 Binding이 현재 Registry에 연결돼 있는지 확인한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool IsBindingAttached(ISpawnRegistryBinding<TKey, T> binding) =>
+            bindings.Exists(item => ReferenceEquals(item, binding));
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -292,7 +379,7 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         private void ValidateBindingMutationAllowed()
         {
-            if (_Spawning.Count > 0 || isDespawningAll)
+            if (_Spawning.Count > 0 || isDespawningAll || isUpdatingBindings)
             {
                 throw new InvalidOperationException
                 (
@@ -449,9 +536,9 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         protected void ValidateSpawnAllowed()
         {
-            if (isDespawningAll)
+            if (isDespawningAll || isUpdatingBindings)
             {
-                throw new InvalidOperationException("DespawnAll 처리 중에는 새 객체를 스폰할 수 없습니다.");
+                throw new InvalidOperationException("Registry 수명 또는 Binding 동기화 중에는 새 객체를 스폰할 수 없습니다.");
             }
         }
 
@@ -780,6 +867,11 @@ namespace inonego.Xeri.Game
 
             SpawnRegistryUtility.ValidateReason(reason);
 
+            if (isUpdatingBindings)
+            {
+                throw new InvalidOperationException("Binding 동기화 중에는 객체를 디스폰할 수 없습니다.");
+            }
+
             if (_Spawning.Contains(despawnable))
             {
                 throw new InvalidOperationException
@@ -873,6 +965,11 @@ namespace inonego.Xeri.Game
         public void DespawnAll(DespawnReason reason)
         {
             SpawnRegistryUtility.ValidateReason(reason);
+
+            if (isUpdatingBindings)
+            {
+                throw new InvalidOperationException("Binding 동기화 중에는 일괄 디스폰할 수 없습니다.");
+            }
 
             // 진행 중인 Spawn이 이후 등록을 재개하지 못하도록 전체 처리 구간에서 일괄 제거를 차단한다.
             if (_Spawning.Count > 0)
@@ -982,6 +1079,11 @@ namespace inonego.Xeri.Game
             ValidateSpawnAllowed();
             var spawnable = Acquire();
 
+            if (spawnable == null)
+            {
+                return null;
+            }
+
             return Spawn(spawnable);
         }
 
@@ -1049,6 +1151,11 @@ namespace inonego.Xeri.Game
         {
             ValidateSpawnAllowed();
             var spawnable = Acquire(param);
+
+            if (spawnable == null)
+            {
+                return null;
+            }
 
             void InitAction(T s)
             {
