@@ -1,47 +1,38 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : IWorldObject.cs
-수정일 : 2026-08-24
+수정일 : 2026-11-16
 
 # 설명
-Unity Scene의 gameplay object와 직렬화 가능한 WorldObjectState를 연결하는 공통 계약.
-
-# 제약사항
-Stage, Save 파일 형식, Unity 표현 적용 방식은 이 계약이 소유하지 않는다.
+지속 상태와 Scene 객체의 연결·해제 계약.
+초기 상태 생성은 Game Domain/Factory가 선택적으로 제공하며 이 계약에 포함하지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// persistent World Object State의 생성·Binding 수명을 제공한다.
+    /// WorldObject의 지속 상태를 Scene 수명에 연결하는 최소 계약.
     /// </summary>
     // ============================================================
     public interface IWorldObject
     {
         // ------------------------------------------------------------
         /// <summary>
-        /// Scene Object와 persistent State를 연결하는 안정 ID.
+        /// 현재 State Scope 안에서 유일한 안정 ID.
         /// </summary>
         // ------------------------------------------------------------
         string ID { get; }
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Scene authoring 초기값으로 새 persistent State를 만든다.
-        /// </summary>
-        // ------------------------------------------------------------
-        WorldObjectState CreateState();
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 생성 또는 복원된 State를 이 World Object의 runtime authority로 연결한다.
+        /// State 값을 변경하지 않고 Scene에 연결한다.
         /// </summary>
         // ------------------------------------------------------------
         void BindState(WorldObjectState state);
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 State와의 runtime 연결을 해제한다.
+        /// Scene 연결만 해제한다. 실패 후 재호출에도 안전해야 한다.
         /// </summary>
         // ------------------------------------------------------------
         void UnbindState();

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StateMachine.cs
-수정일 : 2026-05-08
+수정일 : 2026-11-16
 
 # 설명
 유한 상태 머신 (FSM). Owner 와 현재 상태를 보유하며 인스턴스/타입 기반 전이를 모두 지원한다.
@@ -48,13 +48,16 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private readonly Dictionary<Type, IState> states = new();
 
+        [NonSerialized]
+        private bool isTransitioning = false;
+
     #endregion
 
     #region 이벤트
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 상태가 변경될 때 호출된다(prev, next).
+        /// 상태 전이가 성공적으로 완료된 후 호출된다(prev, next).
         /// </summary>
         // ------------------------------------------------------------
         public event Action<IState, IState> OnStateChanged = null;
@@ -84,23 +87,41 @@ namespace inonego.Xeri.Game
 
         // ----------------------------------------------------------------------
         /// <summary>
-        /// 상태를 타입을 키로 등록한다. StateBase<TOwner> 면 Owner 가 자동 주입된다.
+        /// 같은 타입은 교체 등록한다. StateBase 계열이면 Owner가 자동 주입된다.
         /// </summary>
         // ----------------------------------------------------------------------
         public T AddState<T>(T state) where T : class, IState
         {
+            if (isTransitioning)
+            {
+                throw new InvalidOperationException("상태 전이 도중에는 상태 등록을 변경할 수 없습니다.");
+            }
+
             if (state == null)
             {
                 throw new ArgumentNullException("StateMachine.AddState()의 state 가 null입니다.");
             }
 
-            if (state is StateBase<TOwner> sb)
+            foreach (var pair in states)
             {
-                sb.SetOwner(owner);
+                if (pair.Key != typeof(T) && ReferenceEquals(pair.Value, state))
+                {
+                    throw new InvalidOperationException("동일 State 인스턴스를 다른 타입으로 중복 등록할 수 없습니다.");
+                }
             }
 
-            states[typeof(T)] = state;
+            if (state is IStateMachineOwnedState)
+            {
+                if (state is not StateBase<TOwner> stateBase)
+                {
+                    throw new InvalidOperationException("상태가 요구하는 Owner 타입이 StateMachine의 Owner 타입과 다릅니다.");
+                }
 
+                stateBase.SetOwner(owner, this);
+            }
+
+            // 등록 교체는 현재 활성 상태를 종료하지 않는다. 다음 명시적 전이에서 이동한다.
+            states[typeof(T)] = state;
             return state;
         }
 
@@ -125,6 +146,11 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void MoveTo<T>() where T : class, IState
         {
+            if (isTransitioning)
+            {
+                throw new InvalidOperationException("상태 전이 도중에는 다른 전이를 시작할 수 없습니다.");
+            }
+
             var next = GetState<T>();
 
             if (next != null)
@@ -133,24 +159,124 @@ namespace inonego.Xeri.Game
             }
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 인스턴스로 상태를 전이한다. 같은 인스턴스면 무시.
+        /// <br/> 동일 인스턴스는 무시하고 진행 중인 전이의 재진입은 거절한다.
+        /// <br/> 진입·종료 실패 시 Current를 비우고 실패한 진입은 종료를 시도한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         public void MoveTo(IState next)
         {
+            if (isTransitioning)
+            {
+                throw new InvalidOperationException("상태 전이 도중에는 다른 전이를 시작할 수 없습니다.");
+            }
+
             var prev = current;
 
-            if (prev == next) return;
+            if (ReferenceEquals(prev, next)) return;
 
-            prev?.OnExit();
+            if (next is IStateMachineOwnedState ownedState)
+            {
+                if (!ReferenceEquals(ownedState.RegisteredMachine, this))
+                {
+                    throw new InvalidOperationException("StateBase는 등록된 StateMachine에서만 전이할 수 있습니다.");
+                }
 
-            current = next;
+                var found = false;
 
-            next?.OnEnter();
+                foreach (var registeredState in states.Values)
+                {
+                    if (ReferenceEquals(registeredState, next))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
 
-            OnStateChanged?.Invoke(prev, next);
+                if (!found)
+                {
+                    throw new InvalidOperationException("교체되어 등록에서 제외된 StateBase로 전이할 수 없습니다.");
+                }
+            }
+
+            isTransitioning = true;
+
+            try
+            {
+                // 이전 상태가 종료에 실패해도 종료되지 않은 상태를 갱신하지 않는다.
+                current = null;
+                prev?.OnExit();
+
+                if (next != null)
+                {
+                    current = next;
+
+                    try
+                    {
+                        next.OnEnter();
+                    }
+                    catch (Exception enterError)
+                    {
+                        // 진입 중 획득한 자원을 해제하고 실패한 상태를 비활성화한다.
+                        current = null;
+
+                        try
+                        {
+                            next.OnExit();
+                        }
+                        catch (Exception exitError)
+                        {
+                            throw new AggregateException("상태 진입과 진입 실패 정리가 모두 실패했습니다.", enterError, exitError);
+                        }
+
+                        throw;
+                    }
+                }
+
+                NotifyStateChanged(prev, next);
+            }
+            finally
+            {
+                isTransitioning = false;
+            }
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> 확정된 전이를 모든 구독자에게 알린다.
+        /// <br/> 한 구독자의 예외가 다른 구독자의 알림을 막지 않게 수집한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private void NotifyStateChanged(IState previous, IState next)
+        {
+            var callbacks = OnStateChanged?.GetInvocationList();
+            if (callbacks == null)
+            {
+                return;
+            }
+
+            List<Exception> failures = null;
+
+            foreach (Action<IState, IState> callback in callbacks)
+            {
+                try
+                {
+                    callback(previous, next);
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            if (failures != null)
+            {
+                throw failures.Count == 1
+                    ? failures[0]
+                    : new AggregateException("StateMachine 상태 변경 알림 중 일부 구독자가 실패했습니다.", failures);
+            }
         }
 
     #endregion
