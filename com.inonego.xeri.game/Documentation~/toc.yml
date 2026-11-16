@@ -11,9 +11,11 @@
   items:
     - name: Entity와 Spawn
       href: foundation/entity-and-spawn.md
+    - name: Actor와 Presentation
+      href: foundation/actor-and-presentation.md
     - name: State Machine
       href: foundation/state-machine.md
-    - name: WorldObject와 State
+    - name: WorldObject와 지속 상태
       href: foundation/world-object.md
 - name: Modules
   href: modules/index.md
@@ -72,6 +74,8 @@
       href: guides/foundation/compose-entity-actor-runtime.md
     - name: State Machine 구성
       href: guides/foundation/create-state-machine.md
+    - name: WorldObject 지속 상태 구성
+      href: guides/foundation/create-world-object.md
     - name: Ability·Execution·Delivery 조립
       href: guides/action/ability-execution-delivery.md
     - name: Use와 Reaction 연결

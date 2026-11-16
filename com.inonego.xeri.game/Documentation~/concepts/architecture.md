@@ -12,11 +12,12 @@ Xeri Game — Foundation
 Xeri Core — 공통 계약과 유틸리티
 ~~~
 
-이 구조는 **논리적 책임 관계**입니다. 기존 Game 기능은 기본적으로 단일 `inonego.Xeri.Game` 어셈블리에 있고 폴더마다 Assembly를 만들지 않습니다.
+이 구조는 **논리적 책임 관계**입니다. Xeri Game의 기본 Runtime은 `inonego.Xeri.Game` 어셈블리를 사용하며, Foundation·Modules 폴더마다 별도의 Assembly를 요구하지 않습니다.
 
 ## Foundation
 
-- [Entity와 Spawn](../foundation/entity-and-spawn.md): 논리 객체 ID, 등록 수명, Actor·Presentation 조합
+- [Entity와 Spawn Registry](../foundation/entity-and-spawn.md): 논리 객체 ID, Registry 소속과 등록 수명
+- [Actor와 Presentation](../foundation/actor-and-presentation.md): Unity Actor 객체·Entity 관계와 표현 자원 소유권
 - [State Machine](../foundation/state-machine.md): 상태·전이
 - [WorldObject](../foundation/world-object.md): 지속 상태와 Scene 객체의 연결 계약
 
@@ -32,4 +33,4 @@ Ability는 전투 엔진이나 입력 시스템을 직접 소유하지 않고 �
 
 `IKeyGenerator`, `XDictionary`, Spatial, Serializer, Lease, Pool은 Core에 있습니다. Game은 이를 사용하지만 Core가 Game 타입을 역참조하지 않습니다.
 
-Xeri UI·Xeri Fabric과의 연결은 프로젝트 또는 선택적 연동 어셈블리가 소유합니다. Objective·Narrative는 별도 작업 트리에서 개발 중이므로 현재 기본 설치본에 포함됐다는 의미는 아닙니다.
+Xeri UI·Xeri Fabric과의 연결은 프로젝트 또는 선택적 연동 어셈블리가 소유합니다. Objective·Narrative 등 게임별 기능은 기본 Runtime에 모두 포함된 공통 Foundation 계약이 아니며, 각 소비 프로젝트가 필요한 Domain을 선택해 구성합니다.

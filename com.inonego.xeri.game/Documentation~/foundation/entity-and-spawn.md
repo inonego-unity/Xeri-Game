@@ -1,150 +1,113 @@
 # Entity와 Spawn 수명
 
-Xeri Game의 Entity 기반은 **identity와 Spawn lifecycle**만 소유합니다.
-`EntitySpawnRegistry`가 Key 발급·등록·rollback을 관리하고, `EntityBase`는 Key·`SpawnState`·로컬 등록 `RegistrationRevision`·lifecycle hook을 제공합니다.
-HP, Group, Actor, Presentation과 사망 정책은 Entity 기반의 필수 책임이 아닙니다.
+Entity 영역은 **논리 객체의 식별과 Registry 등록 수명**을 관리합니다. Scene에 존재하는 Actor, 표현 자원인 Presentation, World의 지속 상태는 서로 다른 소유권을 가집니다.
 
-## 언제 사용하는가
+## 구성 요소
 
-- Runtime 객체에 안정적인 Entity Key와 중앙 조회가 필요할 때
-- Spawn/Despawn transaction과 rollback 경계를 통일할 때
-- 논리 Entity와 Scene Actor 수명을 분리할 때
-- required lifecycle participant를 Registry transaction에 포함해야 할 때
-
-단순 Scene 참조만 필요한 객체라면 별도 Entity Registry가 필요하지 않을 수 있습니다.
-
-## 기본 사용
-
-프로젝트는 `EntityBase` 파생 타입과 `EntitySpawnRegistry<TEntity>` 파생 Registry를 만들고 획득/반환 정책만 정의합니다.
-
-```csharp
-[Serializable]
-public sealed class SampleEntity : EntityBase
-{
-    // NONE
-}
-```
-## 핵심 계약
-
-| 계약 | 역할 |
+| 요소 | 관리 책임 |
 |---|---|
-| `IReadOnlyEntity` | Key, HasKey, SpawnState 및 로컬 RegistrationRevision 읽기 |
-| `IEntity` | Registry가 Key와 Spawn 상태를 관리하는 내부 계약 |
-| `ISpawnRegistry<TKey,T>` | 등록 객체 조회와 committed lifecycle notification |
-| `ISpawnRegistryBinding<TKey,T>` | Spawn transaction에 포함되는 required binding |
-| `EntitySpawnRegistry` | Entity용 Key 생성과 Spawn/Despawn transaction |
-| `EntityBase` | Registry별 Key, 로컬 등록 Revision, Entity lifecycle hook |
-| `DespawnReason` | 종료 원인 전달 |
+| `EntityBase` / `IEntity` | Key, `SpawnState`, 등록 Revision 및 Entity 수명 훅 |
+| `EntitySpawnRegistryBase<TEntity>` | Entity Key 검증, 외부 Key 등록 및 현재 수명 조회 |
+| `EntitySpawnRegistry<TEntity>` | `Acquire()` 기반 로컬 Spawn |
+| `SpawnRegistryBase<TKey,T>` | 일반 등록·해제 transaction, Binding, 이벤트, 복원 연결 |
+| `EntityHandle` | 객체 참조·Key·등록 Revision을 묶은 비소유 로컬 Handle |
+| `ISpawnRegistryBinding<TKey,T>` | Registry 등록 수명에 필수 자원을 동기화하는 연결 |
 
-HP와 Group이 필요한 Entity는 `IReadOnlyHPOwner/IHPOwner`, `IReadOnlyGroupMember/IGroupMember` capability를 조합합니다.
+## EntityBase: 논리 객체의 정체성과 수명
 
-## Identity와 등록 수명
+`EntityBase`는 Key와 Spawn 상태 및 수명 훅을 제공합니다. HP·Group·Actor·Presentation·사망 처리 규칙은 모든 Entity의 필수 속성이 아닙니다. 필요한 게임 타입이 `IReadOnlyHPOwner` / `IHPOwner`, `IReadOnlyGroupMember` / `IGroupMember` 등의 capability를 조합합니다.
 
-`Entity.Key`는 **등록된 Registry 안에서만** 유일합니다. 같은 Key를 가진 Entity가 다른 Registry에 동시에 존재할 수 있습니다. Entity의 Key와 Spawn 상태는 Registry가 관리합니다. `EntityBase` 파생형은 `protected internal virtual SetKey/ClearKey`를 확장할 수 있지만, Registry의 발급 Key·등록 상태 불변식을 유지해야 합니다. `EntityHandle`은 C# 객체 참조·Key·`RegistrationRevision`을 보존하는 로컬 비소유 Handle이며 직렬화용 형식이 아닙니다. Entity가 Despawn된 뒤 **동일 인스턴스가 같은 Key로 다시 등록돼도** 이전 Handle은 다시 유효해지지 않습니다.
+Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른 Registry에서는 같은 Key를 사용할 수 있습니다. Key 값 `0`도 정상 발급될 수 있으므로 Entity 없음의 표시로 사용하지 않습니다.
 
-`RegistrationRevision`은 Entity가 `Spawned` 상태로 진입할 때마다 증가하는 **비직렬화 로컬 수명 번호**입니다. 필수 Binding이나 완료 훅의 실패로 해당 등록이 롤백돼도 이미 증가한 Revision은 유지됩니다. 다른 프로세스·Registry·Replay를 통틀어 식별하는 Network/Persistent ID가 아니므로 RPC나 저장 데이터의 Entity ID로 사용하지 않습니다.
+`RegistrationRevision`은 Entity가 등록되어 `Spawned`가 될 때마다 증가하는 **비직렬화 수명 번호**입니다. 등록이 실패한 뒤 롤백되더라도 증가한 Revision은 재사용하지 않습니다. 이 번호는 로컬 메모리용이므로 원격 Wire ID나 영속 ID로 쓰지 않습니다. Entity Key도 해당 Registry 안에서만 유효한 식별자입니다.
 
-외부에서 확정한 Key를 지정해 등록할 때는 `EntitySpawnRegistryBase<TEntity>.SpawnWithKey(entity, key)`를 사용합니다. 객체에 이미 확정된 Key가 있다면 공통 `SpawnRegistryBase<TKey, T>.SpawnExisting(entity)` 경로를 그대로 사용할 수 있습니다. 이미 등록된 Key를 다시 가져오면 예외가 발생하며 기존 등록은 유지됩니다. 새 로컬 Spawn에 KeyGenerator가 이미 등록된 Key를 발급해도 예외를 발생시키고 다른 Key로 자동 보정하지 않습니다. 외부 Key와 로컬 발급 Key를 함께 사용하는 Host는 **Key 범위를 분리하거나 충돌을 방지하는 생성기 정책**을 선택해야 합니다. 로컬 Key 발급 이전에 획득한 Entity가 이미 Key를 가지고 있어 등록이 거절되면 해당 Key를 변경하지 않습니다. 공통 Spawn transaction에 진입한 뒤의 실패 정리는 `SpawnRegistry`가 담당합니다. Key 할당 훅에서 부분 할당 후 실패하면 이번 발급 시도에서 생성한 Key만 롤백합니다. `ClearKey()`는 정상 Despawn과 Spawn rollback에 호출되며, 훅에서 예외가 발생해도 `EntityBase`의 기본 Key는 해제됩니다.
+원격 요청과 Network Object 매핑은 그 Registry의 Entity Key를 기준으로 구성합니다. Host가 `NetworkId → Entity Key` 대응표를 소유하고, 요청을 처리할 때 `Find(key)`로 현재 Entity를 조회합니다. 권한 Registry가 Key를 다시 발급하지 않으면 Key가 그 Registry 수명 안에서 대상을 식별하므로 별도의 Generation이 필요하지 않습니다. 기본 `IncreKeyGenerator`는 단조 증가하며 한 번 쓴 값을 재사용하지 않습니다. 해제된 외부 Key를 다시 쓰는 정책을 택한 Host만 재사용을 구별하는 값을 자신의 대응표에 포함합니다.
 
-`TrySpawn()`은 `Acquire()`가 객체를 제공하지 않아 `null`을 반환한 경우에 `false`를 반환합니다. 이 동작은 일반 `SpawnRegistry`와 Entity 전용 Registry에 공통으로 적용됩니다. Key 충돌이나 등록 계약 위반은 예외로 알립니다.
+## EntitySpawnRegistry: 등록과 해제
 
-`IWorldObject.ID`는 Scene/Persistence 상태를 연결하는 별도 문자열 ID이며, Entity Key나 Actor·NetworkObject 식별자와 자동 대응되지 않습니다.
+게임은 `EntitySpawnRegistry<TEntity>`를 상속해 `Acquire()`와 필요한 경우 `Release(entity, reason)` 정책을 정의합니다. Registry가 Key 할당, `SpawnState`, membership과 필수 Binding을 관리하므로 획득 함수에서 상태를 임의로 확정하지 않습니다.
 
-## Spawn transaction
+| 경로 | API | Entity 게임 Spawn/Despawn 훅 | Registry Binding |
+|---|---|---|---|
+| 로컬 Spawn | `TrySpawn(out entity)` | 실행 | 실행 |
+| 외부 Key를 사용한 게임 Spawn | `SpawnWithKey(entity, key)` | 실행 | 실행 |
+| 준비된 객체의 직접 등록 | `RegisterWithKey(entity, key)` | 실행하지 않음 | 실행 |
+| 게임 Despawn | `entity.Despawn()` | 게임 Spawn된 수명에서는 실행 | 정리 |
+| 직접 등록 해제 | `Unregister(entity)` | 실행하지 않음 | 정리 |
+| 현재 등록 조회 | `Find(key)`, `Registered` | 없음 | 없음 |
 
-```text
-Acquire
-→ Key 확정
-→ Spawning
-→ Registry 등록 + RegistrationRevision 갱신 + runtime 연결
-→ required bindings OnSpawned (등록 순서)
-→ Entity OnSpawned
-→ COMMIT
-→ Registry OnSpawned notification
-```
+직접 등록은 **호출자가 값과 Key를 이미 준비한 Entity를 게임 Spawn 훅 없이 현재 Registry에 참여**시키는 경로입니다. 값의 생성·복원·검증·권한 판정과 외부 공개 범위는 호출자가 소유합니다. `RegisterWithKey` 자체가 Network Replica, Save Restore, Current State Apply를 구현하는 것은 아닙니다. 현재 상태를 구성할 때는 값을 먼저 준비한 Entity를 등록합니다. 그러면 Binding이 만드는 Actor와 Presentation이 준비된 값을 읽고 게임 Spawn 이벤트는 발생하지 않습니다. 직접 등록 객체는 Registry가 `Acquire()`한 것이 아니므로 해제할 때 해당 Registry의 `Release()`를 호출하지 않습니다. `Registered`는 읽기 전용 Dictionary 계약이며 직접 membership을 수정하지 않습니다.
 
-required binding 실패는 이미 실행된 binding을 역순으로 rollback합니다.
-commit 이후 observer 실패는 이미 확정된 Registry ownership을 되돌리지 않습니다.
-## Despawn transaction
+`TrySpawn()`은 `Acquire()`가 null을 반환하면 `false`를 반환합니다. Key 충돌·잘못된 등록 상태 등 계약 위반은 예외입니다. `SpawnWithKey` / `RegisterWithKey`에 이미 등록된 Key를 주면 거절하며, Key 생성기가 충돌한 값을 발급해도 자동으로 다른 Key로 보정하지 않습니다. 외부 Key와 자체 발급 Key를 함께 쓰는 Host는 충돌 방지 정책을 마련해야 하며, 권한 Registry가 확정한 Key를 받는 Registry는 자체 발급을 쓰지 않는 구성이 가장 단순합니다.
 
-```text
-Despawning
-→ Entity OnDespawning
-→ required bindings OnDespawning (역순)
-→ Registry 내부 runtime 연결 해제
-→ Registry membership 제거
-→ Entity OnDespawned
-→ Despawned
-→ Registry OnDespawned notification
-→ 획득 출처로 반환
-```
+## EntityHandle: 현재 등록 수명 조회
 
-정리 단계 일부가 실패해도 가능한 terminal cleanup은 계속 시도합니다.
+`new EntityHandle(entity)`는 등록된 Entity 참조, Key, Revision을 보관합니다. `IsValid()`는 현재 Entity 값들이 Handle 생성 시점과 일치하는지 확인합니다. `EntitySpawnRegistryBase<TEntity>.TryResolve(handle, out entity)`는 여기에 **정확히 그 Entity 인스턴스가 현재 Registry에 등록되어 있는지**까지 확인합니다.
 
-## 직렬화 후 복원
+같은 인스턴스와 Key를 다시 등록해도 이전 Revision을 가진 Handle은 유효하지 않습니다. `Find(key)`는 Key만 조회하므로 오래 보관한 타깃·지연 명령에는 등록 수명 검증이 필요합니다. `EntityHandle`은 로컬 메모리용이며 Save나 RPC 식별자로 사용하지 않습니다.
 
-`SpawnRegistry.OnAfterDeserialize()`는 serialized membership을 기준으로 `SpawnState`, `DespawnFromRegistry` 등 Registry 내부 runtime 연결만 self-rehydrate합니다. 외부 Binding과 공개 `OnSpawned` 이벤트는 재생하지 않습니다.
+## SpawnRegistry와 Binding: transaction
 
-`AttachBinding(binding)`은 **현재 등록된 모든 객체**에 `ISpawnRegistryBinding.OnSpawned`를 동기화한 뒤, 이후 Spawn에도 그 Binding을 적용합니다. 연결 도중 실패하면 이미 호출한 객체를 역순으로 `SpawnRollback` 정리하고 해당 Binding을 등록하지 않습니다. `DetachBinding(binding)`은 현재 객체의 Binding 자원을 역순으로 `RegistryCleanup` 정리하지만, Entity의 Registry membership 자체는 변경하지 않습니다.
+`ISpawnRegistryBinding<TKey,T>`는 Registry 수명에 필수로 참여하는 외부 자원의 등록·해제를 처리합니다. `AttachBinding(binding)`은 현재 등록된 객체에 먼저 동기화하고 이후 등록에도 적용합니다. `DetachBinding(binding)`은 해당 Binding의 자원을 정리하지만 Entity membership은 유지합니다.
 
-`EntityActorController.Bind(registry)`는 이 Binding 계약을 사용하여 복원된 Entity에 Actor를 연결합니다. 이 과정은 현재 상태의 Registry-Actor 관계를 재구성할 뿐, 과거의 Live Spawn 이벤트나 게임플레이 부작용을 재생하는 일반적인 Restore 기능은 아닙니다.
-
-## Actor 수명
-
-Scene에 materialize되는 객체는 `EntityActorBase<TEntity>`와 `EntityActorController`를 사용합니다.
-`EntityActorRegistry`는 **Entity reference → Actor 0..N** live relation만 관리합니다.
-Controller의 명시적 수명 API는 같은 Entity에 여러 Actor를 허용합니다.
-`TryFindSingleActor`는 해당 Entity의 live Actor가 정확히 하나일 때만 `true`이며,
-0개이거나 복수이면 `false`를 반환합니다.
-선택적으로 Entity Registry에 Bind하면 Entity당 자동 Actor 하나를 동기화하는 별도 편의 정책을 사용할 수 있습니다.
-
-`EntityActorRuntime<TEntityActor,TEntity,TContext>`은 기존 `EntityActorController`와
-`EntityPresentationCoordinator`를 조합해 Actor create/release와 두 subsystem 사이의 rollback을 처리합니다.
+### 등록 순서
 
 ```text
-Create
-→ ActorController.Spawn
-→ PresentationCoordinator.Spawn
-
-Rollback
-→ DespawnReason.SpawnRollback으로 Presentation + Actor 정리
-
-Release
-→ PresentationCoordinator.Release
-→ ActorController.Despawn
+객체·Key 준비 및 등록 상태 검증
+→ 게임 Spawn: Entity.OnSpawning → Registry.OnSpawning
+→ 공통 Registry.OnRegistering
+→ membership 추가, Spawned 진입 및 RegistrationRevision 증가
+→ 필수 Binding.OnRegistered (등록 순서)
+→ 게임 Spawn: Entity.OnSpawned
+→ 등록 확정
+→ 공통 Registry.OnRegistered
+→ 게임 Spawn: Registry.OnSpawned
 ```
 
-`Rollback(actor)`은 commit 전 실패한 transaction을 `DespawnReason.SpawnRollback`으로 정리합니다.
-Runtime은 Actor state persistence, gameplay activation, Save, AI/Control 정책을 소유하지 않습니다.
+직접 등록(`RegisterWithKey`)은 위 순서에서 **게임 Spawn 전용 훅·이벤트를 실행하지 않습니다.** `Spawned` 상태와 공통 Registry 등록 이벤트·Binding은 동일하게 구성합니다.
 
-Actor 반환 시 live Registry relation은 Pool/Provider 반환보다 먼저 제거되어야 합니다.
+필수 Binding 또는 준비 단계가 실패하면 이미 호출한 Binding을 역순으로 정리하고 등록을 롤백합니다. 원래 오류와 정리 오류가 함께 발생하면 `AggregateException`으로 전달합니다. **`OnRegistered`/`OnSpawned` 완료 observer가 예외를 던져도 등록은 이미 확정된 상태**이며 자동으로 Despawn되지 않습니다. 공개 이벤트는 다른 구독자 호출을 계속 시도하며, 등록 시작 실패와 등록 완료 통지 실패는 서로 다른 결과입니다.
 
-## Presentation 수명
+### 해제 순서
 
-`EntityPresentationRegistry<TOwner, TPresentation>`는 owner reference 기준 0..N Presentation lookup을 제공합니다.
-`EntityPresentationCoordinator<TEntityActor,TEntity>`는 Provider를 등록 순서로 Spawn하고 역순으로 Release/rollback합니다.
-Presentation의 실제 Pool, detached residual 수명과 구체적인 표현 정책은 consumer가 소유합니다.
+```text
+게임 Spawn: Entity.OnDespawning → Registry.OnDespawning
+→ 공통 Registry.OnUnregistering
+→ 필수 Binding.OnUnregistering (역순)
+→ Registry 내부 연결 해제 및 membership 제거
+→ 게임 Spawn: Entity.OnDespawned 및 Key 해제
+→ 공통 Registry.OnUnregistered
+→ 게임 Spawn: Registry.OnDespawned
+→ 게임 Spawn: Registry.Release(entity, reason)
+```
 
-## HP와 lifetime policy
+직접 등록(`Unregister`)은 **게임 Spawn/Despawn 훅과 `Release`를 실행하지 않고**, Registry 등록 종료 이벤트·필수 Binding 정리 및 Key 해제로 수명을 끝냅니다. 반대로 `SpawnWithKey`는 외부에서 준비한 Entity라도 **게임 Spawn 경로**이므로 종료할 때 `Release`가 호출됩니다. 외부 Entity를 어떤 출처로 반환할지는 Registry 구현의 정책입니다.
 
-HP의 Alive/Dead 상태는 Entity lifecycle과 별도 계약입니다.
-Xeri Game의 Entity 기반은 HP Dead를 자동 Despawn으로 연결하지 않습니다.
-필요한 게임은 `ISpawnRegistryBinding` 또는 별도 runtime composition에서 HP 상태와 Entity Despawn policy를 연결합니다.
+해제 중 일부 단계가 실패해도 가능한 **terminal cleanup**은 계속 시도하며 오류를 전달합니다. 완료된 수명을 같은 객체에 대해 무조건 다시 반환하지 않습니다. `DespawnReason`은 반환 사유이고 등록이 실제 Commit되었는지와 별개의 정보입니다. 게임은 `Code`로 시야 이탈에 따른 정리나 예측 거절 같은 사유를 구분해 전달할 수 있으며, 그것이 게임상의 제거를 뜻하는지는 호출자가 정합니다.
 
-## 확장 지점
+### 재진입과 일괄 수명 경계
 
-- 새 Entity 모델: `IEntity` 또는 `EntityBase`
-- 새 획득 정책: `EntitySpawnRegistry.Acquire()` / `Release()`
-- 새 Key 정책: `IKeyGenerator<ulong>`
-- 외부 확정 Key 등록: `EntitySpawnRegistryBase<TEntity>.SpawnWithKey(entity, key)`
-- required lifecycle participant: `ISpawnRegistryBinding<TKey,T>`
-- 새 Actor 생성: `IEntityActorFactory` / `EntityActorFactory`
-- Actor lookup/lifecycle: `EntityActorRegistry` / `EntityActorController`
-- 새 Presentation 구성: `IEntityPresentationProvider`
+같은 Entity의 등록·해제·완료 알림 중 동일 Entity로 다시 진입하면 거절합니다. **다른 Entity의 동기 수명 호출은 허용**하되, 아직 진행 중인 원래 Entity로 돌아오는 순환 재진입은 차단합니다. `DespawnAll()` 중에는 새 Spawn과 중첩 일괄 종료를 허용하지 않습니다. `AttachBinding`/`DetachBinding`의 현재 집합 동기화 중에는 Spawn·Despawn·Binding 구성 변경을 금지합니다.
 
-## 관련 문서
+### 직렬화 후 재구성
 
-- [Entity Registry 구현하기](../guides/foundation/create-entity-registry.md)
-- [Entity Actor Runtime 조립하기](../guides/foundation/compose-entity-actor-runtime.md)
-- [HP](../modules/combat/hp.md)
-- [소유권과 수명](https://inonego-unity.github.io/Xeri/docs/concepts/ownership-and-lifetime.html)
+`SpawnRegistry.OnAfterDeserialize()`는 저장된 membership을 기준으로 Registry 내부 수명 연결을 복원합니다. 외부 Binding과 게임 Spawn 이벤트를 자동 재실행하지 않습니다. 필요한 Actor/Presentation은 Host가 `AttachBinding` 또는 `EntityActorRuntimeBinding.Bind(registry)`로 현재 등록 대상에 다시 연결합니다.
+
+## Actor·Presentation과 연결하는 경계
+
+Entity Registry는 **논리 객체의 등록 수명**을 관리하며 Actor의 GameObject 획득이나 Presentation 자원을 직접 생성하지 않습니다. 표현이 필요할 때만 `ISpawnRegistryBinding`을 통해 `EntityActorRuntimeBinding`을 선택적으로 연결합니다. 이 Binding은 현재·이후 등록된 Entity에 필요한 Actor와 Presentation을 구성하고, **자신이 자동 생성한 자원만** 반환합니다. `Unbind()` 후에도 Registry의 Entity는 유지됩니다.
+
+Actor 객체·Entity 관계의 0..N 관리, Factory의 Pool 반환, Provider의 생성·Rebind·Rollback, Runtime 수동·자동 소유권에 대한 세부 계약은 [Actor와 Presentation 수명](actor-and-presentation.md)에 있습니다. 실제 구성 절차는 [Entity Actor Runtime 조립 가이드](../guides/foundation/compose-entity-actor-runtime.md)를 참고합니다.
+
+## World·State 및 상위 Host와의 경계
+
+| 대상 | 식별·수명 |
+|---|---|
+| Entity | Registry Key와 RegistrationRevision, Spawn/Unregister |
+| Actor | Scene 객체 수명과 Entity reference 연결 |
+| WorldObject | 별도의 문자열 ID와 Store의 지속 데이터 연결 |
+| State Machine | Owner의 현재 행동 상태 전이 |
+
+World의 상태는 Actor가 사라져도 Store에 남을 수 있으며 Entity는 Actor Binding을 Unbind해도 Registry에 남습니다. 둘을 조립하는 Scene 전환 순서와 상태 복원, 네트워크 공개 필드·권한·Epoch, 저장 형식은 게임 Host가 결정합니다.
+
+관련 문서: [Foundation](index.md) · [Actor와 Presentation](actor-and-presentation.md) · [Entity Registry 구현](../guides/foundation/create-entity-registry.md) · [Actor Runtime 조립](../guides/foundation/compose-entity-actor-runtime.md) · [WorldObject](world-object.md)

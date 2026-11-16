@@ -1,10 +1,11 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StateMachine.cs
-수정일 : 2026-11-16
+수정일 : 2026-11-17
 
 # 설명
 유한 상태 머신 (FSM). Owner 와 현재 상태를 보유하며 인스턴스/타입 기반 전이를 모두 지원한다.
 FixedTick / LateTick 은 Current 가 IFixedUpdatable / ILateUpdatable 을 구현할 때만 호출된다.
+외부에서 확정된 상태를 복원해야 하는 파생 머신은 ReplaceCurrent 로 전이 생명주기 없이 Current 만 교체한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -176,29 +177,7 @@ namespace inonego.Xeri.Game
 
             if (ReferenceEquals(prev, next)) return;
 
-            if (next is IStateMachineOwnedState ownedState)
-            {
-                if (!ReferenceEquals(ownedState.RegisteredMachine, this))
-                {
-                    throw new InvalidOperationException("StateBase는 등록된 StateMachine에서만 전이할 수 있습니다.");
-                }
-
-                var found = false;
-
-                foreach (var registeredState in states.Values)
-                {
-                    if (ReferenceEquals(registeredState, next))
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    throw new InvalidOperationException("교체되어 등록에서 제외된 StateBase로 전이할 수 없습니다.");
-                }
-            }
+            ValidateRegistered(next);
 
             isTransitioning = true;
 
@@ -277,6 +256,61 @@ namespace inonego.Xeri.Game
                     ? failures[0]
                     : new AggregateException("StateMachine 상태 변경 알림 중 일부 구독자가 실패했습니다.", failures);
             }
+        }
+
+    #endregion
+
+    #region 전이 없는 현재 상태 교체
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> 전이 생명주기(OnExit/OnEnter/OnStateChanged) 없이
+        /// <br/> 현재 상태만 교체한다. 외부에서 확정된 상태를 복원하는
+        /// <br/> 파생 머신이 사용하며 null이면 활성 상태를 비운다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected void ReplaceCurrent(IState state)
+        {
+            if (isTransitioning)
+            {
+                throw new InvalidOperationException("상태 전이 도중에는 현재 상태를 교체할 수 없습니다.");
+            }
+
+            ValidateRegistered(state);
+
+            current = state;
+        }
+
+    #endregion
+
+    #region 등록 검증
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// StateBase는 이 머신의 등록표에 남아 있어야 현재 상태가 될 수 있다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private void ValidateRegistered(IState state)
+        {
+            if (state is not IStateMachineOwnedState ownedState)
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(ownedState.RegisteredMachine, this))
+            {
+                throw new InvalidOperationException("StateBase는 등록된 StateMachine에서만 전이할 수 있습니다.");
+            }
+
+            foreach (var registeredState in states.Values)
+            {
+                if (ReferenceEquals(registeredState, state))
+                {
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException("교체되어 등록에서 제외된 StateBase로 전이할 수 없습니다.");
         }
 
     #endregion

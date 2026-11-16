@@ -17,8 +17,9 @@ Xeri Core를 기반으로 동작하며, 프로젝트별 전투 공식·입력 �
 | 목적 | 문서 |
 |---|---|
 | Entity 등록·Spawn/Despawn | [Entity와 Spawn](foundation/entity-and-spawn.md) |
-| Actor와 Presentation 수명 조립 | [Entity Actor Runtime 가이드](guides/foundation/compose-entity-actor-runtime.md) |
-| World Object에 상태 연결 | [WorldObject와 State](foundation/world-object.md) |
+| Actor와 Presentation 책임·수명 이해 | [Actor와 Presentation](foundation/actor-and-presentation.md) |
+| Actor와 Presentation 조립 | [Entity Actor Runtime 가이드](guides/foundation/compose-entity-actor-runtime.md) |
+| World Object에 지속 상태 연결 | [WorldObject와 지속 상태](foundation/world-object.md) |
 | State Machine 구성 | [State Machine](foundation/state-machine.md) |
 | Ability를 Execution·Delivery에 연결 | [Action](modules/action/index.md) |
 | HP·Faction 판정 | [Combat](modules/combat/index.md) |

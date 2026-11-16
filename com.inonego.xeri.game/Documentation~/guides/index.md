@@ -5,6 +5,7 @@
 - [Entity Registry 구현](foundation/create-entity-registry.md)
 - [Entity Actor Runtime 조립](foundation/compose-entity-actor-runtime.md)
 - [State Machine 구성](foundation/create-state-machine.md)
+- [WorldObject 지속 상태 구성](foundation/create-world-object.md)
 
 ## Modules
 
