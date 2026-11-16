@@ -1,11 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityPresentationRegistry.cs
-수정일 : 2026-10-05
+수정일 : 2026-11-16
 
 # 설명
 Presentation 객체 수명과 Owner binding 관계를 분리해 추적한다.
 등록된 Presentation은 Detached 또는 Bound(Owner)일 수 있으며 Attach/Detach/Rebind 관계 알림을 제공한다.
 구체 Presentation의 생성·Bind·Despawn·Pool 수명은 소유하지 않는다.
+외부 조회는 원본 컬렉션 수정 권한 없이 Xeri Core ReadOnlySetView를 재사용한다.
+상태 변경 알림 중 동일 Registry에 대한 중첩 변경을 거절한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -90,6 +92,31 @@ namespace inonego.Xeri.Game
     where TPresentation : class
     {
 
+    #region 내부 데이터
+
+        // ============================================================
+        /// <summary>
+        /// Owner별 Presentation과 읽기 전용 View의 수명을 묶는다.
+        /// </summary>
+        // ============================================================
+        private sealed class PresentationGroup
+        {
+            internal readonly List<TPresentation> presentations = new();
+
+            private IReadOnlyList<TPresentation> view = null;
+
+            internal IReadOnlyList<TPresentation> View
+            {
+                get
+                {
+                    view ??= presentations.AsReadOnly();
+                    return view;
+                }
+            }
+        }
+
+    #endregion
+
     #region 필드
 
         // ------------------------------------------------------------
@@ -97,7 +124,17 @@ namespace inonego.Xeri.Game
         /// 현재 객체 수명을 추적하는 모든 Presentation.
         /// </summary>
         // ------------------------------------------------------------
-        public IEnumerable<TPresentation> Presentations => registered;
+        public ReadOnlySetView<TPresentation> Presentations
+        {
+            get
+            {
+                presentationView ??= new ReadOnlySetView<TPresentation>(registered);
+                return presentationView;
+            }
+        }
+
+        [NonSerialized]
+        private ReadOnlySetView<TPresentation> presentationView = null;
 
         [NonSerialized]
         private readonly HashSet<TPresentation> registered = new
@@ -106,7 +143,7 @@ namespace inonego.Xeri.Game
         );
 
         [NonSerialized]
-        private readonly Dictionary<TOwner, List<TPresentation>> presentations = new
+        private readonly Dictionary<TOwner, PresentationGroup> presentations = new
         (
             ReferenceEqualityComparer<TOwner>.Instance
         );
@@ -116,6 +153,10 @@ namespace inonego.Xeri.Game
         (
             ReferenceEqualityComparer<TPresentation>.Instance
         );
+
+        // 관계 알림 중 같은 Registry의 관계·객체 수명을 변경하지 않는다.
+        [NonSerialized]
+        private bool isPublishing = false;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -167,18 +208,37 @@ namespace inonego.Xeri.Game
         /// </summary>
         // ------------------------------------------------------------
         public event EntityPresentationRegistryEventHandler<TOwner, TPresentation> OnAttach = null;
+
         // ------------------------------------------------------------
         /// <summary>
         /// Presentation owner 관계의 종료 완료를 알린다.
         /// </summary>
         // ------------------------------------------------------------
         public event EntityPresentationRegistryEventHandler<TOwner, TPresentation> OnDetach = null;
+
         // ------------------------------------------------------------
         /// <summary>
         /// 모든 객체 등록과 owner 관계의 제거 완료를 알린다.
         /// </summary>
         // ------------------------------------------------------------
         public event EventHandler OnClear = null;
+
+    #endregion
+
+    #region 관계 알림 보호
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 관계 이벤트 중에는 상태를 바꾸는 새 작업을 시작하지 않는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private void EnsureNotPublishing()
+        {
+            if (isPublishing)
+            {
+                throw new InvalidOperationException("Presentation Registry 관계 알림 중에는 등록 또는 관계를 변경할 수 없습니다.");
+            }
+        }
 
     #endregion
 
@@ -191,6 +251,8 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void Register(TPresentation presentation)
         {
+            EnsureNotPublishing();
+
             if (presentation == null)
             {
                 throw new ArgumentNullException(nameof(presentation));
@@ -209,6 +271,8 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public bool Unregister(TPresentation presentation)
         {
+            EnsureNotPublishing();
+
             if (presentation == null || !registered.Contains(presentation))
             {
                 return false;
@@ -233,6 +297,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void Attach(TOwner owner, TPresentation presentation)
         {
+            EnsureNotPublishing();
             ValidateOwnerAndPresentation(owner, presentation);
 
             if (owners.ContainsKey(presentation))
@@ -251,6 +316,8 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public bool Detach(TPresentation presentation)
         {
+            EnsureNotPublishing();
+
             if (presentation == null || !owners.Remove(presentation, out var owner))
             {
                 return false;
@@ -269,6 +336,8 @@ namespace inonego.Xeri.Game
         // --------------------------------------------------------------------------------
         public bool Rebind(TPresentation presentation, TOwner nextOwner)
         {
+            EnsureNotPublishing();
+
             if (nextOwner == null)
             {
                 throw new ArgumentNullException(nameof(nextOwner));
@@ -341,8 +410,8 @@ namespace inonego.Xeri.Game
                 return Array.Empty<TPresentation>();
             }
 
-            return presentations.TryGetValue(owner, out var values)
-                ? values
+            return presentations.TryGetValue(owner, out var group)
+                ? group.View
                 : Array.Empty<TPresentation>();
         }
 
@@ -360,10 +429,12 @@ namespace inonego.Xeri.Game
         {
             presentation = null;
 
-            if (owner == null || !presentations.TryGetValue(owner, out var values))
+            if (owner == null || !presentations.TryGetValue(owner, out var group))
             {
                 return false;
             }
+
+            var values = group.presentations;
 
             for (var index = 0; index < values.Count; index++)
             {
@@ -397,9 +468,17 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void Clear()
         {
+            EnsureNotPublishing();
+
             if (registered.Count == 0)
             {
                 return;
+            }
+
+            // Clear 후에도 외부에서 보관 중인 View가 종료된 관계를 노출하지 않는다.
+            foreach (var group in presentations.Values)
+            {
+                group.presentations.Clear();
             }
 
             presentations.Clear();
@@ -410,16 +489,25 @@ namespace inonego.Xeri.Game
             var handlers = OnClear?.GetInvocationList();
             if (handlers == null) return;
 
-            for (var index = 0; index < handlers.Length; index++)
+            isPublishing = true;
+
+            try
             {
-                try
+                for (var index = 0; index < handlers.Length; index++)
                 {
-                    ((EventHandler)handlers[index]).Invoke(this, EventArgs.Empty);
+                    try
+                    {
+                        ((EventHandler)handlers[index]).Invoke(this, EventArgs.Empty);
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogException(exception);
+                    }
                 }
-                catch (Exception exception)
-                {
-                    Debug.LogException(exception);
-                }
+            }
+            finally
+            {
+                isPublishing = false;
             }
         }
 
@@ -472,13 +560,13 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void AddOwnerPresentation(TOwner owner, TPresentation presentation)
         {
-            if (!presentations.TryGetValue(owner, out var values))
+            if (!presentations.TryGetValue(owner, out var group))
             {
-                values = new List<TPresentation>();
-                presentations.Add(owner, values);
+                group = new PresentationGroup();
+                presentations.Add(owner, group);
             }
 
-            values.Add(presentation);
+            group.presentations.Add(presentation);
         }
 
         // ------------------------------------------------------------
@@ -488,10 +576,12 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void RemoveOwnerPresentation(TOwner owner, TPresentation presentation)
         {
-            if (!presentations.TryGetValue(owner, out var values))
+            if (!presentations.TryGetValue(owner, out var group))
             {
                 return;
             }
+
+            var values = group.presentations;
 
             for (var index = values.Count - 1; index >= 0; index--)
             {
@@ -560,20 +650,29 @@ namespace inonego.Xeri.Game
             var handlers = observers?.GetInvocationList();
             if (handlers == null) return;
 
-            for (var index = 0; index < handlers.Length; index++)
+            isPublishing = true;
+
+            try
             {
-                try
+                for (var index = 0; index < handlers.Length; index++)
                 {
-                    ((EntityPresentationRegistryEventHandler<TOwner, TPresentation>)handlers[index]).Invoke
-                    (
-                        this,
-                        args
-                    );
+                    try
+                    {
+                        ((EntityPresentationRegistryEventHandler<TOwner, TPresentation>)handlers[index]).Invoke
+                        (
+                            this,
+                            args
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogException(exception);
+                    }
                 }
-                catch (Exception exception)
-                {
-                    Debug.LogException(exception);
-                }
+            }
+            finally
+            {
+                isPublishing = false;
             }
         }
 

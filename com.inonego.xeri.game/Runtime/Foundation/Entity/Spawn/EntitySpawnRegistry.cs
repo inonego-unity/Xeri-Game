@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntitySpawnRegistry.cs
-수정일 : 2026-11-13
+수정일 : 2026-11-16
 
 # 설명
 엔티티 전용 스폰 레지스트리 베이스·구현체.
@@ -9,7 +9,7 @@
 - EntitySpawnRegistry<TEntity>         : 파라미터 없는 Spawn
 - EntitySpawnRegistry<TEntity, TParam> : 파라미터 받는 Spawn (INeedToInit<TParam>)
 
-구체 레지스트리의 복제 정책은 해당 파생 클래스가 소유한다.
+현재 Registry에 속한 로컬 EntityHandle의 등록 수명 조회만 제공하며, 원격 참조와 복제 정책은 외부 소유다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -49,7 +49,7 @@ namespace inonego.Xeri.Game
         /// 기본 생성자. IncreKeyGenerator 를 사용한다.
         /// </summary>
         // ------------------------------------------------------------
-        public EntitySpawnRegistryBase() : base()
+        protected EntitySpawnRegistryBase() : base()
         {
             // NONE
         }
@@ -59,7 +59,7 @@ namespace inonego.Xeri.Game
         /// 외부 키 생성기를 주입받는 생성자.
         /// </summary>
         // ------------------------------------------------------------
-        public EntitySpawnRegistryBase(IKeyGenerator<ulong> keyGenerator) : this()
+        protected EntitySpawnRegistryBase(IKeyGenerator<ulong> keyGenerator) : this()
         {
             if (keyGenerator == null)
             {
@@ -85,6 +85,8 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("스폰할 엔티티를 가져올 수 없습니다.");
             }
 
+            ValidateRegistrationAllowed(entity);
+
             if (entity.SpawnState != SpawnState.Despawned)
             {
                 throw new InvalidOperationException
@@ -100,7 +102,7 @@ namespace inonego.Xeri.Game
 
             var key = keyGenerator.Generate();
 
-            if (Spawned.ContainsKey(key))
+            if (Registered.ContainsKey(key))
             {
                 throw new InvalidOperationException
                 (
@@ -129,12 +131,12 @@ namespace inonego.Xeri.Game
             }
             catch (Exception assignException)
             {
-                // 진입 전에 Key가 없던 Entity만 호출하므로 이번 부분 할당만 정리한다.
+                // Key 훅의 부분 실패에서도 기본 Identity는 반드시 해제한다.
                 if (entity.HasKey)
                 {
                     try
                     {
-                        entity.ClearKey();
+                        ((IEntity)entity).ClearKey();
                     }
                     catch (Exception clearException)
                     {
@@ -153,7 +155,7 @@ namespace inonego.Xeri.Game
 
     #endregion
 
-    #region 외부 확정 Key 등록
+    #region 게임 Spawn
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -163,7 +165,7 @@ namespace inonego.Xeri.Game
         // --------------------------------------------------------------------------------
         public TEntity SpawnWithKey(TEntity entity, ulong key)
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed(entity);
 
             if (entity == null)
             {
@@ -188,7 +190,7 @@ namespace inonego.Xeri.Game
             else
             {
                 // 신규 Key를 설정하기 전에 충돌을 거절해 후보의 기존 상태를 보존한다.
-                if (Spawned.ContainsKey(key))
+                if (Registered.ContainsKey(key))
                 {
                     throw new InvalidOperationException($"이미 동일 Key({key})가 등록되어 있습니다.");
                 }
@@ -198,6 +200,138 @@ namespace inonego.Xeri.Game
 
             // 등록·Binding·lifecycle·rollback은 공통 Registry의 기존 객체 경로를 사용한다.
             return base.SpawnExisting(entity);
+        }
+
+    #endregion
+
+    #region 직접 등록·해제
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 준비된 Entity를 게임 Spawn 훅 없이 Registry에 직접 등록한다.
+        /// <br/> 게임 Spawn 훅 없이 Binding을 구성한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public TEntity RegisterWithKey
+        (
+            TEntity entity,
+            ulong key
+        )
+        {
+            ValidateRegistrationAllowed(entity);
+
+            if (entity == null)
+            {
+                throw new ArgumentNullException(nameof(entity));
+            }
+
+            if (entity.SpawnState != SpawnState.Despawned)
+            {
+                throw new InvalidOperationException("직접 등록할 Entity는 Despawned 상태여야 합니다.");
+            }
+
+            var needsKey = !entity.HasKey;
+
+            if (needsKey)
+            {
+                if (Registered.ContainsKey(key))
+                {
+                    throw new InvalidOperationException("Registry에 이미 같은 Key가 존재합니다.");
+                }
+
+                SetAndValidateKey(entity, key);
+            }
+            else if (entity.Key != key)
+            {
+                throw new InvalidOperationException("현재 Entity의 Key와 지정 Key가 다릅니다.");
+            }
+
+            try
+            {
+                return RegisterEntry(entity);
+            }
+            catch (Exception registrationException)
+            {
+                // 등록 전 적용 실패에서도 기본 Key까지 terminal 정리한다.
+                if (needsKey && entity.SpawnState == SpawnState.Despawned && entity.HasKey)
+                {
+                    try
+                    {
+                        ((IEntity)entity).ClearKey();
+                    }
+                    catch (Exception clearException)
+                    {
+                        throw new AggregateException
+                        (
+                            "직접 등록과 Key 정리가 모두 실패했습니다.",
+                            registrationException,
+                            clearException
+                        );
+                    }
+                }
+
+                throw;
+            }
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록한 Entity를 기본 사유로 해제한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public bool Unregister(TEntity entity)
+        {
+            return Unregister(entity, DespawnReason.RegistryCleanup);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록한 Entity만 지정한 사유로 해제한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public bool Unregister(TEntity entity, DespawnReason reason)
+        {
+            return UnregisterEntry(entity, reason);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록한 Entity를 제거할 때 해당 로컬 Key를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected override void OnDirectEntryRemoved(TEntity entity)
+        {
+            // EntityBase의 기본 Identity까지 finally에서 제거하는 기존 보호 계약을 재사용한다.
+            ((IEntity)entity).ClearKey();
+        }
+
+    #endregion
+
+    #region Registry 등록 조회
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Local Handle이 현재 이 Registry에 등록된 정확한 Entity 수명을
+        /// <br/> 가리킬 때만 객체를 반환한다. 다른 Registry나 오래된 Handle은 거절한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public bool TryResolve(EntityHandle handle, out TEntity entity)
+        {
+            entity = null;
+
+            if
+            (
+                !handle.IsValid() ||
+                handle.Entity is not TEntity candidate ||
+                !Registered.TryGetValue(handle.Key, out var registered) ||
+                !ReferenceEquals(registered, candidate)
+            )
+            {
+                return false;
+            }
+
+            entity = registered;
+            return true;
         }
 
     #endregion
@@ -234,7 +368,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         protected TEntity Spawn()
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed();
             var entity = Acquire();
 
             // 획득 출처가 객체를 제공하지 못한 경우는 정상적인 TrySpawn 실패다.
@@ -336,7 +470,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         protected TEntity Spawn(TParam param)
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed();
             var entity = Acquire(param);
 
             // 획득 출처가 객체를 제공하지 못한 경우는 정상적인 TrySpawn 실패다.

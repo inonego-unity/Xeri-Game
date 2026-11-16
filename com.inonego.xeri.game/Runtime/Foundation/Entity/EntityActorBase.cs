@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityActorBase.cs
-수정일 : 2026-10-03
+수정일 : 2026-11-16
 
 # 설명
 Entity 모델을 Unity GameObject로 표현하는 Actor 베이스 클래스.
@@ -20,12 +20,28 @@ namespace inonego.Xeri.Game
     /// <br/> Entity 의존 초기화와 정리는 전용 Actor 훅에서 수행한다.
     /// </summary>
     // ============================================================
-    [Serializable]
     public abstract class EntityActorBase<TEntity> : MonoBehaviour, IEntityActor
     where TEntity : class, IEntity
     {
 
-    #region 키 설정
+    #region 필드
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 대응되는 논리 Entity. Detached 상태에서는 null이다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public TEntity Entity => entity;
+
+        [NonSerialized]
+        private TEntity entity = null;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 현재 Actor가 Entity에 연결되어 있는지 여부.
+        /// </summary>
+        // ------------------------------------------------------------
+        public bool IsBound => entity != null;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -51,45 +67,6 @@ namespace inonego.Xeri.Game
         /// </summary>
         // ------------------------------------------------------------
         public bool HasKey => entity != null && entity.HasKey;
-
-    #endregion
-
-    #region 필드
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 대응되는 논리 Entity. Detached 상태에서는 null이다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public TEntity Entity => entity;
-
-        [NonSerialized]
-        private TEntity entity = null;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 현재 Actor가 Entity에 연결되어 있는지 여부.
-        /// </summary>
-        // ------------------------------------------------------------
-        public bool IsBound => entity != null;
-
-    #endregion
-
-    #region 인터페이스 구현
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 외부 읽기 전용 계약으로 연결된 Entity를 반환한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        IReadOnlyEntity IReadOnlyEntityActor.Entity => entity;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 내부 Actor 계약으로 연결된 Entity를 반환한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        IEntity IEntityActor.Entity => entity;
 
     #endregion
 
@@ -188,6 +165,24 @@ namespace inonego.Xeri.Game
         {
             // NONE
         }
+
+    #endregion
+
+    #region 인터페이스 구현
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 외부 읽기 전용 계약으로 연결된 Entity를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        IReadOnlyEntity IReadOnlyEntityActor.Entity => entity;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 내부 Actor 계약으로 연결된 Entity를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        IEntity IEntityActor.Entity => entity;
 
     #endregion
 

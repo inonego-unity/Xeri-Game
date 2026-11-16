@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityActorFactory.cs
-수정일 : 2026-10-03
+수정일 : 2026-11-16
 
 # 설명
 Entity Actor GameObject의 획득, Context 기반 준비와 terminal 반환을 담당한다.
@@ -330,7 +330,7 @@ namespace inonego.Xeri.Game
         /// Entity에 대응하는 Actor를 동기 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public virtual TEntityActor Create(TEntity entity)
+        public TEntityActor Create(TEntity entity)
         {
             var context = default(EntityActorNoContext);
             return base.Create(entity, context);
@@ -341,7 +341,7 @@ namespace inonego.Xeri.Game
         /// Entity Actor를 일반 제거 사유로 terminal 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public virtual void Release(TEntityActor actor)
+        public void Release(TEntityActor actor)
         {
             base.Release(actor, DespawnReason.Removed);
         }

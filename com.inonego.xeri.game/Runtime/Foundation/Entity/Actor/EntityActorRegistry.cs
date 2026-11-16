@@ -1,10 +1,17 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityActorRegistry.cs
-수정일 : 2026-10-03
+수정일 : 2026-11-16
 
 # 설명
 EntityActorController가 소유하는 Actor 객체와 Entity binding 관계를 분리해 추적한다.
 Actor는 Registered 상태에서 Detached 또는 Bound(Entity)일 수 있으며 Registry는 생성/반환을 수행하지 않는다.
+외부 조회는 원본 컬렉션 수정 권한 없이 Xeri Core ReadOnlySetView를 재사용한다.
+
+# 특이사항, 제약사항
+등록·연결 변경 API는 어셈블리 내부(Controller)에서만 호출한다. 외부에서는 Actor의 실제 Entity binding을
+만들 수 없어 Registry만 단독으로 변경해도 정합성이 성립하지 않기 때문이다.
+하나의 Registry는 하나의 Controller만 소유할 수 있다.
+같은 Actor 인스턴스가 풀에서 재사용돼도 등록 수명마다 새 식별자를 부여해 이전 수명과 구분한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -25,6 +32,31 @@ namespace inonego.Xeri.Game
     where TEntity : class, IEntity
     {
 
+    #region 내부 데이터
+
+        // ============================================================
+        /// <summary>
+        /// Entity별 Actor 목록과 지연 생성되는 읽기 전용 View를 보관한다.
+        /// </summary>
+        // ============================================================
+        private sealed class ActorGroup
+        {
+            internal readonly List<TEntityActor> actors = new();
+
+            private IReadOnlyList<TEntityActor> view = null;
+
+            internal IReadOnlyList<TEntityActor> View
+            {
+                get
+                {
+                    view ??= actors.AsReadOnly();
+                    return view;
+                }
+            }
+        }
+
+    #endregion
+
     #region 필드
 
         // ------------------------------------------------------------
@@ -32,7 +64,21 @@ namespace inonego.Xeri.Game
         /// 현재 Registry가 수명을 추적하는 모든 Actor.
         /// </summary>
         // ------------------------------------------------------------
-        public IEnumerable<TEntityActor> Actors => actors;
+        public ReadOnlySetView<TEntityActor> Actors
+        {
+            get
+            {
+                actorsView ??= new ReadOnlySetView<TEntityActor>(actors);
+                return actorsView;
+            }
+        }
+
+        [NonSerialized]
+        private ReadOnlySetView<TEntityActor> actorsView = null;
+
+        // 하나의 Registry는 하나의 Controller만 소유한다.
+        [NonSerialized]
+        private bool isClaimed = false;
 
         [NonSerialized]
         private readonly HashSet<TEntityActor> actors = new
@@ -40,8 +86,18 @@ namespace inonego.Xeri.Game
             ReferenceEqualityComparer<TEntityActor>.Instance
         );
 
+        // 같은 인스턴스가 풀에서 재사용돼도 등록 수명을 구분하는 단조 증가 식별자.
         [NonSerialized]
-        private readonly Dictionary<TEntity, List<TEntityActor>> actorsByEntity = new
+        private readonly Dictionary<TEntityActor, long> registrationSerials = new
+        (
+            ReferenceEqualityComparer<TEntityActor>.Instance
+        );
+
+        [NonSerialized]
+        private long lastRegistrationSerial = 0;
+
+        [NonSerialized]
+        private readonly Dictionary<TEntity, ActorGroup> actorsByEntity = new
         (
             ReferenceEqualityComparer<TEntity>.Instance
         );
@@ -94,6 +150,25 @@ namespace inonego.Xeri.Game
 
     #endregion
 
+    #region Controller 소유권
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Controller가 객체 등록과 관계 변경의 독점 권한을 획득한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal void ClaimController()
+        {
+            if (isClaimed || actors.Count != 0)
+            {
+                throw new InvalidOperationException("등록된 Actor가 없고 소유자가 없는 Registry만 Controller에 연결할 수 있습니다.");
+            }
+
+            isClaimed = true;
+        }
+
+    #endregion
+
     #region 객체 등록
 
         // ------------------------------------------------------------
@@ -101,7 +176,7 @@ namespace inonego.Xeri.Game
         /// Detached Actor 객체 수명을 Registry에 등록한다.
         /// </summary>
         // ------------------------------------------------------------
-        public void Register(TEntityActor actor)
+        internal void Register(TEntityActor actor)
         {
             if (actor == null)
             {
@@ -117,6 +192,8 @@ namespace inonego.Xeri.Game
             {
                 throw new InvalidOperationException("동일 Entity Actor를 중복 등록할 수 없습니다.");
             }
+
+            registrationSerials[actor] = ++lastRegistrationSerial;
         }
 
         // ------------------------------------------------------------
@@ -124,7 +201,7 @@ namespace inonego.Xeri.Game
         /// Detached Actor의 객체 수명 등록을 제거한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool Unregister(TEntityActor actor)
+        internal bool Unregister(TEntityActor actor)
         {
             if (actor == null || !actors.Contains(actor))
             {
@@ -136,28 +213,29 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("Bound Actor는 Detach한 뒤 Registry에서 제거해야 합니다.");
             }
 
+            registrationSerials.Remove(actor);
             return actors.Remove(actor);
         }
 
     #endregion
 
-    #region Binding
+    #region Entity 관계
 
         // ----------------------------------------------------------------------
         /// <summary>
         /// 등록된 Detached Actor와 이미 연결된 Entity 관계를 Registry에 반영한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        public void Attach(TEntity entity, TEntityActor actor)
+        internal void Attach(TEntityActor actor, TEntity entity)
         {
-            if (entity == null)
-            {
-                throw new ArgumentNullException(nameof(entity));
-            }
-
             if (actor == null)
             {
                 throw new ArgumentNullException(nameof(actor));
+            }
+
+            if (entity == null)
+            {
+                throw new ArgumentNullException(nameof(entity));
             }
 
             if (!actors.Contains(actor))
@@ -175,13 +253,13 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("이미 Entity에 연결된 Actor입니다.");
             }
 
-            if (!actorsByEntity.TryGetValue(entity, out var values))
+            if (!actorsByEntity.TryGetValue(entity, out var group))
             {
-                values = new List<TEntityActor>();
-                actorsByEntity.Add(entity, values);
+                group = new ActorGroup();
+                actorsByEntity.Add(entity, group);
             }
 
-            values.Add(actor);
+            group.actors.Add(actor);
             entitiesByActor.Add(actor, entity);
         }
 
@@ -190,7 +268,7 @@ namespace inonego.Xeri.Game
         /// Actor의 Entity binding mapping만 제거하고 객체 등록은 유지한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool Detach(TEntityActor actor)
+        internal bool Detach(TEntityActor actor)
         {
             if (actor == null || !entitiesByActor.Remove(actor, out var entity))
             {
@@ -205,6 +283,37 @@ namespace inonego.Xeri.Game
 
             RemoveEntityActor(entity, actor);
             return true;
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Entity별 Bound Actor 목록에서 동일 Actor reference를 제거한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private void RemoveEntityActor(TEntity entity, TEntityActor actor)
+        {
+            if (!actorsByEntity.TryGetValue(entity, out var group))
+            {
+                return;
+            }
+
+            var values = group.actors;
+
+            for (var index = values.Count - 1; index >= 0; index--)
+            {
+                if (!ReferenceEquals(values[index], actor))
+                {
+                    continue;
+                }
+
+                values.RemoveAt(index);
+                break;
+            }
+
+            if (values.Count == 0)
+            {
+                actorsByEntity.Remove(entity);
+            }
         }
 
     #endregion
@@ -223,8 +332,8 @@ namespace inonego.Xeri.Game
                 return Array.Empty<TEntityActor>();
             }
 
-            return actorsByEntity.TryGetValue(entity, out var values)
-                ? values
+            return actorsByEntity.TryGetValue(entity, out var group)
+                ? group.View
                 : Array.Empty<TEntityActor>();
         }
 
@@ -237,17 +346,17 @@ namespace inonego.Xeri.Game
         {
             actor = null;
 
-            if (entity == null || !actorsByEntity.TryGetValue(entity, out var values))
+            if (entity == null || !actorsByEntity.TryGetValue(entity, out var group))
             {
                 return false;
             }
 
-            if (values.Count != 1)
+            if (group.actors.Count != 1)
             {
                 return false;
             }
 
-            actor = values[0];
+            actor = group.actors[0];
             return true;
         }
 
@@ -257,6 +366,16 @@ namespace inonego.Xeri.Game
         /// </summary>
         // ----------------------------------------------------------------------
         public bool Contains(TEntityActor actor) => actor != null && actors.Contains(actor);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 현재 등록 수명의 식별자를 반환한다. 등록되어 있지 않으면 0이다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal long GetRegistrationSerial(TEntityActor actor)
+        {
+            return actor != null && registrationSerials.TryGetValue(actor, out var serial) ? serial : 0;
+        }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -274,51 +393,6 @@ namespace inonego.Xeri.Game
         {
             entity = null;
             return actor != null && entitiesByActor.TryGetValue(actor, out entity);
-        }
-
-    #endregion
-
-    #region 정리
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 모든 Actor 객체 등록과 binding mapping을 제거한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public void Clear()
-        {
-            actorsByEntity.Clear();
-            entitiesByActor.Clear();
-            actors.Clear();
-        }
-
-        // ----------------------------------------------------------------------
-        /// <summary>
-        /// Entity별 Bound Actor 목록에서 동일 Actor reference를 제거한다.
-        /// </summary>
-        // ----------------------------------------------------------------------
-        private void RemoveEntityActor(TEntity entity, TEntityActor actor)
-        {
-            if (!actorsByEntity.TryGetValue(entity, out var values))
-            {
-                return;
-            }
-
-            for (var index = values.Count - 1; index >= 0; index--)
-            {
-                if (!ReferenceEquals(values[index], actor))
-                {
-                    continue;
-                }
-
-                values.RemoveAt(index);
-                break;
-            }
-
-            if (values.Count == 0)
-            {
-                actorsByEntity.Remove(entity);
-            }
         }
 
     #endregion

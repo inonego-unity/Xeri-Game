@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_SpawnRegistry.cs
-수정일 : 2026-11-13
+수정일 : 2026-11-16
 
 # 설명
 SpawnRegistry의 lifecycle transaction, required binding, committed notification과 self-rehydrate 계약을 검증한다.
@@ -11,7 +11,7 @@ SpawnRegistry의 lifecycle transaction, required binding, committed notification
  T: required binding transaction과 commit 경계
  B: 기존 등록 집합에 대한 Binding 동기화와 rollback
  S: 직렬화 후 runtime self-rehydrate
- X: 등록 실패 rollback
+ X: 등록 실패 rollback, 복합 오류 집계와 terminal 정리
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -149,7 +149,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
-            /// Spawn 완료 참여 순서를 기록하고 지정된 실패를 전달한다.
+            /// 등록 완료 참여 순서를 기록하고 지정된 실패를 전달한다.
             /// </summary>
             // ------------------------------------------------------------
             void ISpawnable.OnSpawned()
@@ -160,7 +160,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
-            /// Despawn 참여 순서를 기록하고 지정된 실패를 전달한다.
+            /// 등록 해제 참여 순서를 기록하고 지정된 실패를 전달한다.
             /// </summary>
             // ------------------------------------------------------------
             void IDespawnable.OnDespawning(DespawnReason reason)
@@ -191,33 +191,40 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
-            /// 필수 Spawn Binding 실패 여부.
+            /// 필수 등록 Binding 실패 여부.
             /// </summary>
             // ------------------------------------------------------------
-            public bool FailOnSpawned { get; set; }
+            public bool FailOnRegistered { get; set; }
 
             // ------------------------------------------------------------
             /// <summary>
-            /// N번째 Spawned 동기화에서 실패한다. 0은 비활성.
+            /// N번째 등록 동기화에서 실패한다. 0은 비활성.
             /// </summary>
             // ------------------------------------------------------------
-            public int FailOnSpawnedCall { get; set; }
+            public int FailOnRegisteredCall { get; set; }
 
             // ------------------------------------------------------------
             /// <summary>
-            /// Binding에서 호출할 추가 검증 작업.
+            /// 등록 Binding에서 호출할 추가 검증 작업.
             /// </summary>
             // ------------------------------------------------------------
-            public Action OnSpawnedAction { get; set; }
+            public Action OnRegisteredAction { get; set; }
 
-            private int spawnedCallCount = 0;
+            private int registeredCallCount = 0;
 
             // ------------------------------------------------------------
             /// <summary>
-            /// 필수 Despawn Binding 실패 여부.
+            /// 등록 해제 Binding에서 호출할 추가 검증 작업.
             /// </summary>
             // ------------------------------------------------------------
-            public bool FailOnDespawning { get; set; }
+            public Action OnUnregisteringAction { get; set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 필수 등록 해제 Binding 실패 여부.
+            /// </summary>
+            // ------------------------------------------------------------
+            public bool FailOnUnregistering { get; set; }
 
             // ------------------------------------------------------------
             /// <summary>
@@ -232,16 +239,16 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
-            /// Spawn 완료 참여 순서를 기록하고 지정된 실패를 전달한다.
+            /// 등록 완료 참여 순서를 기록하고 지정된 실패를 전달한다.
             /// </summary>
             // ------------------------------------------------------------
-            public void OnSpawned(ulong key, TestObject spawnable)
+            public void OnRegistered(ulong key, TestObject spawnable)
             {
-                trace.Add($"{name}.OnSpawned");
-                spawnedCallCount++;
-                OnSpawnedAction?.Invoke();
+                trace.Add($"{name}.OnRegistered");
+                registeredCallCount++;
+                OnRegisteredAction?.Invoke();
 
-                if (FailOnSpawned || (FailOnSpawnedCall > 0 && spawnedCallCount == FailOnSpawnedCall))
+                if (FailOnRegistered || (FailOnRegisteredCall > 0 && registeredCallCount == FailOnRegisteredCall))
                 {
                     throw new InvalidOperationException($"{name} spawn failure");
                 }
@@ -249,19 +256,20 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
-            /// Despawn 참여 순서를 기록하고 지정된 실패를 전달한다.
+            /// 등록 해제 참여 순서를 기록하고 지정된 실패를 전달한다.
             /// </summary>
             // ------------------------------------------------------------
-            public void OnDespawning
+            public void OnUnregistering
             (
                 ulong key,
                 TestObject despawnable,
                 DespawnReason reason
             )
             {
-                trace.Add($"{name}.OnDespawning");
+                trace.Add($"{name}.OnUnregistering");
+                OnUnregisteringAction?.Invoke();
 
-                if (FailOnDespawning)
+                if (FailOnUnregistering)
                 {
                     throw new InvalidOperationException($"{name} despawn failure");
                 }
@@ -295,6 +303,13 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             // ------------------------------------------------------------
             /// <summary>
+            /// 획득 출처로 반환하는 시점의 재진입을 검증한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public Action<TestObject> OnReleaseAction { get; set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
             /// 지정 후보 또는 새로운 Key를 가진 객체를 공급한다.
             /// </summary>
             // ------------------------------------------------------------
@@ -316,6 +331,16 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 var obj = new TestObject();
                 obj.SetKey(nextKey++);
                 return obj;
+            }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 획득 출처 반환 시점의 후속 검증을 수행한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            protected override void Release(TestObject spawnable, DespawnReason reason)
+            {
+                OnReleaseAction?.Invoke(spawnable);
             }
 
             // ------------------------------------------------------------
@@ -432,7 +457,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
     #endregion
 
-    #region L-1: Spawn과 terminal Despawn
+    #region 게임 Spawn·Despawn 수명
 
         // ------------------------------------------------------------
         /// <summary>
@@ -447,12 +472,63 @@ namespace inonego.Xeri.Game.TEST._Spawn
             Assert.IsTrue(registry.TrySpawn(out var obj));
             Assert.AreEqual(SpawnState.Spawned, obj.SpawnState);
             Assert.IsTrue(obj.HasKey);
-            Assert.AreSame(obj, registry.Spawned[obj.Key]);
+            Assert.AreSame(obj, registry.Registered[obj.Key]);
 
             registry.Despawn(obj, DespawnReason.Removed);
 
             Assert.AreEqual(SpawnState.Despawned, obj.SpawnState);
-            Assert.AreEqual(0, registry.Spawned.Count);
+            Assert.AreEqual(0, registry.Registered.Count);
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 한 객체의 Spawn 완료 알림에서 다른 객체의 Spawn은 허용하지만,
+        /// <br/> 중첩된 객체의 알림에서 아직 진행 중인 최초 객체로 되돌아가는 수명 작업은 거절한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_다른객체_중첩Spawn은_허용하고_순환재진입은_거절()
+        {
+            var registry = new TestRegistry();
+            TestObject first = null;
+            TestObject second = null;
+            var nestedSpawnCount = 0;
+            var cycleRejected = 0;
+
+            registry.OnSpawned += (_, entity) =>
+            {
+                if (first == null)
+                {
+                    first = entity;
+                    Assert.IsTrue(registry.TrySpawn(out second));
+                    nestedSpawnCount++;
+                    return;
+                }
+
+                if (ReferenceEquals(entity, first))
+                {
+                    return;
+                }
+
+                Assert.Throws<InvalidOperationException>
+                (
+                    () => registry.Despawn(first, DespawnReason.Removed)
+                );
+                cycleRejected++;
+            };
+
+            Assert.IsTrue(registry.TrySpawn(out var outer));
+
+            Assert.AreSame(first, outer);
+            Assert.IsNotNull(second);
+            Assert.AreEqual(1, nestedSpawnCount);
+            Assert.AreEqual(1, cycleRejected);
+            Assert.AreEqual(2, registry.Registered.Count);
+            Assert.AreEqual(SpawnState.Spawned, first.SpawnState);
+            Assert.AreEqual(SpawnState.Spawned, second.SpawnState);
+
+            registry.DespawnAll();
+            Assert.AreEqual(0, registry.Registered.Count);
         }
 
         // ----------------------------------------------------------------------
@@ -471,7 +547,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             Assert.IsFalse(registry.TrySpawn(out var missing));
             Assert.IsNull(missing);
-            Assert.AreEqual(0, registry.Spawned.Count);
+            Assert.AreEqual(0, registry.Registered.Count);
 
             Assert.IsTrue(registry.TrySpawn(out var spawned));
             Assert.AreEqual(0UL, spawned.Key);
@@ -483,7 +559,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             Assert.IsFalse(paramRegistry.TrySpawn(27, out var noParamObject));
             Assert.IsNull(noParamObject);
-            Assert.AreEqual(0, paramRegistry.Spawned.Count);
+            Assert.AreEqual(0, paramRegistry.Registered.Count);
 
             Assert.IsTrue(paramRegistry.TrySpawn(27, out var initialized));
             Assert.AreEqual(27, initialized.InitializedWith);
@@ -492,7 +568,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
     #endregion
 
-    #region L-2: DespawnAll terminal cleanup
+    #region 일괄 Despawn과 terminal 정리
 
         // ------------------------------------------------------------
         /// <summary>
@@ -508,9 +584,17 @@ namespace inonego.Xeri.Game.TEST._Spawn
             registry.TrySpawn(out var second);
             registry.TrySpawn(out var third);
 
+            var rejectedSpawns = 0;
+            registry.OnDespawning += (_, _, _) =>
+            {
+                Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
+                rejectedSpawns++;
+            };
+
             registry.DespawnAll();
 
-            Assert.AreEqual(0, registry.Spawned.Count);
+            Assert.AreEqual(3, rejectedSpawns);
+            Assert.AreEqual(0, registry.Registered.Count);
             Assert.AreEqual(SpawnState.Despawned, first.SpawnState);
             Assert.AreEqual(SpawnState.Despawned, second.SpawnState);
             Assert.AreEqual(SpawnState.Despawned, third.SpawnState);
@@ -518,7 +602,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
     #endregion
 
-    #region T-1: required binding 실행 순서와 commit 경계
+    #region 필수 Binding 순서와 커밋 경계
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -548,8 +632,8 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 new[]
                 {
                     "Object.OnSpawning",
-                    "First.OnSpawned",
-                    "Second.OnSpawned",
+                    "First.OnRegistered",
+                    "Second.OnRegistered",
                     "Object.OnSpawned",
                     "Registry.OnSpawned"
                 },
@@ -564,9 +648,9 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 new[]
                 {
                     "Object.OnDespawning",
-                    "Second.OnDespawning",
-                    "First.OnDespawning",
                     "Registry.OnDespawning",
+                    "Second.OnUnregistering",
+                    "First.OnUnregistering",
                     "Object.OnDespawned",
                     "Registry.OnDespawned"
                 },
@@ -576,7 +660,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
     #endregion
 
-    #region T-2: required binding Spawn 실패 rollback
+    #region 필수 Binding 등록 실패 Rollback
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -592,7 +676,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             var first = new TestBinding("First", trace);
             var second = new TestBinding("Second", trace)
             {
-                FailOnSpawned = true
+                FailOnRegistered = true
             };
             var third = new TestBinding("Third", trace);
 
@@ -607,22 +691,109 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 new[]
                 {
                     "Object.OnSpawning",
-                    "First.OnSpawned",
-                    "Second.OnSpawned",
+                    "First.OnRegistered",
+                    "Second.OnRegistered",
                     "Object.OnDespawning",
-                    "Second.OnDespawning",
-                    "First.OnDespawning",
+                    "Second.OnUnregistering",
+                    "First.OnUnregistering",
                     "Object.OnDespawned"
                 },
                 trace
             );
             Assert.AreEqual(SpawnState.Despawned, obj.SpawnState);
-            Assert.AreEqual(0, registry.Spawned.Count);
+            Assert.AreEqual(0, registry.Registered.Count);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> Spawn 등록 실패의 Rollback 도중 반환 훅에서 동일 객체를
+        /// <br/> 다시 스폰하지 못하고 원래 실패를 보존한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_Rollback반환중_동일객체재Spawn거절()
+        {
+            var trace = new List<string>();
+            var registry = new TestRegistry();
+            var entity = new TestObject();
+            entity.SetKey(0UL);
+            registry.NextObject = entity;
+
+            var binding = new TestBinding("Failed", trace)
+            {
+                FailOnRegistered = true
+            };
+            registry.AttachBinding(binding);
+
+            var releases = 0;
+            registry.OnReleaseAction = released =>
+            {
+                releases++;
+                Assert.AreSame(entity, released);
+                Assert.AreEqual(SpawnState.Despawned, released.SpawnState);
+
+                // 방어 실패로 실제 재스폰될 경우 재귀 Rollback은 방지한다.
+                registry.OnReleaseAction = null;
+                registry.NextObject = released;
+
+                var reentryError = Assert.Throws<InvalidOperationException>
+                (
+                    () => registry.TrySpawn(out _)
+                );
+                StringAssert.Contains("동일 객체의 등록 작업", reentryError.Message);
+            };
+
+            var error = Assert.Throws<InvalidOperationException>
+            (
+                () => registry.TrySpawn(out _)
+            );
+
+            Assert.AreEqual("Failed spawn failure", error.Message);
+            Assert.AreEqual(1, releases);
+            Assert.AreEqual(0, registry.Registered.Count);
+            Assert.AreEqual(SpawnState.Despawned, entity.SpawnState);
         }
 
     #endregion
 
-    #region T-3: required binding Despawn 실패 격리
+    #region 등록과 Rollback의 복합 실패
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> Required Binding이 Spawn과 rollback에서 모두 실패해도
+        /// <br/> 최초 Spawn 실패와 정리 오류를 순서대로 보존한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_BindingSpawn과Rollback_동시실패를_모두전달()
+        {
+            var trace = new List<string>();
+            var registry = new TestRegistry();
+            var obj = InjectTraceObject(registry, trace);
+            var failing = new TestBinding("Failed", trace)
+            {
+                FailOnRegistered = true,
+                FailOnUnregistering = true
+            };
+
+            registry.AttachBinding(failing);
+
+            var exception = Assert.Throws<AggregateException>
+            (
+                () => registry.TrySpawn(out _)
+            );
+
+            Assert.AreEqual(2, exception.InnerExceptions.Count);
+            Assert.AreEqual("Failed spawn failure", exception.InnerExceptions[0].Message);
+            Assert.AreEqual("Failed despawn failure", exception.InnerExceptions[1].Message);
+            Assert.AreEqual(SpawnState.Despawned, obj.SpawnState);
+            Assert.AreEqual(0, registry.Registered.Count);
+            CollectionAssert.Contains(trace, "Failed.OnUnregistering");
+        }
+
+    #endregion
+
+    #region 필수 Binding 해제 실패 격리
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -639,7 +810,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             var first = new TestBinding("First", trace);
             var second = new TestBinding("Second", trace)
             {
-                FailOnDespawning = true
+                FailOnUnregistering = true
             };
             var third = new TestBinding("Third", trace);
 
@@ -659,20 +830,86 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 new[]
                 {
                     "Object.OnDespawning",
-                    "Third.OnDespawning",
-                    "Second.OnDespawning",
-                    "First.OnDespawning",
+                    "Third.OnUnregistering",
+                    "Second.OnUnregistering",
+                    "First.OnUnregistering",
                     "Object.OnDespawned"
                 },
                 trace
             );
             Assert.AreEqual(SpawnState.Despawned, obj.SpawnState);
-            Assert.AreEqual(0, registry.Spawned.Count);
+            Assert.AreEqual(0, registry.Registered.Count);
         }
 
     #endregion
 
-    #region T-4: committed notification 실패
+    #region 해제와 완료 알림의 복합 실패
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> Despawning Binding과 완료 Observer가 모두 실패해도
+        /// <br/> 원인을 보존하고 객체의 terminal 제거를 마친다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_Despawn과완료Observer실패를_모두전달()
+        {
+            var trace = new List<string>();
+            var registry = new TestRegistry();
+            var entity = InjectTraceObject(registry, trace);
+            var binding = new TestBinding("Failed", trace)
+            {
+                FailOnUnregistering = true
+            };
+            registry.AttachBinding(binding);
+            registry.TrySpawn(out _);
+            registry.OnDespawned += (_, _, _) => throw new InvalidOperationException("commit notification failure");
+
+            var exception = Assert.Throws<AggregateException>
+            (
+                () => registry.Despawn(entity, DespawnReason.Removed)
+            );
+
+            Assert.AreEqual(2, exception.InnerExceptions.Count);
+            Assert.AreEqual("Failed despawn failure", exception.InnerExceptions[0].Message);
+            Assert.AreEqual("commit notification failure", exception.InnerExceptions[1].Message);
+            Assert.AreEqual(SpawnState.Despawned, entity.SpawnState);
+            Assert.AreEqual(0, registry.Registered.Count);
+            CollectionAssert.Contains(trace, "Object.OnDespawned");
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 등록 전에 실패했어도 완료 알림 오류가 최초 Spawn 오류를 가리지 않는다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_미등록SpawnRollback은_완료알림없이_원인을전달()
+        {
+            var registry = new TestRegistry();
+            var trace = new List<string>();
+            var entity = InjectTraceObject(registry, trace);
+            var completedNotifications = 0;
+
+            registry.OnSpawning += (_, _) => throw new InvalidOperationException("spawning observer failure");
+            registry.OnRegistered += (_, _) => completedNotifications++;
+            registry.OnUnregistered += (_, _, _) => completedNotifications++;
+            registry.OnDespawned += (_, _, _) => completedNotifications++;
+
+            var error = Assert.Throws<InvalidOperationException>
+            (
+                () => registry.TrySpawn(out _)
+            );
+
+            Assert.AreEqual("spawning observer failure", error.Message);
+            Assert.AreEqual(0, completedNotifications);
+            Assert.AreEqual(SpawnState.Despawned, entity.SpawnState);
+            Assert.AreEqual(0, registry.Registered.Count);
+        }
+
+    #endregion
+
+    #region 등록 완료 알림과 커밋 후 예외
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -701,16 +938,68 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             Assert.IsNotNull(obj);
             Assert.AreEqual(SpawnState.Spawned, obj.SpawnState);
-            Assert.AreEqual(1, registry.Spawned.Count);
-            Assert.AreSame(obj, registry.Spawned[obj.Key]);
+            Assert.AreEqual(1, registry.Registered.Count);
+            Assert.AreSame(obj, registry.Registered[obj.Key]);
 
             registry.OnSpawned -= observer;
             registry.Despawn(obj, DespawnReason.Removed);
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 완료 이벤트 오류를 모두 전달하고 Spawn 등록 상태를 유지한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_등록완료알림실패에도_Spawn완료알림을_시도()
+        {
+            var obj = new TestObject();
+            obj.SetKey(0UL);
+
+            var registry = new TestRegistry
+            {
+                NextObject = obj
+            };
+            var trace = new List<string>();
+
+            registry.OnRegistered += (_, _) =>
+            {
+                trace.Add("Registered");
+                throw new InvalidOperationException("registration notification failure");
+            };
+            registry.OnSpawned += (_, _) =>
+            {
+                trace.Add("Spawned");
+                throw new InvalidOperationException("spawn notification failure");
+            };
+
+            var exception = Assert.Throws<AggregateException>
+            (
+                () => registry.TrySpawn(out _)
+            );
+
+            CollectionAssert.AreEqual
+            (
+                new[]
+                {
+                    "Registered", "Spawned"
+                },
+                trace
+            );
+            Assert.AreEqual(2, exception.InnerExceptions.Count);
+            Assert.AreEqual("registration notification failure", exception.InnerExceptions[0].Message);
+            Assert.AreEqual("spawn notification failure", exception.InnerExceptions[1].Message);
+            Assert.AreEqual(SpawnState.Spawned, obj.SpawnState);
+            Assert.AreSame(obj, registry.Find(0UL));
+
+            obj.Despawn();
+            Assert.AreEqual(SpawnState.Despawned, obj.SpawnState);
+            Assert.AreEqual(0, registry.Registered.Count);
+        }
+
     #endregion
 
-    #region B-1: 현재 등록 집합에 대한 Binding 동기화
+    #region 기존 등록 객체에 대한 Binding 동기화
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -737,7 +1026,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             (
                 new[]
                 {
-                    "Live.OnSpawned", "Live.OnSpawned"
+                    "Live.OnRegistered", "Live.OnRegistered"
                 },
                 trace
             );
@@ -750,11 +1039,11 @@ namespace inonego.Xeri.Game.TEST._Spawn
             (
                 new[]
                 {
-                    "Live.OnDespawning", "Live.OnDespawning"
+                    "Live.OnUnregistering", "Live.OnUnregistering"
                 },
                 trace
             );
-            Assert.AreEqual(2, restored.Spawned.Count);
+            Assert.AreEqual(2, restored.Registered.Count);
             Assert.AreEqual(0, spawnedNotifications);
 
             trace.Clear();
@@ -778,7 +1067,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             var trace = new List<string>();
             var binding = new TestBinding("Live", trace)
             {
-                FailOnSpawnedCall = 2
+                FailOnRegisteredCall = 2
             };
 
             Assert.Throws<InvalidOperationException>(() => registry.AttachBinding(binding));
@@ -787,15 +1076,15 @@ namespace inonego.Xeri.Game.TEST._Spawn
             (
                 new[]
                 {
-                    "Live.OnSpawned",
-                    "Live.OnSpawned",
-                    "Live.OnDespawning",
-                    "Live.OnDespawning"
+                    "Live.OnRegistered",
+                    "Live.OnRegistered",
+                    "Live.OnUnregistering",
+                    "Live.OnUnregistering"
                 },
                 trace
             );
 
-            Assert.AreEqual(2, registry.Spawned.Count);
+            Assert.AreEqual(2, registry.Registered.Count);
             Assert.IsFalse(registry.DetachBinding(binding));
 
             trace.Clear();
@@ -803,33 +1092,43 @@ namespace inonego.Xeri.Game.TEST._Spawn
             Assert.IsEmpty(trace);
         }
 
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         /// <summary>
-        /// Binding 중 Registry의 등록 집합 변경을 거절한다.
+        /// Binding 연결·해제 동기화 중 Registry 수명과 Binding 구성을 변경하지 못하게 한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         [Test]
-        public void TEST_SpawnRegistry_Binding_동기화중에는_스폰과_디스폰을_차단()
+        public void TEST_SpawnRegistry_Binding_동기화중에는_Registry와_Binding변경을_차단()
         {
             var registry = new TestRegistry();
             registry.TrySpawn(out var existing);
 
             var trace = new List<string>();
-            var binding = new TestBinding("Live", trace)
+            var other = new TestBinding("Other", trace);
+            var binding = new TestBinding("Live", trace);
+
+            void AssertMutationRejected()
             {
-                OnSpawnedAction = () =>
-                {
-                    Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
-                    Assert.Throws<InvalidOperationException>(() => registry.Despawn(existing, DespawnReason.Removed));
-                    Assert.Throws<InvalidOperationException>(() => registry.DespawnAll());
-                }
-            };
+                Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
+                Assert.Throws<InvalidOperationException>
+                (
+                    () => registry.Despawn(existing, DespawnReason.Removed)
+                );
+                Assert.Throws<InvalidOperationException>(() => registry.DespawnAll());
+                Assert.Throws<InvalidOperationException>(() => registry.AttachBinding(other));
+                Assert.Throws<InvalidOperationException>(() => registry.DetachBinding(binding));
+            }
+
+            binding.OnRegisteredAction = AssertMutationRejected;
+            binding.OnUnregisteringAction = AssertMutationRejected;
 
             registry.AttachBinding(binding);
 
-            Assert.AreEqual(1, registry.Spawned.Count);
+            Assert.AreEqual(1, registry.Registered.Count);
             Assert.AreEqual(SpawnState.Spawned, existing.SpawnState);
             Assert.IsTrue(registry.DetachBinding(binding));
+            Assert.AreEqual(1, registry.Registered.Count);
+            Assert.AreEqual(SpawnState.Spawned, existing.SpawnState);
         }
 
         // ------------------------------------------------------------
@@ -847,7 +1146,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             var trace = new List<string>();
             var binding = new TestBinding("Live", trace)
             {
-                FailOnDespawning = true
+                FailOnUnregistering = true
             };
 
             registry.AttachBinding(binding);
@@ -858,17 +1157,51 @@ namespace inonego.Xeri.Game.TEST._Spawn
             (
                 new[]
                 {
-                    "Live.OnDespawning", "Live.OnDespawning"
+                    "Live.OnUnregistering", "Live.OnUnregistering"
                 },
                 trace
             );
-            Assert.AreEqual(2, registry.Spawned.Count);
+            Assert.AreEqual(2, registry.Registered.Count);
             Assert.IsFalse(registry.DetachBinding(binding));
         }
 
     #endregion
 
-    #region S-1: JSON round-trip self-rehydrate
+    #region Registry 조회의 읽기 전용 계약
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 공개 Registry 사전을 mutable Dictionary로 다운캐스팅할 수 없으며
+        /// <br/> 등록·역직렬화 후에도 조회 기능은 유지된다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_Registered조회View는_직접수정을_허용하지않음()
+        {
+            var registry = new TestRegistry();
+            var readOnly = registry.Registered;
+
+            Assert.IsFalse(readOnly is IDictionary<ulong, TestObject>);
+            Assert.IsFalse(readOnly is RegisteredDictionary<ulong, TestObject>);
+            Assert.AreSame(readOnly, registry.Registered);
+
+            Assert.IsTrue(registry.TrySpawn(out var entity));
+            Assert.AreEqual(1, readOnly.Count);
+            Assert.IsTrue(readOnly.TryGetValue(entity.Key, out var found));
+            Assert.AreSame(entity, found);
+
+            var restored = JsonUtility.FromJson<TestRegistry>(JsonUtility.ToJson(registry));
+            Assert.AreEqual(1, restored.Registered.Count);
+            Assert.IsFalse(restored.Registered is IDictionary<ulong, TestObject>);
+            Assert.IsNotNull(restored.Find(entity.Key));
+
+            entity.Despawn();
+            Assert.AreEqual(0, readOnly.Count);
+        }
+
+    #endregion
+
+    #region 직렬화 복원과 Runtime 재연결
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -898,13 +1231,13 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
             ((IDespawnable)restoredObject).Despawn();
 
-            Assert.AreEqual(0, restored.Spawned.Count);
+            Assert.AreEqual(0, restored.Registered.Count);
             Assert.AreEqual(SpawnState.Despawned, restoredObject.SpawnState);
         }
 
     #endregion
 
-    #region X-1: 중복 Key 등록 rollback
+    #region 중복 Key 및 Rollback
 
         // ------------------------------------------------------------
         /// <summary>
@@ -924,7 +1257,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
 
             Assert.AreEqual(SpawnState.Despawned, duplicate.SpawnState);
-            Assert.AreEqual(1, registry.Spawned.Count);
+            Assert.AreEqual(1, registry.Registered.Count);
             Assert.AreSame(first, registry.Find(first.Key));
         }
 

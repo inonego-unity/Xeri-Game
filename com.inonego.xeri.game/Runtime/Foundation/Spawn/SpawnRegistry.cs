@@ -1,12 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : SpawnRegistry.cs
-수정일 : 2026-11-13
+수정일 : 2026-11-14
 
 # 설명
-스폰 레지스트리 베이스·구현체와 스폰된 객체 사전, 디스폰 확장 메서드 정의.
+스폰 레지스트리 베이스·구현체와 등록 객체 사전, 디스폰 확장 메서드 정의.
 
 - SpawnRegistryUtility       : IDespawnable.Despawn과 Despawn(reason) 확장 메서드
-- SpawnedDictionary<,>        : XDictionary_VR 기반 스폰 사전
+- RegisteredDictionary<,>        : XDictionary_VR 기반 등록 사전
 - SpawnRegistryBase<,>        : 핵심 스폰/디스폰/검색/0..N 필수 바인딩/이벤트 로직
 - SpawnRegistry<,>            : 파라미터 없는 Acquire/Spawn
 - SpawnRegistry<,,>           : 파라미터 받는 Acquire/Spawn (INeedToInit<TParam> 연동)
@@ -80,11 +80,11 @@ namespace inonego.Xeri.Game
 
     // ============================================================
     /// <summary>
-    /// 스폰된 객체를 보관하는 직렬화 가능한 사전.
+    /// 등록된 객체를 보관하는 직렬화 가능한 사전.
     /// </summary>
     // ============================================================
     [Serializable]
-    public class SpawnedDictionary<TKey, T> : XDictionary_VR<TKey, T>, ISpawnedDictionary<TKey, T>
+    public class RegisteredDictionary<TKey, T> : XDictionary_VR<TKey, T>, IReadOnlyDictionary<TKey, T>
     where TKey : IEquatable<TKey>
     where T : class, ISpawnRegistryObject<TKey>
     {
@@ -107,44 +107,85 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 스폰된 객체들의 사전(읽기 전용 노출).
+        /// 현재 등록된 모든 객체의 사전(읽기 전용 노출).
         /// </summary>
         // ------------------------------------------------------------
-        public ISpawnedDictionary<TKey, T> Spawned => _Spawned;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 현재 Registry가 소유하는 스폰 객체 사전.
-        /// </summary>
-        // ------------------------------------------------------------
-        private SpawnedDictionary<TKey, T> _Spawned
+        public IReadOnlyDictionary<TKey, T> Registered
         {
             get
             {
-                spawned ??= new();
-                return spawned;
-            }
-        }
-
-        [SerializeField]
-        private SpawnedDictionary<TKey, T> spawned = new();
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 현재 Spawn 처리를 진행 중인 객체 집합.
-        /// </summary>
-        // ------------------------------------------------------------
-        private HashSet<T> _Spawning
-        {
-            get
-            {
-                spawning ??= new(ReferenceEqualityComparer<T>.Instance);
-                return spawning;
+                registeredView ??= new RegisteredReadOnlyView(this);
+                return registeredView;
             }
         }
 
         [NonSerialized]
-        private HashSet<T> spawning = new(ReferenceEqualityComparer<T>.Instance);
+        private IReadOnlyDictionary<TKey, T> registeredView = null;
+
+        // ======================================================================
+        /// <summary>
+        /// Registry 내부 Dictionary의 수정 인터페이스를 공개하지 않는 조회 View.
+        /// </summary>
+        // ======================================================================
+        private sealed class RegisteredReadOnlyView : IReadOnlyDictionary<TKey, T>
+        {
+            private readonly SpawnRegistryBase<TKey, T> owner;
+
+            internal RegisteredReadOnlyView(SpawnRegistryBase<TKey, T> owner)
+            {
+                this.owner = owner;
+            }
+
+            int IReadOnlyCollection<KeyValuePair<TKey, T>>.Count => owner._Registered.Count;
+
+            IEnumerable<TKey> IReadOnlyDictionary<TKey, T>.Keys => owner._Registered.Keys;
+
+            IEnumerable<T> IReadOnlyDictionary<TKey, T>.Values => owner._Registered.Values;
+
+            T IReadOnlyDictionary<TKey, T>.this[TKey key] => owner._Registered[key];
+
+            bool IReadOnlyDictionary<TKey, T>.ContainsKey(TKey key) => owner._Registered.ContainsKey(key);
+
+            bool IReadOnlyDictionary<TKey, T>.TryGetValue(TKey key, out T value) => owner._Registered.TryGetValue(key, out value);
+
+            IEnumerator<KeyValuePair<TKey, T>> IEnumerable<KeyValuePair<TKey, T>>.GetEnumerator() => owner._Registered.GetEnumerator();
+
+            IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<KeyValuePair<TKey, T>>)this).GetEnumerator();
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 현재 Registry가 소유하는 등록 객체 사전.
+        /// </summary>
+        // ------------------------------------------------------------
+        private RegisteredDictionary<TKey, T> _Registered
+        {
+            get
+            {
+                registered ??= new();
+                return registered;
+            }
+        }
+
+        [SerializeField]
+        private RegisteredDictionary<TKey, T> registered = new();
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 현재 등록·해제 수명 작업이 진행 중인 객체 집합.
+        /// </summary>
+        // ------------------------------------------------------------
+        private HashSet<T> _OperatingEntities
+        {
+            get
+            {
+                operatingEntities ??= new(ReferenceEqualityComparer<T>.Instance);
+                return operatingEntities;
+            }
+        }
+
+        [NonSerialized]
+        private HashSet<T> operatingEntities = new(ReferenceEqualityComparer<T>.Instance);
 
         [NonSerialized]
         private List<ISpawnRegistryBinding<TKey, T>> bindings = new();
@@ -155,13 +196,56 @@ namespace inonego.Xeri.Game
         [NonSerialized]
         private bool isUpdatingBindings = false;
 
+        // 직접 등록한 항목은 게임 Spawn/Despawn 훅 없이 관리한다.
+        [SerializeField]
+        private List<TKey> directEntryKeys = new();
+
+        [NonSerialized]
+        private HashSet<TKey> directEntries = new();
+
     #endregion
 
-    #region 이벤트
+    #region 등록 수명 이벤트
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 객체가 Spawning 상태로 진입한 뒤 Registry 등록 전에 호출된다.
+        /// Registry 등록 직전에 호출한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [field: NonSerialized]
+        public event Action<TKey, T> OnRegistering = null;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 등록과 필수 Binding이 완료된 후 호출한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [field: NonSerialized]
+        public event Action<TKey, T> OnRegistered = null;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Registry 등록 해제 전에 호출한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [field: NonSerialized]
+        public event Action<TKey, T, DespawnReason> OnUnregistering = null;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Registry membership을 제거한 후 호출한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [field: NonSerialized]
+        public event Action<TKey, T, DespawnReason> OnUnregistered = null;
+
+    #endregion
+
+    #region 게임 Spawn 이벤트
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 게임 Spawn 진입 후 Registry 등록 전에 호출된다.
         /// </summary>
         // ------------------------------------------------------------
         [field: NonSerialized]
@@ -169,72 +253,87 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 객체의 Registry 등록과 Spawned 상태 전환이 완료된 뒤 호출된다.
+        /// 게임 Spawn의 등록 및 상태 전환이 완료된 후 호출된다.
         /// </summary>
         // ------------------------------------------------------------
         [field: NonSerialized]
         public event Action<TKey, T> OnSpawned = null;
 
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         /// <summary>
-        /// <br/> 객체가 등록 해제 또는 Spawn 실패 정리를 시작하기 전에 호출된다.
-        /// <br/> Spawn 실패 정리에서는 객체가 Registry에 등록되지 않았을 수 있다.
+        /// <br/> 완료된 게임 Spawn의 해제 전에 호출된다.
+        /// <br/> 직접 등록 및 미완료 Spawn Rollback에는 호출하지 않는다.
         /// </summary>
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         [field: NonSerialized]
         public event Action<TKey, T, DespawnReason> OnDespawning = null;
 
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         /// <summary>
-        /// 객체의 등록 해제 또는 Spawn 실패 정리와 상태 전환이 완료된 뒤 호출된다.
+        /// 완료된 게임 Spawn의 해제 작업 종료 후 호출된다.
         /// </summary>
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         [field: NonSerialized]
         public event Action<TKey, T, DespawnReason> OnDespawned = null;
 
     #endregion
 
-    #region 직렬화
+    #region 직렬화 복원
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Registry의 현재 Spawned 사전을 Unity 직렬화 표현으로 동기화한다.
+        /// Registry의 현재 등록 사전을 Unity 직렬화 표현으로 동기화한다.
         /// </summary>
         // ------------------------------------------------------------
         public virtual void OnBeforeSerialize()
         {
             // SpawnRegistry는 등록 상태 영속화를 소유하므로 이 경계에서 명시적으로 적용한다.
-            _Spawned.ApplyRuntime();
+            _Registered.ApplyRuntime();
         }
 
         // ------------------------------------------------------------
         /// <summary>
-        /// <br/> Unity 역직렬화 뒤 Spawned 사전을 우선 재구성하고,
+        /// <br/> Unity 역직렬화 뒤 등록 사전을 우선 재구성하고,
         /// <br/> 각 등록 객체의 Registry 내부 런타임 연결만 복구한다.
         /// </summary>
         // ------------------------------------------------------------
         public virtual void OnAfterDeserialize()
         {
-            spawned ??= new SpawnedDictionary<TKey, T>();
+            registered ??= new RegisteredDictionary<TKey, T>();
 
             // 상위/하위 callback 호출 순서에 의존하지 않도록 사전 복원을 명시적으로 보장한다.
-            spawned.UpdateRuntime();
+            registered.UpdateRuntime();
 
-            spawning = new HashSet<T>(ReferenceEqualityComparer<T>.Instance);
+            operatingEntities = new HashSet<T>(ReferenceEqualityComparer<T>.Instance);
             bindings = new List<ISpawnRegistryBinding<TKey, T>>();
             isDespawningAll = false;
             isUpdatingBindings = false;
+            directEntryKeys ??= new List<TKey>();
+            directEntries = new HashSet<TKey>(directEntryKeys);
 
-            foreach (var (key, spawnable) in spawned)
+            foreach (var key in directEntries)
+            {
+                if (!registered.ContainsKey(key))
+                {
+                    throw new InvalidOperationException("복원된 직접 등록 Entry가 Registry에 존재하지 않습니다.");
+                }
+            }
+
+            foreach (var (key, spawnable) in registered)
             {
                 ValidateRegistrationEntry(key, spawnable);
                 AttachRegistrationRuntime(spawnable);
+
+                if (directEntries.Contains(key))
+                {
+                    spawnable.DespawnFromRegistry = reason => UnregisterEntry(spawnable, reason);
+                }
             }
         }
 
     #endregion
 
-    #region 바인딩
+    #region 필수 Binding 연결·해제
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -255,9 +354,9 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("동일 SpawnRegistry Binding을 중복 연결할 수 없습니다.");
             }
 
-            var existing = new List<KeyValuePair<TKey, T>>(_Spawned);
-            var attachedCount = 0;
+            var existing = new List<KeyValuePair<TKey, T>>(_Registered);
 
+            var attachedCount = 0;
             isUpdatingBindings = true;
 
             try
@@ -268,7 +367,8 @@ namespace inonego.Xeri.Game
                     {
                         // 예외가 발생한 Binding에도 부분 자원이 남을 수 있으므로 정리에 포함한다.
                         attachedCount++;
-                        binding.OnSpawned(key, spawnable);
+
+                        binding.OnRegistered(key, spawnable);
                     }
 
                     bindings.Add(binding);
@@ -282,7 +382,8 @@ namespace inonego.Xeri.Game
                         try
                         {
                             var (key, spawnable) = existing[index];
-                            binding.OnDespawning(key, spawnable, DespawnReason.SpawnRollback);
+
+                            binding.OnUnregistering(key, spawnable, DespawnReason.SpawnRollback);
                         }
                         catch (Exception exception)
                         {
@@ -327,7 +428,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            var existing = new List<KeyValuePair<TKey, T>>(_Spawned);
+            var existing = new List<KeyValuePair<TKey, T>>(_Registered);
             List<Exception> failures = null;
 
             isUpdatingBindings = true;
@@ -339,7 +440,8 @@ namespace inonego.Xeri.Game
                     try
                     {
                         var (key, spawnable) = existing[index];
-                        binding.OnDespawning(key, spawnable, DespawnReason.RegistryCleanup);
+
+                        binding.OnUnregistering(key, spawnable, DespawnReason.RegistryCleanup);
                     }
                     catch (Exception exception)
                     {
@@ -379,21 +481,21 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         private void ValidateBindingMutationAllowed()
         {
-            if (_Spawning.Count > 0 || isDespawningAll || isUpdatingBindings)
+            if (_OperatingEntities.Count > 0 || isDespawningAll || isUpdatingBindings)
             {
                 throw new InvalidOperationException
                 (
-                    "Spawn/Despawn transaction 중에는 SpawnRegistry Binding 구성을 변경할 수 없습니다."
+                    "Registry 수명 transaction 중에는 Binding 구성을 변경할 수 없습니다."
                 );
             }
 
-            foreach (var spawnable in _Spawned.Values)
+            foreach (var spawnable in _Registered.Values)
             {
                 if (spawnable.SpawnState == SpawnState.Despawning)
                 {
                     throw new InvalidOperationException
                     (
-                        "Spawn/Despawn transaction 중에는 SpawnRegistry Binding 구성을 변경할 수 없습니다."
+                        "Registry 수명 transaction 중에는 Binding 구성을 변경할 수 없습니다."
                     );
                 }
             }
@@ -401,11 +503,11 @@ namespace inonego.Xeri.Game
 
     #endregion
 
-    #region 파생 훅
+    #region 확장 훅
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Registry가 Spawned 객체의 내부 런타임 연결을 확정한 뒤 호출한다.
+        /// Registry가 등록 객체의 내부 런타임 연결을 확정한 뒤 호출한다.
         /// </summary>
         // ------------------------------------------------------------
         protected virtual void OnRegistrationAttached(T spawnable)
@@ -413,11 +515,11 @@ namespace inonego.Xeri.Game
             // NONE
         }
 
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         /// <summary>
-        /// Registry가 Spawned 소유 관계의 내부 런타임 연결을 해제할 때 호출한다.
+        /// Registry가 등록 소유 관계의 내부 런타임 연결을 해제할 때 호출한다.
         /// </summary>
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         protected virtual void OnRegistrationDetached(T spawnable, DespawnReason reason)
         {
             // NONE
@@ -434,9 +536,19 @@ namespace inonego.Xeri.Game
             // NONE
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록이 끝난 뒤 로컬 Key를 해제한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected virtual void OnDirectEntryRemoved(T spawnable)
+        {
+            // NONE
+        }
+
     #endregion
 
-    #region 검색 메서드
+    #region Registry 조회
 
         // ------------------------------------------------------------
         /// <summary>
@@ -445,7 +557,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public T Find(TKey key)
         {
-            return _Spawned.TryGetValue(key, out var value) ? value : null;
+            return _Registered.TryGetValue(key, out var value) ? value : null;
         }
 
         // ------------------------------------------------------------
@@ -457,7 +569,7 @@ namespace inonego.Xeri.Game
         {
             if (keyable != null)
             {
-                if (keyable.HasKey && _Spawned.TryGetValue(keyable.Key, out var value))
+                if (keyable.HasKey && _Registered.TryGetValue(keyable.Key, out var value))
                 {
                     return value;
                 }
@@ -468,7 +580,288 @@ namespace inonego.Xeri.Game
 
     #endregion
 
-    #region 등록 런타임 연결
+    #region 직접 등록·해제
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> 게임 Spawn 훅 없이 준비된 객체를 Registry에 직접 등록한다.
+        /// <br/> 게임 Spawn 훅 없이 Binding을 구성한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected T RegisterEntry(T spawnable)
+        {
+            ValidateRegistrationAllowed();
+
+            if (spawnable == null)
+            {
+                throw new ArgumentNullException(nameof(spawnable));
+            }
+
+            if (spawnable.SpawnState != SpawnState.Despawned || !spawnable.HasKey)
+            {
+                throw new InvalidOperationException("직접 등록할 객체는 Key가 있는 Despawned 상태여야 합니다.");
+            }
+
+            var key = spawnable.Key;
+
+            if (_Registered.ContainsKey(key) || directEntries.Contains(key))
+            {
+                throw new InvalidOperationException("이미 해당 Key가 Registry에 등록돼 있습니다.");
+            }
+
+            if (!_OperatingEntities.Add(spawnable))
+            {
+                throw new InvalidOperationException("동일 객체의 등록 작업이 진행 중입니다.");
+            }
+
+            var registered = false;
+            var attachedCount = 0;
+
+            try
+            {
+                if
+                (
+                    spawnable.SpawnState != SpawnState.Despawned ||
+                    !spawnable.HasKey ||
+                    !EqualityComparer<TKey>.Default.Equals(spawnable.Key, key) ||
+                    _Registered.ContainsKey(key)
+                )
+                {
+                    throw new InvalidOperationException("상태 적용 중 Registry Key 또는 등록 상태가 변경됐습니다.");
+                }
+
+                // 직접 등록도 일반 Spawn과 동일한 Registry 등록 시작 알림을 제공한다.
+                ThrowObserverFailures
+                (
+                    NotifyObservers(OnRegistering, key, spawnable),
+                    "직접 등록 시작 알림에 실패했습니다."
+                );
+
+                if
+                (
+                    spawnable.SpawnState != SpawnState.Despawned ||
+                    !spawnable.HasKey ||
+                    !EqualityComparer<TKey>.Default.Equals(spawnable.Key, key) ||
+                    _Registered.ContainsKey(key)
+                )
+                {
+                    throw new InvalidOperationException("등록 시작 알림 중 Entity의 Key 또는 수명이 변경됐습니다.");
+                }
+
+                _Registered.Add(key, spawnable);
+                registered = true;
+                directEntries.Add(key);
+                directEntryKeys.Add(key);
+
+                // 등록 자체는 기존 Registry와 같은 상태·Revision을 갖되 게임 Spawn은 실행하지 않는다.
+                AttachRegistrationRuntime(spawnable);
+                spawnable.DespawnFromRegistry = reason => UnregisterEntry(spawnable, reason);
+
+                for (var index = 0; index < bindings.Count; index++)
+                {
+                    attachedCount = index + 1;
+                    bindings[index].OnRegistered(key, spawnable);
+                }
+            }
+            catch (Exception presentException)
+            {
+                try
+                {
+                    if (registered)
+                    {
+                        try
+                        {
+                            CompleteDirectEntry
+                            (
+                                key,
+                                spawnable,
+                                DespawnReason.SpawnRollback,
+                                attachedCount,
+                                publishRegistration: false
+                            );
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            throw new AggregateException
+                            (
+                                "직접 등록과 rollback이 모두 실패했습니다.",
+                                presentException,
+                                rollbackException
+                            );
+                        }
+                    }
+
+                    throw;
+                }
+                finally
+                {
+                    _OperatingEntities.Remove(spawnable);
+                }
+            }
+
+            try
+            {
+                // 완료 알림 예외는 확정된 등록을 Rollback하지 않는다.
+                ThrowObserverFailures
+                (
+                    NotifyObservers(OnRegistered, key, spawnable),
+                    "직접 등록 완료 알림에 실패했습니다."
+                );
+
+                return spawnable;
+            }
+            finally
+            {
+                _OperatingEntities.Remove(spawnable);
+            }
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록한 Key인지 조회한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected bool IsDirectEntry(TKey key) =>
+            directEntries.Contains(key) && _Registered.ContainsKey(key);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 등록한 Entry를 게임 Despawn 훅 없이 Registry에서 제거한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected bool UnregisterEntry
+        (
+            T spawnable,
+            DespawnReason reason
+        )
+        {
+            if (spawnable == null)
+            {
+                return false;
+            }
+
+            SpawnRegistryUtility.ValidateReason(reason);
+
+            if (isUpdatingBindings || _OperatingEntities.Contains(spawnable))
+            {
+                throw new InvalidOperationException("Registry 수명 작업 또는 Binding 동기화 중에는 직접 등록을 해제할 수 없습니다.");
+            }
+
+            if (!spawnable.HasKey || !directEntries.Contains(spawnable.Key))
+            {
+                // Authority의 일반 Spawn 항목을 이 경로로 삭제하는 것은 허용하지 않는다.
+                return false;
+            }
+
+            var key = spawnable.Key;
+
+            if
+            (
+                spawnable.SpawnState != SpawnState.Spawned ||
+                !_Registered.TryGetValue(key, out var registeredEntry) ||
+                !ReferenceEquals(registeredEntry, spawnable)
+            )
+            {
+                throw new InvalidOperationException("현재 Registry에 등록된 같은 수명만 제거할 수 있습니다.");
+            }
+
+            if (!_OperatingEntities.Add(spawnable))
+            {
+                throw new InvalidOperationException("동일 객체의 수명 작업이 진행 중입니다.");
+            }
+
+            try
+            {
+                CompleteDirectEntry(key, spawnable, reason, bindings.Count);
+                return true;
+            }
+            finally
+            {
+                _OperatingEntities.Remove(spawnable);
+            }
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Binding과 내부 소유 관계를 끝까지 정리하고 게임 훅 없이 수명을 종료한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private void CompleteDirectEntry
+        (
+            TKey key,
+            T spawnable,
+            DespawnReason reason,
+            int bindingCount,
+            bool publishRegistration = true
+        )
+        {
+            spawnable.SpawnState = SpawnState.Despawning;
+            List<Exception> failures = null;
+
+            if (publishRegistration)
+            {
+                failures = NotifyObservers(OnUnregistering, key, spawnable, reason);
+            }
+
+            for (var index = Math.Min(bindingCount, bindings.Count) - 1; index >= 0; index--)
+            {
+                try
+                {
+                    bindings[index].OnUnregistering(key, spawnable, reason);
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            try
+            {
+                DetachRegistrationRuntime(spawnable, reason);
+            }
+            catch (Exception exception)
+            {
+                failures ??= new List<Exception>();
+                failures.Add(exception);
+            }
+
+            // 훅 예외와 무관하게 Registry membership과 Local Key를 terminal 종료한다.
+            _Registered.Remove(key);
+            directEntries.Remove(key);
+            directEntryKeys.Remove(key);
+
+            try
+            {
+                OnDirectEntryRemoved(spawnable);
+            }
+            catch (Exception exception)
+            {
+                failures ??= new List<Exception>();
+                failures.Add(exception);
+            }
+            finally
+            {
+                spawnable.DespawnFromRegistry = null;
+                spawnable.SpawnState = SpawnState.Despawned;
+            }
+
+            if (publishRegistration)
+            {
+                failures = NotifyObservers(OnUnregistered, key, spawnable, reason, failures);
+            }
+
+            if (failures != null)
+            {
+                throw failures.Count == 1
+                    ? failures[0]
+                    : new AggregateException("직접 등록 해제 중 일부 정리가 실패했습니다.", failures);
+            }
+        }
+
+    #endregion
+
+    #region 등록 런타임 연결·검증
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -525,22 +918,113 @@ namespace inonego.Xeri.Game
             }
         }
 
-    #endregion
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 등록·Spawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private static List<Exception> NotifyObservers
+        (
+            Action<TKey, T> observers,
+            TKey key,
+            T spawnable,
+            List<Exception> failures = null
+        )
+        {
+            if (observers == null)
+            {
+                return failures;
+            }
 
-    #region 스폰
+            foreach (Action<TKey, T> observer in observers.GetInvocationList())
+            {
+                try
+                {
+                    observer(key, spawnable);
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            return failures;
+        }
 
         // ----------------------------------------------------------------------
         /// <summary>
-        /// 새 객체를 획득하기 전에 Registry가 Spawn을 시작할 수 있는지 확인한다.
+        /// 등록 해제·Despawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        protected void ValidateSpawnAllowed()
+        private static List<Exception> NotifyObservers
+        (
+            Action<TKey, T, DespawnReason> observers,
+            TKey key,
+            T spawnable,
+            DespawnReason reason,
+            List<Exception> failures = null
+        )
+        {
+            if (observers == null)
+            {
+                return failures;
+            }
+
+            foreach (Action<TKey, T, DespawnReason> observer in observers.GetInvocationList())
+            {
+                try
+                {
+                    observer(key, spawnable, reason);
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
+            }
+
+            return failures;
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 수집된 이벤트 오류를 단일 예외 또는 복합 예외로 전달한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private static void ThrowObserverFailures(List<Exception> failures, string message)
+        {
+            if (failures == null)
+            {
+                return;
+            }
+
+            throw failures.Count == 1
+                ? failures[0]
+                : new AggregateException(message, failures);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Spawn 또는 직접 등록 수명을 시작할 수 있는지 검사한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        protected void ValidateRegistrationAllowed(T spawnable = null)
         {
             if (isDespawningAll || isUpdatingBindings)
             {
-                throw new InvalidOperationException("Registry 수명 또는 Binding 동기화 중에는 새 객체를 스폰할 수 없습니다.");
+                throw new InvalidOperationException("Registry 일괄 종료 또는 Binding 동기화 중에는 객체를 등록할 수 없습니다.");
+            }
+
+            if (spawnable != null && _OperatingEntities.Contains(spawnable))
+            {
+                throw new InvalidOperationException("동일 객체의 등록 또는 해제 수명이 진행 중입니다.");
             }
         }
+
+    #endregion
+
+    #region 게임 Spawn
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -554,6 +1038,8 @@ namespace inonego.Xeri.Game
                 throw new ArgumentNullException(nameof(spawnable));
             }
 
+            ValidateRegistrationAllowed(spawnable);
+
             if (!spawnable.HasKey)
             {
                 throw new InvalidOperationException
@@ -562,7 +1048,7 @@ namespace inonego.Xeri.Game
                 );
             }
 
-            if (_Spawned.ContainsKey(spawnable.Key))
+            if (_Registered.ContainsKey(spawnable.Key))
             {
                 throw new InvalidOperationException
                 (
@@ -580,7 +1066,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         protected T Spawn(T spawnable, Action<T> initAction = null)
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed();
 
             if (spawnable == null)
             {
@@ -596,12 +1082,14 @@ namespace inonego.Xeri.Game
             }
 
             var spawnKey = default(TKey);
-            var didBeginSpawning = false;
             var wasRegistered = false;
             var attachedBindingCount = 0;
 
-            // Spawn의 모든 훅과 이벤트가 끝날 때까지 일괄 디스폰과 개별 디스폰의 진입을 차단한다.
-            _Spawning.Add(spawnable);
+            // Spawn의 모든 훅과 완료 알림이 끝날 때까지 동일 객체의 재진입을 차단한다.
+            if (!_OperatingEntities.Add(spawnable))
+            {
+                throw new InvalidOperationException("동일 객체의 등록 작업이 진행 중입니다.");
+            }
 
             try
             {
@@ -618,15 +1106,23 @@ namespace inonego.Xeri.Game
 
                 var spawningKey = spawnable.Key;
 
-                if (_Spawned.ContainsKey(spawningKey))
+                if (_Registered.ContainsKey(spawningKey))
                 {
                     throw new InvalidOperationException($"이미 동일 키({spawningKey})가 등록되어 있습니다.");
                 }
 
                 // 외부 관찰자는 등록 직전의 확정된 Key와 Spawning 상태를 받는다.
                 spawnKey = spawningKey;
-                didBeginSpawning = true;
-                OnSpawning?.Invoke(spawningKey, spawnable);
+                ThrowObserverFailures
+                (
+                    NotifyObservers(OnSpawning, spawningKey, spawnable),
+                    "게임 Spawn 시작 알림에 실패했습니다."
+                );
+                ThrowObserverFailures
+                (
+                    NotifyObservers(OnRegistering, spawningKey, spawnable),
+                    "Registry 등록 시작 알림에 실패했습니다."
+                );
 
                 if (!spawnable.HasKey || !EqualityComparer<TKey>.Default.Equals(spawnable.Key, spawningKey))
                 {
@@ -637,13 +1133,13 @@ namespace inonego.Xeri.Game
                 }
 
                 // Spawning 구독자가 같은 Key의 다른 객체를 등록했는지 최종 확인한다.
-                if (_Spawned.ContainsKey(spawnKey))
+                if (_Registered.ContainsKey(spawnKey))
                 {
                     throw new InvalidOperationException($"이미 동일 키({spawnKey})가 등록되어 있습니다.");
                 }
 
                 // Required binding과 완료 훅은 Registry에서 자신을 조회할 수 있는 객체를 받는다.
-                _Spawned.Add(spawnKey, spawnable);
+                _Registered.Add(spawnKey, spawnable);
                 wasRegistered = true;
                 AttachRegistrationRuntime(spawnable);
 
@@ -651,62 +1147,98 @@ namespace inonego.Xeri.Game
                 {
                     // 실패한 binding도 부분 작업을 남길 수 있으므로 rollback 대상에 포함한다.
                     attachedBindingCount = index + 1;
-                    bindings[index].OnSpawned(spawnKey, spawnable);
+                    bindings[index].OnRegistered(spawnKey, spawnable);
                 }
 
                 // 필수 binding이 모두 확정된 뒤 Entity 완료 훅을 호출한다.
                 spawnable.OnSpawned();
             }
-            catch
+            catch (Exception spawnException)
             {
-                _Spawning.Remove(spawnable);
-
-                // OnSpawning 발행을 시작한 객체는 공개 실패 정리 알림을 시도한다.
-                if (wasRegistered)
+                try
                 {
-                    Despawn
+                    // 실패 정리를 마칠 때까지 동일 객체의 등록·해제 재진입을 차단한다.
+                    if (wasRegistered)
+                    {
+                        Despawn
+                        (
+                            spawnable,
+                            DespawnReason.SpawnRollback,
+                            attachedBindingCount,
+                            publishLifecycle: false
+                        );
+                    }
+                    else
+                    {
+                        CleanupUnregisteredSpawn
+                        (
+                            spawnable,
+                            DespawnReason.SpawnRollback,
+                            spawnKey
+                        );
+                    }
+                }
+                catch (Exception rollbackException)
+                {
+                    // 정리 실패가 최초 Spawn 오류를 가리지 않도록 두 원인을 함께 전파한다.
+                    throw new AggregateException
                     (
-                        spawnable,
-                        DespawnReason.SpawnRollback,
-                        attachedBindingCount
+                        "SpawnRegistry Spawn과 rollback이 모두 실패했습니다.",
+                        spawnException,
+                        rollbackException
                     );
                 }
-                else
+                finally
                 {
-                    CleanupUnregisteredSpawn
-                    (
-                        spawnable,
-                        DespawnReason.SpawnRollback,
-                        didBeginSpawning,
-                        spawnKey
-                    );
+                    _OperatingEntities.Remove(spawnable);
                 }
 
                 throw;
             }
 
-            _Spawning.Remove(spawnable);
+            // 두 완료 알림이 끝날 때까지 같은 객체의 제거·일괄 제거를 막는다.
+            // Commit 이후 알림 실패는 완료된 Spawn을 되돌리지 않는다.
+            List<Exception> notificationFailures = null;
 
-            // 일반 observer는 commit 이후에 알리며 실패해도 완료된 Spawn을 rollback하지 않는다.
-            OnSpawned?.Invoke(spawnKey, spawnable);
+            try
+            {
+                notificationFailures = NotifyObservers(OnRegistered, spawnKey, spawnable);
+                notificationFailures = NotifyObservers
+                (
+                    OnSpawned,
+                    spawnKey,
+                    spawnable,
+                    notificationFailures
+                );
+            }
+            finally
+            {
+                _OperatingEntities.Remove(spawnable);
+            }
+
+            ThrowObserverFailures
+            (
+                notificationFailures,
+                "Registry 등록 및 Spawn 완료 알림에 실패했습니다."
+            );
 
             return spawnable;
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// Registry 등록 전 실패한 객체의 정리 훅과 공개 알림을 수행한다.
+        /// 등록되지 못한 객체의 내부 정리 훅을 수행한다. 완료 알림은 발행하지 않는다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         private void CleanupUnregisteredSpawn
         (
             T spawnable,
             DespawnReason reason,
-            bool didBeginSpawning,
             TKey spawnKey
         )
         {
             spawnable.SpawnState = SpawnState.Despawning;
+            List<Exception> failures = null;
 
             try
             {
@@ -716,37 +1248,25 @@ namespace inonego.Xeri.Game
                     spawnable,
                     reason,
                     bindingCount: 0,
-                    publishRegistry: didBeginSpawning
+                    publishRegistry: false
                 );
             }
-            finally
+            catch (Exception exception)
             {
-                spawnable.DespawnFromRegistry = null;
-
-                try
+                failures = new List<Exception>
                 {
-                    spawnable.OnDespawned(reason);
-                }
-                finally
-                {
-                    // 완료 훅 반환 전까지 Despawning을 유지해 같은 객체의 재스폰을 차단한다.
-                    spawnable.SpawnState = SpawnState.Despawned;
-
-                    try
-                    {
-                        // OnSpawning 발행을 시작한 실패 객체의 Despawned 상태 확정을 알린다.
-                        if (didBeginSpawning)
-                        {
-                            OnDespawned?.Invoke(spawnKey, spawnable, reason);
-                        }
-                    }
-                    finally
-                    {
-                        // 완료 알림의 성공 여부와 관계없이 획득 출처에 객체를 반환한다.
-                        Release(spawnable, reason);
-                    }
-                }
+                    exception
+                };
             }
+
+            spawnable.DespawnFromRegistry = null;
+            CompleteDespawn
+            (
+                spawnKey, spawnable, reason,
+                publishRegistry: false,
+                publishRegistration: false,
+                failures: failures
+            );
         }
 
         // ----------------------------------------------------------------------
@@ -779,13 +1299,23 @@ namespace inonego.Xeri.Game
                 };
             }
 
+            if (publishRegistry)
+            {
+                failures = NotifyObservers(OnDespawning, key, despawnable, reason, failures);
+            }
+
+            if (detachRegistration && publishRegistry)
+            {
+                failures = NotifyObservers(OnUnregistering, key, despawnable, reason, failures);
+            }
+
             var count = Math.Min(bindingCount, bindings.Count);
 
             for (var index = count - 1; index >= 0; index--)
             {
                 try
                 {
-                    bindings[index].OnDespawning(key, despawnable, reason);
+                    bindings[index].OnUnregistering(key, despawnable, reason);
                 }
                 catch (Exception exception)
                 {
@@ -807,19 +1337,6 @@ namespace inonego.Xeri.Game
                 }
             }
 
-            if (publishRegistry)
-            {
-                try
-                {
-                    OnDespawning?.Invoke(key, despawnable, reason);
-                }
-                catch (Exception exception)
-                {
-                    failures ??= new List<Exception>();
-                    failures.Add(exception);
-                }
-            }
-
             if (failures == null)
             {
                 return;
@@ -832,7 +1349,66 @@ namespace inonego.Xeri.Game
 
     #endregion
 
-    #region 디스폰
+    #region 게임 Despawn 및 전체 정리
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 종료 훅·완료 알림·획득 출처 반환을 끝까지 수행한다.
+        /// <br/> 앞 단계에서 발생한 오류까지 보존해 terminal 정리 결과를 전달한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private void CompleteDespawn
+        (
+            TKey key,
+            T spawnable,
+            DespawnReason reason,
+            bool publishRegistry,
+            bool publishRegistration,
+            List<Exception> failures
+        )
+        {
+            try
+            {
+                spawnable.OnDespawned(reason);
+            }
+            catch (Exception exception)
+            {
+                failures ??= new List<Exception>();
+                failures.Add(exception);
+            }
+            finally
+            {
+                // 완료 훅이 종료된 뒤에만 같은 객체의 새 Spawn 수명을 허용한다.
+                spawnable.SpawnState = SpawnState.Despawned;
+            }
+
+            if (publishRegistration)
+            {
+                failures = NotifyObservers(OnUnregistered, key, spawnable, reason, failures);
+            }
+
+            if (publishRegistry)
+            {
+                failures = NotifyObservers(OnDespawned, key, spawnable, reason, failures);
+            }
+
+            try
+            {
+                Release(spawnable, reason);
+            }
+            catch (Exception exception)
+            {
+                failures ??= new List<Exception>();
+                failures.Add(exception);
+            }
+
+            if (failures != null)
+            {
+                throw failures.Count == 1
+                    ? failures[0]
+                    : new AggregateException("SpawnRegistry 종료 중 여러 단계가 실패했습니다.", failures);
+            }
+        }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -857,7 +1433,8 @@ namespace inonego.Xeri.Game
         (
             T despawnable,
             DespawnReason reason,
-            int bindingCount
+            int bindingCount,
+            bool publishLifecycle = true
         )
         {
             if (despawnable == null)
@@ -867,16 +1444,23 @@ namespace inonego.Xeri.Game
 
             SpawnRegistryUtility.ValidateReason(reason);
 
+            // 직접 등록된 Entry는 게임 Despawn 훅 없이 등록 관계만 종료한다.
+            if (despawnable.HasKey && directEntries.Contains(despawnable.Key))
+            {
+                UnregisterEntry(despawnable, reason);
+                return;
+            }
+
             if (isUpdatingBindings)
             {
                 throw new InvalidOperationException("Binding 동기화 중에는 객체를 디스폰할 수 없습니다.");
             }
 
-            if (_Spawning.Contains(despawnable))
+            if (publishLifecycle && _OperatingEntities.Contains(despawnable))
             {
                 throw new InvalidOperationException
                 (
-                    "Spawn 처리를 진행하는 동안 해당 객체를 디스폰할 수 없습니다."
+                    "동일 객체의 등록 또는 해제 작업 중에는 디스폰할 수 없습니다."
                 );
             }
 
@@ -895,7 +1479,7 @@ namespace inonego.Xeri.Game
 
             if
             (
-                !_Spawned.TryGetValue(despawnable.Key, out var registered) ||
+                !_Registered.TryGetValue(despawnable.Key, out var registered) ||
                 !ReferenceEquals(registered, despawnable)
             )
             {
@@ -906,43 +1490,69 @@ namespace inonego.Xeri.Game
             }
 
             var key = despawnable.Key;
-            despawnable.SpawnState = SpawnState.Despawning;
+
+            if (publishLifecycle)
+            {
+                if (!_OperatingEntities.Add(despawnable))
+                {
+                    throw new InvalidOperationException("동일 객체의 수명 작업이 진행 중입니다.");
+                }
+            }
+            else if (!_OperatingEntities.Contains(despawnable))
+            {
+                throw new InvalidOperationException("내부 Spawn Rollback에 등록 작업 보호가 없습니다.");
+            }
 
             try
             {
-                // 사전 단계에서는 key와 Registry 항목이 아직 유효하며 내부 registration runtime을 해제한다.
-                InvokeDespawning
+                despawnable.SpawnState = SpawnState.Despawning;
+                List<Exception> failures = null;
+
+                try
+                {
+                    // 사전 훅 실행 중에는 Registry의 Key와 내부 연결을 유지한다.
+                    InvokeDespawning
+                    (
+                        key,
+                        despawnable,
+                        reason,
+                        bindingCount,
+                        publishRegistry: publishLifecycle,
+                        detachRegistration: true
+                    );
+                }
+                catch (Exception exception)
+                {
+                    failures = new List<Exception>
+                    {
+                        exception
+                    };
+                }
+
+                // 사전 훅이 실패해도 membership과 객체 수명을 terminal 정리한다.
+                try
+                {
+                    _Registered.Remove(key);
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
+
+                CompleteDespawn
                 (
-                    key,
-                    despawnable,
-                    reason,
-                    bindingCount,
-                    detachRegistration: true
+                    key, despawnable, reason,
+                    publishRegistry: publishLifecycle,
+                    publishRegistration: publishLifecycle,
+                    failures: failures
                 );
             }
             finally
             {
-                // 사전 훅이나 이벤트가 실패해도 Registry 소유 상태는 반드시 해제한다.
-                _Spawned.Remove(key);
-
-                try
+                if (publishLifecycle)
                 {
-                    despawnable.OnDespawned(reason);
-                }
-                finally
-                {
-                    // 객체 완료 훅이 반환된 뒤에만 새 스폰을 허용한다.
-                    despawnable.SpawnState = SpawnState.Despawned;
-
-                    try
-                    {
-                        OnDespawned?.Invoke(key, despawnable, reason);
-                    }
-                    finally
-                    {
-                        // 완료 알림의 성공 여부와 관계없이 획득 출처에 객체를 반환한다.
-                        Release(despawnable, reason);
-                    }
+                    _OperatingEntities.Remove(despawnable);
                 }
             }
         }
@@ -972,7 +1582,7 @@ namespace inonego.Xeri.Game
             }
 
             // 진행 중인 Spawn이 이후 등록을 재개하지 못하도록 전체 처리 구간에서 일괄 제거를 차단한다.
-            if (_Spawning.Count > 0)
+            if (_OperatingEntities.Count > 0)
             {
                 throw new InvalidOperationException
                 (
@@ -986,7 +1596,7 @@ namespace inonego.Xeri.Game
             }
 
             // 개별 Despawn의 사전 훅에서 호출되면 현재 객체를 남긴 채 반환하므로 일괄 제거를 시작하지 않는다.
-            foreach (var entity in _Spawned.Values)
+            foreach (var entity in _Registered.Values)
             {
                 if (entity.SpawnState == SpawnState.Despawning)
                 {
@@ -997,7 +1607,7 @@ namespace inonego.Xeri.Game
                 }
             }
 
-            var snapshot = new List<KeyValuePair<TKey, T>>(_Spawned);
+            var snapshot = new List<KeyValuePair<TKey, T>>(_Registered);
             List<Exception> failures = null;
 
             isDespawningAll = true;
@@ -1009,8 +1619,8 @@ namespace inonego.Xeri.Game
                     // 앞선 구독자가 이미 처리한 항목은 중복 디스폰하지 않는다.
                     if
                     (
-                        !_Spawned.TryGetValue(key, out var current) ||
-                        !ReferenceEquals(current, entity) ||
+                        !_Registered.TryGetValue(key, out var registeredEntry) ||
+                        !ReferenceEquals(registeredEntry, entity) ||
                         entity.SpawnState != SpawnState.Spawned
                     )
                     {
@@ -1076,7 +1686,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         protected T Spawn()
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed();
             var spawnable = Acquire();
 
             if (spawnable == null)
@@ -1093,11 +1703,11 @@ namespace inonego.Xeri.Game
         /// <br/> true는 스폰 절차와 완료 알림을 수행했음을 뜻한다.
         /// </summary>
         // ------------------------------------------------------------
-        public virtual bool TrySpawn(out T spawned)
+        public virtual bool TrySpawn(out T registered)
         {
-            spawned = Spawn();
+            registered = Spawn();
 
-            return spawned != null;
+            return registered != null;
         }
 
     #endregion
@@ -1149,7 +1759,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         protected T Spawn(TParam param)
         {
-            ValidateSpawnAllowed();
+            ValidateRegistrationAllowed();
             var spawnable = Acquire(param);
 
             if (spawnable == null)
@@ -1172,11 +1782,11 @@ namespace inonego.Xeri.Game
         /// <br/> true는 스폰 절차와 완료 알림을 수행했음을 뜻한다.
         /// </summary>
         // ------------------------------------------------------------
-        public virtual bool TrySpawn(TParam param, out T spawned)
+        public virtual bool TrySpawn(TParam param, out T registered)
         {
-            spawned = Spawn(param);
+            registered = Spawn(param);
 
-            return spawned != null;
+            return registered != null;
         }
 
     #endregion
