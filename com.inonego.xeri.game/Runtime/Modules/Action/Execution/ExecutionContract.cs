@@ -1,9 +1,9 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionContract.cs
-수정일 : 2026-11-01
+수정일 : 2026-11-17
 
 # 설명
-Execution의 종료 사유, 관찰용 Signal, 결과가 있는 Command와 실행 Context를 정의한다.
+Execution의 종료 사유, 관찰용 Signal, 결과가 있는 Command와 실행 Context, 실행 Mode를 정의한다.
 Context는 구조화된 owner/instigator/data 참조만 보유하고 named primitive 변수는 Session ValueRegistry가 소유한다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -64,16 +64,50 @@ namespace inonego.Xeri.Game
             Key = key.Trim();
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Signal 키를 문자열로 반환하며 키가 없으면 빈 문자열을 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public override string ToString() => Key ?? string.Empty;
 
     #endregion
 
     #region 동등성
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 다른 Signal과 키 값이 같은지 비교한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public bool Equals(ExecutionSignal other) => string.Equals(Key, other.Key, StringComparison.Ordinal);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// object가 같은 키의 Signal인지 비교한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public override bool Equals(object obj) => obj is ExecutionSignal other && Equals(other);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 키 값을 기준으로 해시 코드를 계산한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Key ?? string.Empty);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 두 Signal의 키 값이 같은지 비교한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public static bool operator ==(ExecutionSignal left, ExecutionSignal right) => left.Equals(right);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 두 Signal의 키 값이 다른지 비교한다.
+        /// </summary>
+        // ------------------------------------------------------------
         public static bool operator !=(ExecutionSignal left, ExecutionSignal right) => !left.Equals(right);
 
     #endregion
@@ -133,6 +167,18 @@ namespace inonego.Xeri.Game
 
     // ============================================================
     /// <summary>
+    /// Execution이 권위 실행인지, 예측이나 재시뮬레이션인지 구분한다.
+    /// </summary>
+    // ============================================================
+    public enum ExecutionMode
+    {
+        Authoritative = 0,
+        Predicted = 1,
+        Resimulating = 2,
+    }
+
+    // ============================================================
+    /// <summary>
     /// Execution 시작 시 캡처하는 지속 Owner와 실제 실행 Instigator.
     /// </summary>
     // ============================================================
@@ -155,13 +201,26 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 지속 소유자와 실행 주체를 묶는다.
+        /// 실행 Mode. 기본은 권위 실행이다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionContext(object owner, object instigator)
+        public ExecutionMode Mode { get; }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 지속 소유자와 실행 주체, 실행 Mode를 묶는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public ExecutionContext
+        (
+            object owner,
+            object instigator,
+            ExecutionMode mode = ExecutionMode.Authoritative
+        )
         {
             Owner = owner;
             Instigator = instigator;
+            Mode = mode;
         }
 
     }

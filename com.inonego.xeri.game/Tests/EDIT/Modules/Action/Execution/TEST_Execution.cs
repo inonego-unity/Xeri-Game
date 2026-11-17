@@ -1,13 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_Execution.cs
-수정일 : 2026-11-12
+수정일 : 2026-11-17
 
 # 설명
 ExecutionSession의 시간·Commit·Behavior 수명·ValueRegistry 격리와 기본 Flow/Trigger 계약을 검증한다.
 Ability 선택·비용 지불·Fake Host·Session Begin을 연결한 승인/실패 경계도 검증한다.
 
 # 테스트 구성
- S: Session 구성·Runtime 소유권·시간·수명·Child
+ S: Session 구성·Runtime 소유권·시간·수명·Child·Context Mode
  H: HoldRelease 진행·해제 시간
  C: Command 판정과 Signal 전달
  T: Trigger 발동·정의·Behavior 연동·종료
@@ -51,16 +51,50 @@ namespace inonego.Xeri.Game.TEST._Execution
             private readonly List<string> trace;
             private readonly bool failOnBegin;
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// End 호출 횟수를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int EndCount { get; private set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Signal 수신 횟수를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int SignalCount { get; private set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 마지막 Advance의 Delta를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public float LastDelta { get; private set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Begin 시점에 실행할 콜백을 보관한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public Action<ExecutionSession> OnBegin { get; set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Advance 시점에 실행할 콜백을 보관한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public Action<ExecutionSession, float> OnAdvance { get; set; }
 
         #endregion
 
         #region 생성자
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 호출 순서를 기록하는 테스트 Behavior를 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public TraceBehaviorRuntime
             (
                 string name = "Probe",
@@ -77,6 +111,11 @@ namespace inonego.Xeri.Game.TEST._Execution
 
         #region 실행 수명과 알림
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Begin 호출을 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Begin(ExecutionSession session)
             {
                 trace?.Add($"{name}.Begin");
@@ -89,6 +128,11 @@ namespace inonego.Xeri.Game.TEST._Execution
                 OnBegin?.Invoke(session);
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Advance 호출과 Delta를 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Advance(ExecutionSession session, float deltaTime)
             {
                 LastDelta = deltaTime;
@@ -97,11 +141,21 @@ namespace inonego.Xeri.Game.TEST._Execution
                 OnAdvance?.Invoke(session, deltaTime);
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 수신한 Signal을 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Signal(ExecutionSession session, in ExecutionSignal signal)
             {
                 SignalCount++;
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 종료 사유를 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void End(ExecutionSession session, ExecutionEndReason reason)
             {
                 EndCount++;
@@ -155,6 +209,11 @@ namespace inonego.Xeri.Game.TEST._Execution
 
         #region 생성자
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Trigger 호출을 기록하는 테스트 Behavior를 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public TriggerTraceBehaviorRuntime
             (
                 string name, ExecutionTrigger trigger,
@@ -171,11 +230,21 @@ namespace inonego.Xeri.Game.TEST._Execution
 
         #region 실행 수명과 Signal
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Trigger의 Begin 호출을 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Begin(ExecutionSession session)
             {
                 trigger.Begin();
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Trigger의 Advance 호출을 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Advance(ExecutionSession session, float deltaTime)
             {
                 if (trigger.TryEvaluate(session.PreviousTime, session.Time, out var effectiveTime))
@@ -185,11 +254,21 @@ namespace inonego.Xeri.Game.TEST._Execution
                 }
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Trigger가 수신한 Signal을 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Signal(ExecutionSession session, in ExecutionSignal signal)
             {
                 trigger.Signal(signal, session.Time);
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Trigger의 종료 사유를 기록한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void End(ExecutionSession session, ExecutionEndReason reason)
             {
                 trigger.End();
@@ -212,13 +291,29 @@ namespace inonego.Xeri.Game.TEST._Execution
             private readonly bool failOnBegin;
             private readonly bool failOnEnd;
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Begin 호출 횟수를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int BeginCount { get; private set; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// End 호출 횟수를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int EndCount { get; private set; }
 
         #endregion
 
         #region 생성자
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 실패 여부를 지정하여 수명주기 테스트 Trigger를 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public LifecycleTrigger(bool failOnBegin = false, bool failOnEnd = false)
             {
                 this.failOnBegin = failOnBegin;
@@ -229,6 +324,11 @@ namespace inonego.Xeri.Game.TEST._Execution
 
         #region 실행 수명과 평가
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Begin 호출을 기록하고 설정에 따라 실패시킨다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void Begin()
             {
                 BeginCount++;
@@ -238,6 +338,11 @@ namespace inonego.Xeri.Game.TEST._Execution
                 }
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// End 호출을 기록하고 설정에 따라 실패시킨다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override void End()
             {
                 EndCount++;
@@ -247,6 +352,11 @@ namespace inonego.Xeri.Game.TEST._Execution
                 }
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 조건 평가 결과를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public override bool TryEvaluate
             (
                 float previousTime,
@@ -445,6 +555,48 @@ namespace inonego.Xeri.Game.TEST._Execution
             Assert.AreEqual(0.9f, hold.MaxHoldTime, 0.0001f);
             Assert.AreEqual(0.5f, holdSession.Flow.ReleaseTime, 0.0001f);
             Assert.IsTrue(holdSession.Flow.IsComplete);
+        }
+
+    #endregion
+
+    #region S-1a: ExecutionContext Mode
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Mode를 지정하지 않은 Context와 기본 Context가 권위 실행인지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ExecutionContext_Mode기본값은Authoritative()
+        {
+            var owner = new object();
+
+            Assert.AreEqual(ExecutionMode.Authoritative, new ExecutionContext(owner, owner).Mode);
+            Assert.AreEqual(ExecutionMode.Authoritative, default(ExecutionContext).Mode);
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 지정한 Mode가 Owner·Instigator와 함께 Session Context로 전달되는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_ExecutionContext_Mode는Session으로전달()
+        {
+            var owner = new object();
+            var instigator = new object();
+
+            foreach (ExecutionMode mode in Enum.GetValues(typeof(ExecutionMode)))
+            {
+                var session = CreateTimelineSession
+                (
+                    context: new ExecutionContext(owner, instigator, mode)
+                );
+
+                Assert.AreEqual(mode, session.Context.Mode);
+                Assert.AreSame(owner, session.Context.Owner);
+                Assert.AreSame(instigator, session.Context.Instigator);
+            }
         }
 
     #endregion
@@ -1553,16 +1705,36 @@ namespace inonego.Xeri.Game.TEST._Execution
         // ============================================================
         private sealed class FakeExecutionHost
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 현재 점유 여부를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public bool IsOccupied => occupied;
             private bool occupied;
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 현재 점유 중인 ExecutionSession을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public ExecutionSession Session { get; private set; }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 점유 여부를 지정하여 가짜 Host를 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public FakeExecutionHost(bool occupied = false)
             {
                 this.occupied = occupied;
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 점유가 가능하면 점유하고 결과를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public bool TryAcquire()
             {
                 if (occupied)
@@ -1574,6 +1746,11 @@ namespace inonego.Xeri.Game.TEST._Execution
                 return true;
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 점유한 Session을 시작하고 결과 Session을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public ExecutionSession Begin
             (
                 ExecutionDefinition selected,
@@ -1602,6 +1779,11 @@ namespace inonego.Xeri.Game.TEST._Execution
                 }
             }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 점유를 해제한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public void Release()
             {
                 if (Session?.IsActive == true)
@@ -1619,7 +1801,7 @@ namespace inonego.Xeri.Game.TEST._Execution
         /// 선택된 Definition과 Cost Policy를 한 요청에 묶고 선택 횟수를 관찰한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private static AbilityUseSelection<ExecutionDefinition, int, ExecutionDefinition> SelectExecution
+        private static AbilityUseSelection<ExecutionDefinition, ExecutionDefinition> SelectExecution
         (
             AbilityInstance<ExecutionDefinition> ability,
             ExecutionDefinition execution,
@@ -1628,22 +1810,22 @@ namespace inonego.Xeri.Game.TEST._Execution
             Action transition = null
         )
         {
-            var policy = new AbilityActivationPolicy<ExecutionDefinition, int>
+            var policy = new AbilityActivationPolicy<ExecutionDefinition>
             (
-                cost: new IAbilityActivationCost<ExecutionDefinition, int>[]
+                cost: new IAbilityActivationCost<ExecutionDefinition>[]
                 {
-                    new AbilityChargeCost<ExecutionDefinition, int>(),
+                    new AbilityChargeCost<ExecutionDefinition>(),
                 }
             );
             var selector = new AbilityUseSelector<ExecutionDefinition, int, ExecutionDefinition>
             (
-                new Func<AbilityActivationContext<ExecutionDefinition, int>,
-                    AbilityUseChoice<ExecutionDefinition, int, ExecutionDefinition>>[]
+                new Func<AbilityActivationContext<ExecutionDefinition>, int,
+                    AbilityUseChoice<ExecutionDefinition, ExecutionDefinition>>[]
                 {
-                    request =>
+                    (request, payload) =>
                     {
                         onSelect?.Invoke();
-                        return new AbilityUseChoice<ExecutionDefinition, int, ExecutionDefinition>
+                        return new AbilityUseChoice<ExecutionDefinition, ExecutionDefinition>
                         (
                             execution,
                             policy,
@@ -1653,7 +1835,7 @@ namespace inonego.Xeri.Game.TEST._Execution
                     },
                 }
             );
-            var context = new AbilityActivationContext<ExecutionDefinition, int>
+            var context = new AbilityActivationContext<ExecutionDefinition>
             (
                 owner,
                 owner,
@@ -1661,10 +1843,15 @@ namespace inonego.Xeri.Game.TEST._Execution
                 0
             );
 
-            Assert.IsTrue(selector.TrySelect(context, out var selection, out _));
+            Assert.IsTrue(selector.TrySelect(new AbilityBindings<ExecutionDefinition>(), context, out var selection, out _));
             return selection;
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 선택 후 Host 시작이 거부되면 비용을 소비하지 않는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_ExecutionHost_선택후Host시작거부는비용을소비하지않음()
         {
@@ -1689,8 +1876,13 @@ namespace inonego.Xeri.Game.TEST._Execution
             Assert.AreSame(execution, selection.Execution);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 비용 지불 후 Session 시작이 실패하면 소비한 비용을 환급하는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
         [Test]
-        public void TEST_ExecutionHost_비용지불후SessionBegin실패는자동환급하지않음()
+        public void TEST_ExecutionHost_비용지불후SessionBegin실패는소비한비용을환급()
         {
             var owner = new object();
             var execution = new ExecutionDefinition(new FixedTimelineExecutionFlowDefinition(1f));
@@ -1703,40 +1895,54 @@ namespace inonego.Xeri.Game.TEST._Execution
             var selectionCount = 0;
             var selection = SelectExecution(ability, execution, owner, () => selectionCount++);
 
-            // 슬롯을 먼저 확보한 뒤 비용을 지불한다.
+            // 슬롯을 먼저 확보한 뒤 비용을 지불하고 Begin 안에서 Session을 시작한다.
             var host = new FakeExecutionHost();
             Assert.IsTrue(host.TryAcquire());
-            Assert.IsTrue(selection.TryActivate(out var activation));
-            Assert.IsTrue(activation.Succeeded);
-            Assert.AreEqual(1, ability.State.Charge.Current);
 
-            // Begin 예외에는 Host를 정리하지만 소비한 비용은 환급하지 않는다.
+            // Begin 예외에는 Host를 정리하고 소비한 비용을 환급한다.
             ExecutionSession failedSession = null;
+            var chargeAtBegin = -1;
             Assert.Throws<InvalidOperationException>
             (
-                () => host.Begin
+                () => selection.TryActivate
                 (
-                    selection.Execution,
-                    new ExecutionContext(owner, owner),
-                    101UL,
-                    session =>
+                    (in AbilityUse<ExecutionDefinition> use) =>
                     {
-                        failedSession = session;
-                        session.OnBegun += _ => throw new InvalidOperationException("Fake Host Begin failed");
-                    }
+                        chargeAtBegin = ability.State.Charge.Current;
+                        host.Begin
+                        (
+                            use.Execution,
+                            new ExecutionContext(owner, owner),
+                            101UL,
+                            session =>
+                            {
+                                failedSession = session;
+                                session.OnBegun += _ => throw new InvalidOperationException("Fake Host Begin failed");
+                            }
+                        );
+                        return true;
+                    },
+                    out _,
+                    out _
                 )
             );
 
+            Assert.AreEqual(1, chargeAtBegin);
             Assert.IsTrue(failedSession.HasEnded);
             Assert.AreEqual(ExecutionEndReason.Cancelled, failedSession.EndReason);
             Assert.IsFalse(host.IsOccupied);
             Assert.IsNull(host.Session);
-            Assert.AreEqual(1, ability.State.Charge.Current);
-            Assert.IsFalse(selection.TryActivate(out var repeated));
+            Assert.AreEqual(2, ability.State.Charge.Current);
+            Assert.IsFalse(selection.TryActivate((in AbilityUse<ExecutionDefinition> use) => true, out var repeated, out _));
             Assert.AreEqual(AbilityActivationFailure.InvalidState, repeated.Failure);
             Assert.AreEqual(1, selectionCount);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 선택한 Execution을 재선택 없이 시작하고 상태 전이가 한 번만 적용되는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
         [Test]
         public void TEST_ExecutionHost_선택한Execution을재선택없이시작하고상태전이는한번만적용()
         {
@@ -1761,15 +1967,31 @@ namespace inonego.Xeri.Game.TEST._Execution
 
             var host = new FakeExecutionHost();
             Assert.IsTrue(host.TryAcquire());
-            Assert.IsTrue(selection.TryActivate(out var activation));
+            ExecutionSession session = null;
+            var transitionAtBegin = -1;
+            Assert.IsTrue
+            (
+                selection.TryActivate
+                (
+                    (in AbilityUse<ExecutionDefinition> use) =>
+                    {
+                        transitionAtBegin = transitionCount;
+                        session = host.Begin(use.Execution, new ExecutionContext(owner, owner), 102UL);
+                        return true;
+                    },
+                    out var activation,
+                    out var started
+                )
+            );
             Assert.IsTrue(activation.Succeeded);
+            Assert.AreEqual(0, transitionAtBegin);
             Assert.AreEqual(1, transitionCount);
             Assert.AreSame(execution, selection.Execution);
-            var session = host.Begin(selection.Execution, new ExecutionContext(owner, owner), 102UL);
+            Assert.AreSame(execution, started.Execution);
             Assert.IsTrue(host.IsOccupied);
             Assert.AreSame(session, host.Session);
             Assert.IsTrue(session.IsActive);
-            Assert.IsFalse(selection.TryActivate(out var repeated));
+            Assert.IsFalse(selection.TryActivate((in AbilityUse<ExecutionDefinition> use) => true, out var repeated, out _));
             Assert.AreEqual(AbilityActivationFailure.InvalidState, repeated.Failure);
             Assert.AreEqual(1, transitionCount);
             Assert.AreEqual(1, selectionCount);

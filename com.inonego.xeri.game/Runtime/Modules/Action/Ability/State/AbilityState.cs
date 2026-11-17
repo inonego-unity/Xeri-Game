@@ -1,11 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityState.cs
-수정일 : 2026-11-08
+수정일 : 2026-11-17
 
 # 설명
 Owner별 Ability 지속 상태, Cooldown, Charge와 Values를 독립 관리한다.
 동일 Advance 도중 새로 시작된 Charge 시계에는 이미 경과한 시간을 적용하지 않는다.
 외부 변경은 AbilityStateControl에서 수행하고 active Execution 상태는 보관하지 않는다.
+실제 외부 이산 변경마다 Revision을 올리며 시간 진행(Advance)은 Revision을 바꾸지 않는다.
+Unity 직렬화로 복원하면 Revision을 올리고 Values 관찰을 다시 구독한다. 같은 Key 데이터만, 사용 중이 아닐 때만 복원한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -22,13 +24,17 @@ namespace inonego.Xeri.Game
     using Xeri.Serializable;
     using Xeri.Utility;
 
-    // ============================================================
+    // ======================================================================
     /// <summary>
-    /// 한 Owner에 귀속되는 Ability 지속 runtime state.
+    /// <br/> 한 Owner에 귀속되는 Ability 지속 runtime state.
+    /// <br/> 복원은 Unity 직렬화(JsonUtility.FromJsonOverwrite 등)로 수행한다.
+    /// <br/> 복원하면 Revision이 1 증가한다.
+    /// <br/> 호출자는 같은 Ability Key의 데이터만 복원해야 한다.
+    /// <br/> 사용 중에는 복원하지 않아야 하며 콜백 안에서는 검사할 수 없다.
     /// </summary>
-    // ============================================================
+    // ======================================================================
     [Serializable]
-    public class AbilityState
+    public class AbilityState : ISerializationCallbackReceiver
     {
 
     #region 지속 상태
@@ -76,12 +82,17 @@ namespace inonego.Xeri.Game
             get
             {
                 values ??= new ValueRegistry();
+                ObserveValues();
                 return values;
             }
         }
 
         [SerializeField]
         private ValueRegistry values = new();
+
+        // Revision에 반영 중인 ValueRegistry 인스턴스.
+        [NonSerialized]
+        private ValueRegistry observedValues = null;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -104,6 +115,20 @@ namespace inonego.Xeri.Game
 
         [NonSerialized]
         private bool isAdvancing = false;
+
+        [NonSerialized]
+        private bool isInUse = false;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> 실제 외부 이산 변경마다 증가하는 변경 번호를 반환한다.
+        /// <br/> Advance의 시간 진행은 변경 번호를 바꾸지 않는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public ulong Revision => revision;
+
+        [NonSerialized]
+        private ulong revision = 0;
 
         [NonSerialized]
         private AbilityStateControl control = null;
@@ -151,6 +176,65 @@ namespace inonego.Xeri.Game
             this.key = key.Value;
         }
 
+    #endregion
+
+    #region 사용 구간
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 사용 구간에 진입한다. 이미 사용 중이면 예외를 던진다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal void EnterUse()
+        {
+            if (isInUse)
+            {
+                throw new InvalidOperationException("AbilityState 사용 중 중첩 사용은 허용하지 않습니다.");
+            }
+
+            isInUse = true;
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 사용 구간을 종료한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal void ExitUse()
+        {
+            isInUse = false;
+        }
+
+    #endregion
+
+    #region 직렬화 복원
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Unity 직렬화 전에 호출되며 처리할 내용이 없다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public void OnBeforeSerialize()
+        {
+            // NONE
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 역직렬화(복원)가 끝나면 Revision을 한 번 올려 복원 이전 선택을 무효화한다.
+        /// <br/> Values 관찰 기록은 비워 다음 Values 접근에서 다시 구독한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public void OnAfterDeserialize()
+        {
+            if (observedValues != null)
+            {
+                observedValues.OnChange -= OnValuesChange;
+                observedValues = null;
+            }
+
+            revision++;
+        }
     #endregion
 
     #region 시간 진행
@@ -248,6 +332,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
+            revision++;
             cooldown.Start(duration);
             return true;
         }
@@ -265,6 +350,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
+            revision++;
             cooldown.Stop();
             return true;
         }
@@ -286,6 +372,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
+            revision++;
             if (amount >= cooldown.RemainingTime)
             {
                 cooldown.Stop();
@@ -293,6 +380,42 @@ namespace inonego.Xeri.Game
             }
 
             cooldown.RemainingTime -= amount;
+            return true;
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 진행 중인 Cooldown을 일시정지하고 실제 변경 여부를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool PauseCooldown()
+        {
+            cooldown ??= new Timer();
+            if (!cooldown.IsRunning)
+            {
+                return false;
+            }
+
+            revision++;
+            cooldown.Pause();
+            return true;
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 일시정지된 Cooldown을 재개하고 실제 변경 여부를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool ResumeCooldown()
+        {
+            cooldown ??= new Timer();
+            if (!cooldown.IsPaused)
+            {
+                return false;
+            }
+
+            revision++;
+            cooldown.Resume();
             return true;
         }
 
@@ -316,10 +439,23 @@ namespace inonego.Xeri.Game
             {
                 // 최초 구성은 검증이 끝난 인스턴스만 상태에 연결한다.
                 charge = new AbilityChargeState(capacity, rechargeDuration, startFull);
+                revision++;
             }
             else
             {
-                charge.Configure(capacity, rechargeDuration, startFull);
+                // 재설정은 검증 이후 알림 중 예외가 나도 이미 적용되므로 구성 번호로 변경 여부를 판별한다.
+                var configurationVersion = charge.ConfigurationVersion;
+                try
+                {
+                    charge.Configure(capacity, rechargeDuration, startFull);
+                }
+                finally
+                {
+                    if (charge.ConfigurationVersion != configurationVersion)
+                    {
+                        revision++;
+                    }
+                }
             }
 
             return charge;
@@ -332,6 +468,12 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         internal bool TryConsumeCharge(int amount)
         {
+            // 알림 도중 변경 번호를 읽는 쪽이 이미 바뀐 상태를 보도록 소비 전에 올린다.
+            if (charge != null && amount > 0 && charge.Current >= amount)
+            {
+                revision++;
+            }
+
             return charge != null && charge.TryConsume(amount);
         }
 
@@ -342,7 +484,76 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         internal int RestoreCharge(int amount)
         {
+            if (charge != null && amount > 0 && charge.Current < charge.Capacity)
+            {
+                revision++;
+            }
+
             return charge?.Restore(amount) ?? 0;
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Charge를 소비하고 지불 전 상태로 정확히 되돌리는 환급 영수증을 반환한다.
+        /// <br/> 환급은 수량과 충전 시계 진행을 함께 복원하며
+        /// <br/> 지불 뒤 Charge가 변경됐으면 예외를 던진다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        internal AbilityCostReceipt PayCharge(int amount)
+        {
+            var paidCharge = charge;
+            var beforeJson = paidCharge != null ? JsonUtility.ToJson(paidCharge) : null;
+
+            if (!TryConsumeCharge(amount))
+            {
+                throw new InvalidOperationException("Ability Charge 소비가 승인 후 실패했습니다.");
+            }
+
+            var afterJson = JsonUtility.ToJson(paidCharge);
+
+            return new AbilityCostReceipt
+            (
+                () =>
+                {
+                    if (!ReferenceEquals(charge, paidCharge) || JsonUtility.ToJson(paidCharge) != afterJson)
+                    {
+                        throw new InvalidOperationException("지불 이후 Charge가 변경되어 환급할 수 없습니다.");
+                    }
+
+                    revision++;
+                    paidCharge.OverwriteFromJson(beforeJson);
+                }
+            );
+        }
+
+    #endregion
+
+    #region Values 관찰
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 현재 ValueRegistry의 변경을 Revision에 반영하도록 한 번만 구독한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private void ObserveValues()
+        {
+            if (ReferenceEquals(observedValues, values))
+            {
+                return;
+            }
+
+            if (observedValues != null)
+            {
+                observedValues.OnChange -= OnValuesChange;
+            }
+
+            values.OnChange += OnValuesChange;
+            observedValues = values;
+        }
+
+        private void OnValuesChange()
+        {
+            revision++;
         }
 
     #endregion
@@ -396,6 +607,20 @@ namespace inonego.Xeri.Game
         /// </summary>
         // ------------------------------------------------------------
         public bool ResetCooldown() => state.ResetCooldown();
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 진행 중인 Cooldown을 일시정지하고 변경 여부를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public bool PauseCooldown() => state.PauseCooldown();
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 일시정지된 Cooldown을 재개하고 변경 여부를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public bool ResumeCooldown() => state.ResumeCooldown();
 
         // ------------------------------------------------------------
         /// <summary>

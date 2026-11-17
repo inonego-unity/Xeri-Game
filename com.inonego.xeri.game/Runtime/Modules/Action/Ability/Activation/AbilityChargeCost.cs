@@ -1,10 +1,10 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeCost.cs
-수정일 : 2026-11-09
+수정일 : 2026-11-17
 
 # 설명
 Ability Charge 비용을 현재 수량으로 검사하고 사용 확정 시 직접 소비한다.
-수량·Recharge 시계는 AbilityChargeState가 소유하며 소비 예외 시 자동 복원하지 않는다.
+수량·Recharge 시계는 AbilityChargeState가 소유하며 환급은 지불 전 상태를 되돌리는 영수증으로 전달한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -16,8 +16,8 @@ namespace inonego.Xeri.Game
     /// Ability의 Charge 수량을 검사하고 사용 확정 시 소비한다.
     /// </summary>
     // ============================================================
-    public sealed class AbilityChargeCost<TDefinition, TProjectContext> :
-        IAbilityActivationCost<TDefinition, TProjectContext>
+    public sealed class AbilityChargeCost<TDefinition> :
+        IAbilityActivationCost<TDefinition>
     where TDefinition : class
     {
 
@@ -56,7 +56,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityActivationCheck Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         )
         {
             return context.Ability?.State?.Charge?.Current >= Amount
@@ -68,19 +68,21 @@ namespace inonego.Xeri.Game
         /// <summary>
         /// <br/> 현재 Charge에서 지정 수량을 소비한다.
         /// <br/> 검증 이후 잔량이 변경되어 소비할 수 없으면 예외를 전달한다.
-        /// <br/> 알림 예외가 발생해도 소비한 Charge를 되돌리지 않는다.
+        /// <br/> 반환한 영수증은 소비한 Charge를 지불 전 상태로 되돌린다.
         /// </summary>
         // ------------------------------------------------------------
-        public void Pay
+        public AbilityCostReceipt Pay
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         )
         {
-            var control = context.Ability?.State?.Control;
-            if (control == null || !control.TryConsumeCharge(Amount))
+            var state = context.Ability?.State;
+            if (state == null)
             {
                 throw new InvalidOperationException("Ability Charge 소비가 승인 후 실패했습니다.");
             }
+
+            return state.PayCharge(Amount);
         }
 
     #endregion

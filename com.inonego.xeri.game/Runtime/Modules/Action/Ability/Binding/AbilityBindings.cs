@@ -1,11 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityBindings.cs
-수정일 : 2026-11-08
+수정일 : 2026-11-17
 
 # 설명
 XOrdered의 우선순위·동순위 등록 순서로 부분 Binding Layer를 합성해 현재 Entry의 Ability를 해석한다.
 각 Layer는 Lease로 등록·해제하며, 고유 원소의 단순 집합이 아닌 동적 Binding 구성이다.
 Base/Equipment/Form 같은 Layer 용도는 프로젝트가 정의한다.
+등록·해제와 Layer 내용 변경마다 Revision을 올려 해석 결과의 현재성을 판별할 수 있다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -36,6 +37,9 @@ namespace inonego.Xeri.Game
         public int Priority { get; }
 
         private readonly Dictionary<AbilityEntryKey, AbilityInstance<TDefinition>> binding = new();
+
+        // Entry 설정·제거가 실제로 일어난 뒤 발생한다.
+        internal event Action OnChange = null;
 
     #endregion
 
@@ -71,7 +75,19 @@ namespace inonego.Xeri.Game
                 throw new ArgumentException("유효한 Ability Entry Key가 필요합니다.", nameof(entryKey));
             }
 
-            binding[entryKey] = instance ?? throw new ArgumentNullException(nameof(instance));
+            if (instance == null)
+            {
+                throw new ArgumentNullException(nameof(instance));
+            }
+
+            // 같은 Ability를 다시 설정하는 것은 변경이 아니다.
+            if (binding.TryGetValue(entryKey, out var previous) && ReferenceEquals(previous, instance))
+            {
+                return;
+            }
+
+            binding[entryKey] = instance;
+            OnChange?.Invoke();
         }
 
         // ------------------------------------------------------------
@@ -79,7 +95,16 @@ namespace inonego.Xeri.Game
         /// 이 Layer에 등록된 Entry 하나를 제거한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool Remove(AbilityEntryKey entryKey) => binding.Remove(entryKey);
+        public bool Remove(AbilityEntryKey entryKey)
+        {
+            if (!binding.Remove(entryKey))
+            {
+                return false;
+            }
+
+            OnChange?.Invoke();
+            return true;
+        }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -152,6 +177,13 @@ namespace inonego.Xeri.Game
         private readonly XOrdered<int, AbilityBindingLayer<TDefinition>> layer = new();
         private readonly List<AbilityEntryKey> entryKeyScratch = new();
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하는 변경 번호를 반환한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public ulong Revision { get; private set; } = 0;
+
     #endregion
 
     #region 계층 등록 및 해제
@@ -174,7 +206,27 @@ namespace inonego.Xeri.Game
             }
 
             layer.Add(bindingLayer.Priority, bindingLayer);
-            return new Lease(() => layer.Remove(bindingLayer));
+            bindingLayer.OnChange += OnLayerChange;
+            Revision++;
+
+            return new Lease
+            (
+                () =>
+                {
+                    if (!layer.Remove(bindingLayer))
+                    {
+                        return;
+                    }
+
+                    bindingLayer.OnChange -= OnLayerChange;
+                    Revision++;
+                }
+            );
+        }
+
+        private void OnLayerChange()
+        {
+            Revision++;
         }
 
         // ----------------------------------------------------------------------

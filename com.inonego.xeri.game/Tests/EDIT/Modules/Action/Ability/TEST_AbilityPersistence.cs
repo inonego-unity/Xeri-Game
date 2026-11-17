@@ -1,9 +1,9 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityPersistence.cs
-수정일 : 2026-11-12
+수정일 : 2026-11-17
 
 # 설명
-AbilityState의 Unity JSON 복원과 Binding 전환 중 Identity·독립 시간 진행 계약을 검증한다.
+AbilityState의 Unity JSON 복원(진행 중·일시정지 Cooldown, 부분 충전, Values)과 Binding 전환 중 Identity·독립 시간 진행 계약을 검증한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using UnityEngine;
@@ -16,6 +16,11 @@ namespace inonego.Xeri.Game.TEST._Ability
     using Xeri;
     using Xeri.Game;
 
+    // ============================================================
+    /// <summary>
+    /// Ability 상태의 저장과 복원 계약을 검증하는 테스트 묶음.
+    /// </summary>
+    // ============================================================
     public sealed class TEST_AbilityPersistence
     {
 
@@ -23,8 +28,18 @@ namespace inonego.Xeri.Game.TEST._Ability
 
         private sealed class TestDefinition
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 테스트 정의의 이름을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public string Name { get; }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 이름으로 테스트 정의를 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public TestDefinition(string name)
             {
                 Name = name;
@@ -33,8 +48,13 @@ namespace inonego.Xeri.Game.TEST._Ability
 
     #endregion
 
-    #region 지속 상태 직렬화와 복원
+    #region P-1: 지속 상태 직렬화와 복원
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Unity JSON 왕복 후 진행 중인 상태가 복원되는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_AbilityState_UnityJson왕복은진행중인상태를복원()
         {
@@ -69,6 +89,77 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(1f, restored.Charge.Recharge.RemainingTime, 0.0001f);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 저장과 복원 후 진행 중인 Cooldown, 부분 충전, Values가 유지되는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test, Category("X12")]
+        public void TEST_AbilityState_X12_저장복원은진행중Cooldown과부분충전과Values를유지()
+        {
+            var state = new AbilityState(new AbilityKey("SavedSkill"));
+            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            state.Control.ConfigureCharge(3, 2f, startFull: false);
+            state.Values.SetI("Stack", 3);
+            state.Values.SetS("Label", "saved");
+            state.Advance(1.5f);
+            var revision = state.Revision;
+
+            var restored = JsonUtility.FromJson<AbilityState>(JsonUtility.ToJson(state));
+
+            // 저장은 Revision을 바꾸지 않고 변경 번호는 저장하지 않는다. 복원은 변경 1회로 센다.
+            Assert.AreEqual(revision, state.Revision);
+            Assert.AreEqual(1UL, restored.Revision);
+            Assert.IsTrue(restored.Cooldown.IsRunning);
+            Assert.AreEqual(3.5f, restored.Cooldown.RemainingTime, 0.0001f);
+            Assert.AreEqual(0, restored.Charge.Current);
+            Assert.IsTrue(restored.Charge.Recharge.IsRunning);
+            Assert.AreEqual(0.5f, restored.Charge.Recharge.RemainingTime, 0.0001f);
+            Assert.AreEqual(3, restored.Values.GetI("Stack"));
+            Assert.AreEqual("saved", restored.Values.GetS("Label"));
+
+            restored.Advance(0.5f);
+
+            Assert.AreEqual(1, restored.Charge.Current);
+            Assert.AreEqual(3f, restored.Cooldown.RemainingTime, 0.0001f);
+
+            // 복원한 상태의 Values 변경도 Revision에 반영한다.
+            restored.Values.SetI("Stack", 4);
+            Assert.AreEqual(2UL, restored.Revision);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 일시정지한 Cooldown도 저장과 복원 후 남은 시간을 유지하는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test, Category("X12")]
+        public void TEST_AbilityState_X12_일시정지한Cooldown도저장복원후남은시간을유지()
+        {
+            var state = new AbilityState(new AbilityKey("SavedSkill"));
+            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            state.Advance(2f);
+            Assert.IsTrue(state.Control.PauseCooldown());
+
+            var restored = JsonUtility.FromJson<AbilityState>(JsonUtility.ToJson(state));
+
+            Assert.IsTrue(restored.Cooldown.IsPaused);
+            Assert.IsFalse(restored.IsCooldownReady);
+            Assert.AreEqual(3f, restored.Cooldown.RemainingTime, 0.0001f);
+
+            restored.Advance(10f);
+            Assert.AreEqual(3f, restored.Cooldown.RemainingTime, 0.0001f);
+
+            Assert.IsTrue(restored.Control.ResumeCooldown());
+            restored.Advance(1f);
+            Assert.AreEqual(2f, restored.Cooldown.RemainingTime, 0.0001f);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 충전 완료 콜백에서 JSON 복원 후 다음 충전이 이어지는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_AbilityState_충전완료콜백에서JSON복원은다음충전을이어감()
         {
@@ -90,8 +181,13 @@ namespace inonego.Xeri.Game.TEST._Ability
 
     #endregion
 
-    #region Binding identity 전환
+    #region B-1: Binding identity 전환
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Override 중 독립 시간 진행 후 A의 Identity와 State가 복원되는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
         [Test]
         public void TEST_AbilityBindings_Override중독립시간진행후A의Identity와State를복원()
         {

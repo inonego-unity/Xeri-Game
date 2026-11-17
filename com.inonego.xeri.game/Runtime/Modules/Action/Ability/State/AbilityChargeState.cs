@@ -1,11 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeState.cs
-수정일 : 2026-11-09
+수정일 : 2026-11-17
 
 # 설명
 Ability의 Charge 수량과 순차 Recharge를 Cooldown과 독립 관리한다.
 충전 시계의 시작 시점을 Charge 자체가 식별하며 모든 충전 완료를 동일한 경로로 처리한다.
 Definition 사용 의미는 소유하지 않으며 충전량 경계와 수량 복원의 오버플로를 방지한다.
+저장된 JSON 상태로 수량과 충전 시계 진행을 정확히 덮어쓸 수 있다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -446,6 +447,27 @@ namespace inonego.Xeri.Game
             }
 
             return restored;
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 저장된 JSON 상태로 수량과 충전 시계 진행을 덮어쓴다.
+        /// <br/> 기존 Timer 인스턴스는 유지하며 덮어쓴 변경은 충전 진행 중 변경으로 취급한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        internal void OverwriteFromJson(string json)
+        {
+            var timer = recharge;
+
+            JsonUtility.FromJsonOverwrite(json, this);
+
+            if (timer != null && !ReferenceEquals(timer, recharge))
+            {
+                JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(recharge), timer);
+                recharge = timer;
+            }
+
+            version++;
         }
 
     #endregion

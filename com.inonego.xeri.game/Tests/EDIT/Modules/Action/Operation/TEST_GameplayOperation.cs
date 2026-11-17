@@ -18,6 +18,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
     using Xeri;
     using Xeri.Game;
 
+    // ======================================================================
+    /// <summary>
+    /// GameplayOperation의 적용 결과와 Ability 연동 계약을 검증하는 테스트 묶음.
+    /// </summary>
+    // ======================================================================
     public sealed class TEST_GameplayOperation
     {
 
@@ -25,11 +30,21 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
         private sealed class Counter
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 테스트 대상의 값을 읽고 설정한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int Value { get; set; }
         }
 
         private sealed class AddOperation : IGameplayOperation<Counter, int>
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 전달받은 Context로 Operation을 실행하고 결과를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public GameplayOperationResult Invoke
             (
                 in GameplayOperationContext<Counter, int> context
@@ -40,22 +55,27 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
                     return GameplayOperationResult.Reject("recipient missing");
                 }
 
-                if (context.Project == 0)
+                if (context.Payload == 0)
                 {
                     return GameplayOperationResult.NoOp("zero delta");
                 }
 
-                context.Recipient.Value += context.Project;
+                context.Recipient.Value += context.Payload;
                 return GameplayOperationResult.Applied();
             }
         }
 
         private sealed class FollowupStageRequirement :
-            IAbilityActivationRequirement<object, int>
+            IAbilityActivationRequirement<object>
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Operation 적용 가능 여부를 평가한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public AbilityActivationCheck Evaluate
             (
-                in AbilityActivationContext<object, int> context
+                in AbilityActivationContext<object> context
             )
             {
                 return context.Ability.State.Values.GetI("FollowupStage") >= 2
@@ -66,10 +86,32 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
         private sealed class AbilityFeedback
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// AbilityFeedback의 Cooldown 감소량을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public float CooldownReduction { get; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// AbilityFeedback의 Charge 복원량을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int ChargeRestore { get; }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// AbilityFeedback의 후속 단계 값을 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public int FollowupStage { get; }
 
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Cooldown 감소, Charge 복원, 후속 단계를 담은 피드백을 생성한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public AbilityFeedback
             (
                 float cooldownReduction,
@@ -86,6 +128,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
         private sealed class AbilityFeedbackOperation :
             IGameplayOperation<AbilityState, AbilityFeedback>
         {
+            // ------------------------------------------------------------
+            /// <summary>
+            /// Operation을 실행하고 결과를 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
             public GameplayOperationResult Invoke
             (
                 in GameplayOperationContext<AbilityState, AbilityFeedback> context
@@ -96,25 +143,25 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
                     return GameplayOperationResult.Reject("ability state missing");
                 }
 
-                if (context.Project.CooldownReduction > 0f)
+                if (context.Payload.CooldownReduction > 0f)
                 {
                     context.Recipient.Control.ReduceCooldown
                     (
-                        context.Project.CooldownReduction
+                        context.Payload.CooldownReduction
                     );
                 }
 
-                if (context.Project.ChargeRestore > 0)
+                if (context.Payload.ChargeRestore > 0)
                 {
                     context.Recipient.Control.RestoreCharge
                     (
-                        context.Project.ChargeRestore
+                        context.Payload.ChargeRestore
                     );
                 }
 
-                if (context.Project.FollowupStage > 0)
+                if (context.Payload.FollowupStage > 0)
                 {
-                    context.Recipient.Values.SetI("FollowupStage", context.Project.FollowupStage);
+                    context.Recipient.Values.SetI("FollowupStage", context.Payload.FollowupStage);
                 }
 
                 return GameplayOperationResult.Applied();
@@ -125,6 +172,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
     #region O-1: 호출 결과와 기본값
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 미초기화 결과의 기본값이 적용 성공이 아닌지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_GameplayOperationResult_미초기화기본값은적용성공이아님()
         {
@@ -134,6 +186,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
             Assert.AreEqual(GameplayOperationStatus.Rejected, result.Status);
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직접 호출이 Recipient 상태를 변경하는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_GameplayOperation_DirectInvocation이Recipient를변경()
         {
@@ -167,6 +224,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
     #region O-2: NoOp / Reject
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// NoOp과 Reject가 서로 구분되는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_GameplayOperation_NoOp과Reject를구분()
         {
@@ -238,6 +300,11 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
     #region O-4: Owner 후속 단계와 Activation 평가
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Owner의 후속 단계가 다음 Activation 평가에 반영되는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
         [Test]
         public void TEST_GameplayOperation_Owner후속단계가다음Activation평가에반영()
         {
@@ -252,16 +319,16 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
                 new AbilityEntryKey("Skill"),
                 ability
             );
-            var activationContext = new AbilityActivationContext<object, int>
+            var activationContext = new AbilityActivationContext<object>
             (
                 null,
                 null,
                 binding,
                 0
             );
-            var policy = new AbilityActivationPolicy<object, int>
+            var policy = new AbilityActivationPolicy<object>
             (
-                new IAbilityActivationRequirement<object, int>[]
+                new IAbilityActivationRequirement<object>[]
                 {
                     new FollowupStageRequirement()
                 }

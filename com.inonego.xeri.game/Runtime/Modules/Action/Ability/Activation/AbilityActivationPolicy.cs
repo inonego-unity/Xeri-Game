@@ -1,10 +1,10 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivationPolicy.cs
-수정일 : 2026-11-09
+수정일 : 2026-11-17
 
 # 설명
 Requirement와 모든 Cost를 상태 변경 없이 검사한 뒤 등록 순서대로 비용을 소비한다.
-비용 소비와 외부 알림의 사후 복구는 Resource Owner·게임 정책의 책임이다.
+Pay는 소비를 되돌리는 AbilityCostReceipt를 반환하며, 실행 시작이 실패하면 호출자가 역순으로 환급한다.
 서로 독립된 Owner의 Pay를 Xeri가 원자적으로 처리한다고 보장하지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -16,10 +16,44 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
+    /// 소비한 비용을 되돌리는 동작을 담아 호출자에게 전달하는 영수증.
+    /// </summary>
+    // ============================================================
+    public readonly struct AbilityCostReceipt
+    {
+        private readonly Action refund;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 소비한 것이 없어 환급할 내용이 없는 영수증을 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public static AbilityCostReceipt NoChange => default;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 환급 동작을 가진 영수증을 생성한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public AbilityCostReceipt(Action refund)
+        {
+            this.refund = refund ?? throw new ArgumentNullException(nameof(refund));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 소비한 비용을 되돌리며 환급할 내용이 없으면 아무 일도 하지 않는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal void Refund() => refund?.Invoke();
+    }
+
+    // ============================================================
+    /// <summary>
     /// Ability 사용 조건을 상태 변경 없이 평가한다.
     /// </summary>
     // ============================================================
-    public interface IAbilityActivationRequirement<TDefinition, TProjectContext>
+    public interface IAbilityActivationRequirement<TDefinition>
     where TDefinition : class
     {
         // ------------------------------------------------------------
@@ -29,7 +63,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         AbilityActivationCheck Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         );
     }
 
@@ -38,8 +72,8 @@ namespace inonego.Xeri.Game
     /// 일반 사용의 Cooldown 완료 여부를 검사한다.
     /// </summary>
     // ============================================================
-    public sealed class AbilityCooldownRequirement<TDefinition, TProjectContext> :
-        IAbilityActivationRequirement<TDefinition, TProjectContext>
+    public sealed class AbilityCooldownRequirement<TDefinition> :
+        IAbilityActivationRequirement<TDefinition>
     where TDefinition : class
     {
         // ------------------------------------------------------------
@@ -49,7 +83,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityActivationCheck Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         )
         {
             return context.Ability?.State?.IsCooldownReady == true
@@ -58,14 +92,14 @@ namespace inonego.Xeri.Game
         }
     }
 
-    // ============================================================
+    // ======================================================================
     /// <summary>
     /// <br/> 비용의 순수 검사와 실제 소비를 Resource Owner에 위임한다.
     /// <br/> 검사를 통과한 Pay는 정상 상황에서 실패하지 않아야 한다.
-    /// <br/> 예외가 발생해도 이미 적용된 비용은 자동으로 복원하지 않는다.
+    /// <br/> Pay가 반환한 영수증으로 이후 실행 시작 실패 시 소비를 되돌린다.
     /// </summary>
-    // ============================================================
-    public interface IAbilityActivationCost<TDefinition, TProjectContext>
+    // ======================================================================
+    public interface IAbilityActivationCost<TDefinition>
     where TDefinition : class
     {
         // ------------------------------------------------------------
@@ -75,18 +109,18 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         AbilityActivationCheck Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         );
 
-        // ----------------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/> 검사된 비용을 Resource Owner의 책임 아래 소비한다.
+        /// <br/> 검사된 비용을 Resource Owner의 책임 아래 소비하고 되돌릴 영수증을 반환한다.
         /// <br/> 여러 자원을 반드시 함께 적용해야 하면 해당 Owner가 원자성을 보장한다.
         /// </summary>
-        // ----------------------------------------------------------------------
-        void Pay
+        // --------------------------------------------------------------------------------
+        AbilityCostReceipt Pay
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         );
     }
 
@@ -95,14 +129,14 @@ namespace inonego.Xeri.Game
     /// 모든 사용 조건과 비용을 검사한 뒤 실제 비용을 소비하는 정책.
     /// </summary>
     // ============================================================
-    public sealed class AbilityActivationPolicy<TDefinition, TProjectContext>
+    public sealed class AbilityActivationPolicy<TDefinition>
     where TDefinition : class
     {
 
     #region 정책 구성
 
-        private readonly IAbilityActivationRequirement<TDefinition, TProjectContext>[] requirement;
-        private readonly IAbilityActivationCost<TDefinition, TProjectContext>[] cost;
+        private readonly IAbilityActivationRequirement<TDefinition>[] requirement;
+        private readonly IAbilityActivationCost<TDefinition>[] cost;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -111,8 +145,8 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityActivationPolicy
         (
-            IReadOnlyList<IAbilityActivationRequirement<TDefinition, TProjectContext>> requirement = null,
-            IReadOnlyList<IAbilityActivationCost<TDefinition, TProjectContext>> cost = null
+            IReadOnlyList<IAbilityActivationRequirement<TDefinition>> requirement = null,
+            IReadOnlyList<IAbilityActivationCost<TDefinition>> cost = null
         )
         {
             this.requirement = CopyRequirement(requirement);
@@ -130,9 +164,9 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public bool TryActivate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context,
+            in AbilityActivationContext<TDefinition> context,
             out AbilityActivationResult result
-        ) => TryActivate(context, null, out result);
+        ) => TryActivate(context, null, null, out result);
 
         // ------------------------------------------------------------
         /// <summary>
@@ -141,7 +175,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityActivationResult Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context
+            in AbilityActivationContext<TDefinition> context
         ) => Evaluate(context, null);
 
         // ------------------------------------------------------------
@@ -151,7 +185,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         internal AbilityActivationResult Evaluate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context,
+            in AbilityActivationContext<TDefinition> context,
             Func<bool> isCurrent
         )
         {
@@ -200,15 +234,16 @@ namespace inonego.Xeri.Game
             return AbilityActivationResult.Success();
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 모든 비용을 다시 검사한 뒤 순서대로 소비한다.
+        /// 모든 비용을 다시 검사한 뒤 순서대로 소비하며 영수증이 있으면 소비 순서대로 담는다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         internal bool TryActivate
         (
-            in AbilityActivationContext<TDefinition, TProjectContext> context,
+            in AbilityActivationContext<TDefinition> context,
             Func<bool> isCurrent,
+            List<AbilityCostReceipt> receipt,
             out AbilityActivationResult result
         )
         {
@@ -218,10 +253,11 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            // 비용 소비 중 예외가 발생하면 이미 적용된 소비는 복원하지 않는다.
+            // 비용 소비 중 예외가 발생하면 이미 담은 영수증의 환급은 호출자가 맡는다.
             for (var index = 0; index < cost.Length; index++)
             {
-                cost[index].Pay(context);
+                var paid = cost[index].Pay(context);
+                receipt?.Add(paid);
             }
 
             return true;
@@ -236,17 +272,17 @@ namespace inonego.Xeri.Game
         /// Requirement 등록 목록을 검증하고 보관한다.
         /// </summary>
         // ------------------------------------------------------------
-        private static IAbilityActivationRequirement<TDefinition, TProjectContext>[] CopyRequirement
+        private static IAbilityActivationRequirement<TDefinition>[] CopyRequirement
         (
-            IReadOnlyList<IAbilityActivationRequirement<TDefinition, TProjectContext>> source
+            IReadOnlyList<IAbilityActivationRequirement<TDefinition>> source
         )
         {
             if (source == null || source.Count == 0)
             {
-                return Array.Empty<IAbilityActivationRequirement<TDefinition, TProjectContext>>();
+                return Array.Empty<IAbilityActivationRequirement<TDefinition>>();
             }
 
-            var result = new IAbilityActivationRequirement<TDefinition, TProjectContext>[source.Count];
+            var result = new IAbilityActivationRequirement<TDefinition>[source.Count];
             for (var index = 0; index < source.Count; index++)
             {
                 result[index] = source[index] ?? throw new ArgumentException(nameof(source));
@@ -260,17 +296,17 @@ namespace inonego.Xeri.Game
         /// Cost 등록 목록을 검증하고 보관한다.
         /// </summary>
         // ------------------------------------------------------------
-        private static IAbilityActivationCost<TDefinition, TProjectContext>[] CopyCost
+        private static IAbilityActivationCost<TDefinition>[] CopyCost
         (
-            IReadOnlyList<IAbilityActivationCost<TDefinition, TProjectContext>> source
+            IReadOnlyList<IAbilityActivationCost<TDefinition>> source
         )
         {
             if (source == null || source.Count == 0)
             {
-                return Array.Empty<IAbilityActivationCost<TDefinition, TProjectContext>>();
+                return Array.Empty<IAbilityActivationCost<TDefinition>>();
             }
 
-            var result = new IAbilityActivationCost<TDefinition, TProjectContext>[source.Count];
+            var result = new IAbilityActivationCost<TDefinition>[source.Count];
             for (var index = 0; index < source.Count; index++)
             {
                 result[index] = source[index] ?? throw new ArgumentException(nameof(source));
