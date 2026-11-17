@@ -14,7 +14,9 @@ Execution은 **하나의 행동이 시작되고 진행되고 종료되는 수명
 | `ExecutionTriggerDefinition` / `ExecutionTrigger` | 시간창·시간점·Signal 조건을 Runtime에서 평가 |
 | `ExecutionEndReason` | Completed, Cancelled, Interrupted, Replaced |
 
-`ExecutionContext(owner, instigator)`는 한 실행의 논리 Owner와 실제 실행자만 보관합니다. 세션의 개별 primitive 변수는 `ExecutionSession.Variables`(`ValueRegistry`)에 저장됩니다.
+`ExecutionContext(owner, instigator, mode = ExecutionMode.Authoritative)`는 한 실행의 논리 Owner와 실제 실행자, 실행 `Mode`만 보관합니다. 세션의 개별 primitive 변수는 `ExecutionSession.Variables`(`ValueRegistry`)에 저장됩니다.
+
+`ExecutionMode`는 이 실행이 권위 실행(`Authoritative`)인지, 예측(`Predicted`)인지, 재시뮬레이션(`Resimulating`)인지를 구분하는 값입니다. Xeri는 Mode를 Context에 담아 Flow·Behavior에 전달할 뿐 Mode에 따라 동작을 바꾸지 않습니다. 예측·재시뮬레이션 중 RPC·Cue·Spawn·보상 같은 외부 부작용을 억제하는 일은 Mode를 읽는 Behavior와 Host의 책임입니다.
 
 ## Definition에서 Session 만들기
 

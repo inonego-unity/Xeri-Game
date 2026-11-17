@@ -7,7 +7,8 @@ Ability는 **재사용 가능한 정의**, **소유자별 지속 상태**, **입
 - 무기·장비·폼 변경으로 같은 입력 Entry의 Ability를 교체하지만 기존 Ability의 상태는 유지해야 할 때
 - Cooldown·Charge·사용자 정의 primitive 값을 논리 Owner 단위로 관리할 때
 - 동일한 Ability가 요청 Context에 따라 다른 Execution·Requirement·Cost를 선택해야 할 때
-- 사용 가능 여부를 먼저 검사하고, 실제 승인 시에만 비용을 소비해야 할 때
+- 사용 가능 여부를 먼저 검사하고, 실제 승인 시에만 비용을 소비하며, 실행을 시작하지 못하면 비용을 되돌려야 할 때
+- 선택 이후 상태가 바뀌었는지 감지하거나 저장한 상태를 복원해야 할 때
 
 네임스페이스는 `inonego.Xeri.Game`입니다.
 
@@ -17,16 +18,17 @@ Ability는 **재사용 가능한 정의**, **소유자별 지속 상태**, **입
 |---|---|
 | `AbilityKey` / `AbilityEntryKey` | 실제 Ability Identity와 입력 Entry Identity를 각각 식별하는 문자열 기반 값 |
 | `AbilityInstance<TDefinition>` | 공유 Definition과 Owner별 `AbilityState` 조합. 실행 중인 Cast를 뜻하지 않음 |
-| `AbilityState` / `AbilityStateControl` | 지속 Cooldown·Charge·`ValueRegistry` 관찰과 변경 |
+| `AbilityState` / `AbilityStateControl` | 지속 Cooldown·Charge·`ValueRegistry` 관찰과 변경, 변경 번호 `Revision` |
 | `AbilityBindingLayer<TDefinition>` | Entry → Instance의 일부 연결과 Priority |
-| `AbilityBindings<TDefinition>` | Layer 등록 `AcquireLayer`·`AcquireOverride`, `TryResolve`, `ResolveAll` |
-| `AbilityActivationContext<TDefinition,TProjectContext>` | Owner, Instigator, 현재 Binding, Project 요청 맥락 |
-| `AbilityUseSelector<TDefinition,TProjectContext,TExecution>` | 등록된 규칙의 순서대로 첫 비-null Choice 선택 |
-| `AbilityUseChoice<...>` / `AbilityUseSelection<...>` | 선택한 Execution·Policy·현재성 검사·선택 후 Transition을 한 번의 사용으로 묶음 |
-| `IAbilityActivationRequirement<...>` | `Evaluate(context)`로 사용 가능 여부만 판단 |
-| `IAbilityActivationCost<...>` | 무소비 `Evaluate(context)`와 실제 소비 `Pay(context)` 분리 |
-| `AbilityActivationPolicy<...>` | Requirement 전체 검사 → Cost 전체 검사 → Cost 등록 순서대로 Pay |
-| `AbilityCooldownRequirement<...>` / `AbilityChargeCost<...>` | 제공되는 Cooldown 검사·Charge 비용 구현 |
+| `AbilityBindings<TDefinition>` | Layer 등록 `AcquireLayer`·`AcquireOverride`, `TryResolve`, `ResolveAll`, 변경 번호 `Revision` |
+| `AbilityActivationContext<TDefinition>` | Owner, Instigator, 현재 Binding, 게임이 요청에 덧붙이는 `object` Payload |
+| `AbilityUseSelector<TDefinition,TPayload,TExecution>` | 등록된 규칙의 순서대로 첫 비-null Choice 선택 |
+| `AbilityUseChoice<TDefinition,TExecution>` / `AbilityUseSelection<TDefinition,TExecution>` | 선택한 Execution·Policy·현재성 검사·Transition을 한 번의 사용으로 묶음 |
+| `AbilityUseOrigin` / `AbilityUse<TExecution>` / `AbilityBegin<TExecution>` | 사용 출처(`AbilityKey`, `EntryKey`), 선택한 Execution, 실행 시작 콜백 |
+| `IAbilityActivationRequirement<TDefinition>` | `Evaluate(context)`로 사용 가능 여부만 판단 |
+| `IAbilityActivationCost<TDefinition>` / `AbilityCostReceipt` | 무소비 `Evaluate(context)`와 실제 소비 `Pay(context)`. `Pay`는 환급용 영수증을 반환 |
+| `AbilityActivationPolicy<TDefinition>` | Requirement 전체 검사 → Cost 전체 검사 → Cost 등록 순서대로 Pay |
+| `AbilityCooldownRequirement<TDefinition>` / `AbilityChargeCost<TDefinition>` | 제공되는 Cooldown 검사·Charge 비용 구현 |
 
 ## 지속 상태: Ability Identity와 실행 수명 분리
 
@@ -50,8 +52,35 @@ bool cooldownStarted = state.Control.TryBeginCooldown(1.5f);
 - `State.Cooldown`은 `IReadOnlyTimer`, `State.Charge`는 `IReadOnlyAbilityChargeState`로 노출됩니다. `Charge`는 구성하지 않았으면 null일 수 있습니다.
 - `State.Values`는 Owner에 귀속된 직렬화 가능한 primitive 값을 보관하는 `ValueRegistry`입니다. 세션의 `ExecutionSession.Variables`와 다릅니다.
 - `Control.ConfigureCharge(capacity, rechargeDuration, startFull)`로 수량·재충전 주기를 설정하고, `TryConsumeCharge`·`RestoreCharge`로 소비·복원합니다. Charge는 순차 재충전하며 Cooldown과 독립입니다.
-- `Advance(deltaTime)`은 Cooldown과 이미 진행 중이던 Recharge를 갱신합니다. 같은 Tick 도중 새로 시작된 Recharge에 이전 경과 시간을 소급 적용하지 않습니다. NaN·무한 시간과 중첩 Advance는 거부합니다.
-- Unity 직렬화는 필드 상태를 다루지만 프로젝트 전체의 Save/Load, 소유자 복원, 실행 세션 재생까지 제공하는 것은 아닙니다.
+- Cooldown은 `TryBeginCooldown`으로 시작하고 `PauseCooldown`·`ResumeCooldown`으로 일시정지·재개합니다. 일시정지한 Cooldown은 `Advance`로 줄지 않습니다.
+
+### 시간 진행
+
+`Advance(deltaTime)`은 Cooldown과 이미 진행 중이던 Recharge를 갱신합니다. 같은 Tick 도중 새로 시작된 Recharge에 이전 경과 시간을 소급 적용하지 않습니다. NaN·무한 시간과 중첩 Advance는 거부합니다. 상태를 어느 시점까지 진행할지는 논리 Owner의 Tick이 정하며, Binding에서 빠진 Instance도 자기 Owner가 Tick을 주는 동안 독립적으로 진행합니다.
+
+### 변경 번호: Revision
+
+`State.Revision`은 외부에서 일어난 이산 변경마다 1씩 증가합니다. 증가하는 경우는 다음과 같습니다.
+
+- Control 호출이 실제로 상태를 바꾼 경우
+- `Values` 변경
+- 직렬화 복원
+- 비용 환급
+
+시간 진행(Cooldown 종료·재충전 완료를 포함한 `Advance`)으로는 증가하지 않습니다. 복제와 현재성 검사는 `Revision`을 비교해 "시간 외의 변경이 있었는가"를 판별합니다. `AbilityBindings.Revision`은 Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하며 같은 역할을 합니다.
+
+### 저장과 복원
+
+`AbilityState`는 `[Serializable]`이며 Cooldown·Charge Timer와 `Values`가 Unity 직렬화에 포함됩니다. 진행 중이거나 일시정지한 상태, 부분 충전도 그대로 저장되고 복원됩니다. `Revision`과 실행 중 여부(in-use)는 직렬화하지 않습니다.
+
+복원은 `JsonUtility.FromJson`·`FromJsonOverwrite` 등 Unity 직렬화로 합니다. 복원이 끝나면 `Revision`이 1 증가해 복원 이전에 한 선택은 현재성 검사에서 거부되고, `Values` 변경 구독도 다시 연결됩니다. 지연 보정이 필요하면 복원한 뒤 호출자가 `Advance`로 처리합니다.
+
+복원에는 두 가지 Host 규칙이 있습니다. 직렬화 콜백은 예외를 안전하게 던질 수 없으므로 Xeri가 검사하지 않습니다.
+
+- **같은 `AbilityKey`의 데이터만** 덮어씁니다.
+- 사용 중인 State(`Selection.TryActivate` 실행 도중)에는 복원하지 않습니다.
+
+프로젝트 전체의 Save/Load, 소유자 복원, 실행 Session 재생은 Xeri가 제공하지 않습니다. Session은 저장 대상이 아닙니다.
 
 ## Entry Binding: 지금 사용할 Instance 해석
 
@@ -69,47 +98,74 @@ if (bindings.TryResolve(entry, out var binding))
 }
 ~~~
 
-우선순위가 높은 Layer가 우선하고 **동일 Priority에서는 가장 나중에 등록한 Layer**가 우선합니다. `AcquireOverride(entry, instance, priority)`는 단일 Entry의 임시 Layer를 등록하고 `Lease`를 반환합니다. `Lease.Dispose()` 또는 `Release()`로 제거하면 아래 Layer의 연결이 다시 노출됩니다.
+우선순위가 높은 Layer가 우선하고 **동일 Priority에서는 가장 나중에 등록한 Layer**가 우선합니다. `AcquireOverride(entry, instance, priority)`는 단일 Entry의 임시 Layer를 등록하고 `Lease`를 반환합니다. `Lease.Dispose()` 또는 `Release()`로 제거하면 아래 Layer의 연결이 다시 노출됩니다. 교체되었다가 복귀한 Instance는 같은 `AbilityState`를 그대로 유지합니다.
 
-`ResolveAll(destination)`은 결과 목록을 비우고 Entry 키의 Ordinal 순서로 현재 연결을 채웁니다. 과거에 선택된 사용 Context나 시작된 Session을 자동으로 새 Binding으로 갈아끼우지 않습니다.
+`ResolveAll(destination)`은 결과 목록을 비우고 Entry 키의 Ordinal 순서로 현재 연결을 채웁니다. 과거에 선택된 사용 Context나 시작된 Session을 자동으로 새 Binding으로 갈아끼우지 않습니다. 선택 이후의 Binding 변경은 `AbilityBindings.Revision`으로 감지합니다.
 
 ## 사용 선택: Execution과 비용을 같은 후보로 고정
 
 ~~~text
 Bindings.TryResolve(entry) → AbilityActivationContext
-    → AbilityUseSelector.TrySelect(context)
+    → AbilityUseSelector.TrySelect(bindings, context, out selection, out reason)
         → 첫 번째 일치 규칙의 AbilityUseChoice
             · 이번 실행(Execution)
             · 이번 Requirement와 Cost(Policy)
-            · 지금도 유효한지(IsCurrent)
-            · 비용 소비 후 전이(Transition)
+            · 현재성 토큰(Bindings Revision·State Revision·Instance)과 선택적 isCurrent
+            · 시작 성공 후의 전이(Transition)
     → AbilityUseSelection.Evaluate() [선택적 사전 검사]
     → 프로젝트 Host 실행 가능 여부 판단
-    → AbilityUseSelection.TryActivate(out result)
-    → 프로젝트 Host가 선택된 Execution 시작
+    → AbilityUseSelection.TryActivate(begin, out result, out use)
+        · begin 콜백에서 프로젝트 Host가 선택된 Execution 시작
 ~~~
 
-`AbilityUseSelector`는 `Func<AbilityActivationContext<...>,AbilityUseChoice<...>>` 목록을 생성자로 받아 등록 순서대로 호출합니다. 규칙은 **선택만** 하고 비용 소비, State 변경, Slot 선점을 하지 않아야 합니다. 규칙이 null을 반환하면 다음 규칙을 평가합니다.
+`AbilityUseSelector<TDefinition,TPayload,TExecution>`는 `Func<AbilityActivationContext<TDefinition>,TPayload,AbilityUseChoice<TDefinition,TExecution>>` 목록을 생성자로 받아 등록 순서대로 호출합니다. Context의 `Payload`는 `object`이며 Selector가 `TPayload`로 캐스팅해 규칙에 전달합니다. 캐스팅할 수 없으면 예외입니다. 규칙은 **선택만** 하고 비용 소비, State 변경, Slot 선점을 하지 않아야 합니다. 규칙이 null을 반환하면 다음 규칙을 평가합니다.
 
-`AbilityUseChoice<TDefinition,TProjectContext,TExecution>` 생성자는 `(execution, policy, isCurrent, transition = null)`입니다. `TExecution`은 프로젝트가 선택한 실행 정의 타입이며 반드시 `ExecutionDefinition`일 필요는 없습니다.
+`AbilityUseChoice<TDefinition,TExecution>` 생성자는 `(execution, policy, isCurrent = null, transition = null)`입니다. `TExecution`은 프로젝트가 선택한 실행 정의 타입이며 반드시 `ExecutionDefinition`일 필요는 없습니다.
 
-`AbilityUseSelection`의 계약:
+### 현재성
 
-1. `Context`는 선택 당시 요청, `Execution`은 선택한 실행입니다.
-2. `Evaluate()`는 `attempted` 여부, `IsCurrent`, 모든 Requirement와 Cost의 `Evaluate`를 검사하고 소비하지 않습니다. 이 검사는 이후 실행을 예약하지 않습니다.
-3. `TryActivate(out result)`는 **첫 시도에서 attempted를 확정**합니다. 거부·예외 후 같은 Selection을 재사용할 수 없고 새로 선택해야 합니다.
-4. 먼저 Requirement 전체를, 그다음 Cost 전체를 평가합니다. 중간 거부 시 어떤 `Pay`도 호출하지 않습니다.
-5. 모두 허용되면 Cost의 `Pay`를 등록 순서로 호출하고 `Transition`을 실행합니다. 반환되는 `AbilityActivationResult`에는 `Succeeded`, `Failure`, `PolicyIndex`, `Reason`이 있습니다.
+Selection은 선택 시점의 `AbilityBindings.Revision`, `State.Revision`, Instance를 기록합니다. 이 토큰이 하나라도 달라지면 `Evaluate`와 `TryActivate`가 `InvalidState`로 거부합니다. 선택 이후 Cooldown 시작·Charge 소비·Values 변경·Binding 교체·상태 복원이 있었다면 새로 선택해야 한다는 뜻입니다. 시간 진행(`Advance`)은 토큰을 바꾸지 않습니다. `isCurrent`는 프로젝트가 추가로 거는 선택적 검사입니다.
 
-`AbilityActivationFailure`에는 `InvalidState`, `RequirementRejected`, `CostRejected` 등이 있습니다. 외부 콜백 예외는 반환형 실패 결과로 자동 변환되지 않으므로 호출 프로젝트가 처리해야 합니다.
+### 사전 검사와 승인
 
-## Cost의 원자성과 게임 Host 책임
+`Evaluate()`는 현재성(토큰과 `isCurrent`)과 모든 Requirement·Cost의 `Evaluate`를 비용 소비 없이 검사합니다. 통과해도 이후 실행이나 자원이 예약되지는 않습니다.
 
-- `AbilityChargeCost<TDefinition,TProjectContext>(amount)`는 `State.Charge.Current`를 검사하고 `State.Control.TryConsumeCharge`로 비용을 소비합니다. 검사 이후 수량이 바뀌어 소비에 실패하면 예외를 던집니다.
-- 한 Resource를 여러 Cost가 따로 검사할 때는 **합계 수량 보장**이 없습니다. 합산 비용을 하나의 Cost·Owner에서 검사하고 소비하세요.
-- 서로 다른 Resource Owner의 비용을 원자적으로 묶는 트랜잭션·자동 환급은 제공하지 않습니다. `Pay` 또는 `Transition` 예외 전에 이미 적용한 소비는 유지될 수 있습니다.
-- 배타 Slot 획득, 기존 Action의 선점·중단, Begin 실패 후 Slot 회수는 게임 Host가 담당합니다. 비용을 환급하려면 별도의 명시적 게임 정책이 필요합니다.
-- Cooldown 검사도 **선택적인 Requirement**입니다. `AbilityCooldownRequirement`를 Policy에 추가해야 Cooldown이 사용 조건에 반영됩니다. Charge만 사용하는 Ability에 Cooldown 정책이 자동으로 강제되지는 않습니다.
+`TryActivate(begin, out result, out use)`는 선택을 **한 번만** 승인합니다. 거부·예외 후에도 같은 Selection을 재사용할 수 없고 새로 선택해야 합니다. `begin`은 필수이며 진행 순서는 다음과 같습니다.
+
+1. 사용 중(in-use) 구간 보호를 걸고, 첫 시도에서 시도 완료로 확정합니다.
+2. 현재성 토큰과 Policy를 검사합니다. Requirement 전체, 그다음 Cost 전체를 평가하며 중간에 거부되면 어떤 `Pay`도 호출하지 않습니다.
+3. 모두 허용되면 Cost의 `Pay`를 등록 순서로 호출하고 반환된 `AbilityCostReceipt`를 모읍니다.
+4. `begin(in use)`를 호출합니다. `use`는 `AbilityUse<TExecution>`으로, `Origin`(`AbilityUseOrigin`의 `AbilityKey`·`EntryKey`)과 선택한 `Execution`을 담습니다.
+5. `begin`이 true를 반환하면 `Transition`을 실행합니다.
+6. 결과로 `AbilityActivationResult`(`Succeeded`, `Failure`, `PolicyIndex`, `Reason`)를 반환합니다.
+
+`AbilityActivationFailure`는 `InvalidState`, `RequirementRejected`, `CostRejected`, `StartRejected`를 구분합니다. 외부 콜백의 예외는 반환형 실패 결과로 자동 변환되지 않으므로 호출 프로젝트가 처리해야 합니다.
+
+## Cost 환급과 게임 Host 책임
+
+비용은 영수증으로 되돌립니다. `IAbilityActivationCost<TDefinition>.Pay`는 `AbilityCostReceipt`를 반환합니다. 상태를 바꾸지 않았다면 `AbilityCostReceipt.NoChange`, 되돌려야 한다면 `new AbilityCostReceipt(refund)`를 반환합니다. `AbilityChargeCost<TDefinition>(amount)`의 영수증은 소비 직전의 Charge 상태를 정확히 복원합니다. 검사 이후 수량이 바뀌어 소비에 실패하면 예외를 던집니다.
+
+`Selection.TryActivate`는 다음과 같이 환급합니다.
+
+| 상황 | 처리 |
+|---|---|
+| Requirement·Cost 평가 거부 | 소비 전이므로 환급할 것이 없음 |
+| `Pay` 중 예외 | 이미 지불한 영수증을 역순으로 환급하고 예외를 다시 던짐 |
+| `begin`이 false 반환 | 영수증을 역순으로 환급하고 `StartRejected` 반환 |
+| `begin` 예외 | 영수증을 역순으로 환급하고 원래 예외를 다시 던짐 |
+| `Transition` 예외 | 환급하지 않고 예외 전달 |
+
+환급 중 오류가 겹치면 원래 예외를 첫 항목으로 하는 `AggregateException` 하나로 전달합니다. 환급은 `State.Revision`을 올립니다.
+
+Xeri가 보장하지 않는 것은 다음과 같고, 프로젝트가 책임집니다.
+
+- 영수증을 반환하지 않는 외부 Resource의 소비와 그 환급
+- 서로 다른 Owner에 걸친 원자적 트랜잭션
+- 한 Resource를 여러 Cost가 따로 검사할 때의 합계 수량 보장. 합산 비용은 하나의 Cost·Owner에서 검사하고 소비하세요.
+- 배타 Slot 획득, 기존 Action의 선점·중단, Begin 실패 후 Slot 회수
+- `AbilityActivationPolicy.TryActivate`를 직접 호출한 경우의 환급. 이 호출은 환급하지 않으므로 환급이 필요한 사용 흐름은 `Selection.TryActivate`를 사용하세요.
+
+Cooldown 검사도 **선택적인 Requirement**입니다. `AbilityCooldownRequirement`를 Policy에 추가해야 Cooldown이 사용 조건에 반영됩니다. Charge만 사용하는 Ability에 Cooldown 정책이 자동으로 강제되지는 않습니다.
 
 ## 관련 문서
 

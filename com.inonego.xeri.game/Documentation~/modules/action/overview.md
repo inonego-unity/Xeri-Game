@@ -14,7 +14,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 | 계층 | 핵심 계약 | 보관·결정하는 것 | 보관하지 않는 것 |
 |---|---|---|---|
 | Ability 상태·바인딩 | `AbilityInstance<TDefinition>`, `AbilityState`, `AbilityBindings<TDefinition>` | 논리 Ability Identity, 소유자별 지속 값, 현재 Entry 연결 | 한 번의 Action 진행 |
-| 사용 선택·승인 | `AbilityUseSelector<...>`, `AbilityUseSelection<...>`, `AbilityActivationPolicy<...>` | 선택한 실행, Requirement·Cost 평가, 비용 소비와 상태 전이 | 프로젝트의 배타 실행 슬롯 |
+| 사용 선택·승인 | `AbilityUseSelector<...>`, `AbilityUseSelection<...>`, `AbilityActivationPolicy<TDefinition>` | 선택한 실행, 선택 후 변경 감지(현재성), Requirement·Cost 평가, 비용 소비·실행 시작 실패 시 환급, 상태 전이 | 프로젝트의 배타 실행 슬롯 |
 | Execution | `ExecutionDefinition`, `ExecutionSession`, Flow·Behavior·Trigger | 단일 행동의 시간, Command·Signal, Commit, Child·종료 | 영구 Ability 상태와 게임별 Effect 관리 |
 | Spatial | `SpatialRequest<TReference>`, `SpatialSession<TReference>` | 위치·방향·회전 출처, Capture·Follow·Lock | 게임의 위치 히스토리·되감기 |
 | Targeting | `SpatialTargetRequirement`, `TargetSelector` | 필수 입력 필드 검증과 대상 후보 선택·순위 | 적·아군·면역·피해 정책 |
@@ -28,12 +28,13 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 ~~~text
 프로젝트 Owner (지속 AbilityState와 Resource 소유)
     ├─ AbilityBindings.TryResolve(EntryKey)
-    │   └─ AbilityActivationContext(Owner, Instigator, Binding, Project)
-    ├─ AbilityUseSelector.TrySelect(Context)
+    │   └─ AbilityActivationContext(Owner, Instigator, Binding, Payload)
+    ├─ AbilityUseSelector.TrySelect(Bindings, Context, ...)
     │   └─ AbilityUseSelection (Execution + Policy + 상태 전이)
     ├─ 프로젝트 Host가 배타 슬롯·기존 Action 정책 결정
-    ├─ Selection.TryActivate()  ← Requirement/Cost 검사 → Cost.Pay → 상태 전이
-    └─ ExecutionDefinition.CreateSession(...) → Session.Begin()
+    ├─ Selection.TryActivate(begin, ...)  ← Requirement/Cost 검사 → Cost.Pay → begin 콜백 → 상태 전이
+    │   └─ begin 콜백: ExecutionDefinition.CreateSession(...) → Session.Begin()
+    └─ 시작된 Session을 Host가 진행
         ├─ Session.Advance(deltaTime) → Flow, Behavior
         ├─ Behavior에서 SpatialSession/TargetSelector 호출
         ├─ PhysicsDelivery 또는 ProjectileDelivery → Contact
@@ -47,7 +48,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 
 | 호출·결과 | 의미 |
 |---|---|
-| `AbilityUseSelection.TryActivate()` | 사용 조건 확인 후 Cost 소비·선택 상태 전이. 선택은 성공·실패와 무관하게 1회 시도 |
+| `AbilityUseSelection.TryActivate(begin, ...)` | 사용 조건 확인 후 Cost 소비·`begin` 콜백으로 실행 시작·선택 상태 전이. `begin` 실패 시 영수증 비용 환급. 선택은 성공·실패와 무관하게 1회 시도 |
 | `ExecutionSession.TryCommit()` | 이미 시작된 Session의 내부 Commit 이벤트. Ability Cost와 무관 |
 | `DeliveryContact2D/3D` | Collider와 접촉 지오메트리. 실제 Hit·Damage·Kill 판정이 아님 |
 | `GameplayOperationResult.Applied()` | 프로젝트 Operation이 적용됨. 수치·사망·피해 분류를 의미하지 않음 |
@@ -57,7 +58,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 
 ## 상태와 수명
 
-**지속 상태.** `AbilityState`의 Cooldown·Charge·`Values`는 논리 Owner가 보관하고 `Advance(deltaTime)`로 갱신합니다. 저장·복원 및 Owner 교체 정책은 프로젝트가 정합니다. 현재 Binding 변경이 이미 시작된 실행의 Identity를 다시 선택하지는 않습니다.
+**지속 상태.** `AbilityState`의 Cooldown·Charge·`Values`는 논리 Owner가 보관하고 `Advance(deltaTime)`로 갱신합니다. 시간 진행을 제외한 이산 변경은 `State.Revision`, Binding 변경은 `AbilityBindings.Revision`에 반영되어 선택 이후의 변경을 감지합니다. 저장·복원은 Unity 직렬화로 하며, 같은 Key의 데이터만 사용 중이 아닐 때 복원하는 규칙은 Host가 지킵니다. Owner 교체 정책은 프로젝트가 정합니다. Binding 변경은 이미 시작된 실행의 Identity를 다시 선택하지 않습니다.
 
 **실행 상태.** `ExecutionDefinition`은 재사용 가능한 설정이고, 각 `CreateSession`은 별도 Flow·Behavior Runtime을 생성합니다. Session은 한 번만 `Begin()`할 수 있습니다. 완료를 감지한 Host가 `TryComplete()`를 호출하거나 종료 이유를 지정해 `End(reason)`해야 합니다.
 
@@ -70,7 +71,8 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 | 시점 | Xeri가 수행하는 처리 | 프로젝트가 책임질 부분 |
 |---|---|---|
 | Requirement 또는 Cost 평가 거부 | 비용을 소비하지 않고 거부 결과 반환 | 사용자 피드백, 재시도·대체 Action |
-| 여러 Cost의 `Pay()` 중 예외 | 예외 전달, 이미 지불한 비용은 자동 환급하지 않음 | 외부 자원 원자성·환급 규칙 |
+| Cost의 `Pay()` 중 예외 또는 `begin` 실패(false·예외) | `Selection.TryActivate`가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달 | 영수증이 없는 외부 자원의 원자성·환급 규칙 |
+| `begin` 성공 후 `Transition` 예외 | 예외 전달, 환급하지 않음 | 상태 전이 실패 후 정리 |
 | 실행 `Begin()` 중 Flow·Behavior·Observer 실패 | 시작된 실행 요소를 역순 정리하며 Cancelled 종료 | 이미 발생한 외부 효과와 Host 슬롯 정리 |
 | 실행 `Advance()`·Command·Signal 중 예외 | Session 실패 종료·예외 전달 | 입력 차단, 월드 작업 정리 |
 | Spatial 대상 소실·물리 검색 불완전 | 유효성·완전성의 관측 결과 제공 | 재조회, 불발/유예, 게임별 적합성 판정 |

@@ -41,26 +41,24 @@ public sealed class ExampleAbilityHost : IDisposable
         layer.Set(entry, instance);
         registration = bindings.AcquireLayer(layer);
 
-        var policy = new AbilityActivationPolicy<object, string>(
-            requirement: new IAbilityActivationRequirement<object, string>[]
+        var policy = new AbilityActivationPolicy<object>(
+            requirement: new IAbilityActivationRequirement<object>[]
             {
-                new AbilityCooldownRequirement<object, string>()
+                new AbilityCooldownRequirement<object>()
             },
-            cost: new IAbilityActivationCost<object, string>[]
+            cost: new IAbilityActivationCost<object>[]
             {
-                new AbilityChargeCost<object, string>(amount: 1)
+                new AbilityChargeCost<object>(amount: 1)
             }
         );
         selector = new AbilityUseSelector<object, string, ExecutionDefinition>(
-            new Func<AbilityActivationContext<object, string>,
-                AbilityUseChoice<object, string, ExecutionDefinition>>[]
+            new Func<AbilityActivationContext<object>, string,
+                AbilityUseChoice<object, ExecutionDefinition>>[]
             {
-                request => new AbilityUseChoice<object, string, ExecutionDefinition>(
+                (request, payload) => new AbilityUseChoice<object, ExecutionDefinition>(
                     execution,
                     policy,
-                    isCurrent: () =>
-                        bindings.TryResolve(entry, out var latest) &&
-                        ReferenceEquals(latest.Instance, request.Ability),
+                    // Cooldown 시작은 begin 성공 후 실행되는 transition에 둡니다.
                     transition: () =>
                     {
                         request.Ability.State.Control.TryBeginCooldown(0.6f);
@@ -76,20 +74,27 @@ public sealed class ExampleAbilityHost : IDisposable
             !bindings.TryResolve(entry, out var binding))
             return false;
 
-        var context = new AbilityActivationContext<object, string>(
-            this, instigator, binding, project: "primary"
+        var context = new AbilityActivationContext<object>(
+            this, instigator, binding, payload: "primary"
         );
-        if (!selector.TrySelect(context, out var selection, out _))
+        if (!selector.TrySelect(bindings, context, out var selection, out _))
             return false;
 
         if (!selection.Evaluate().Succeeded)
             return false;
 
         // 이 예제의 배타 실행 Slot은 active 필드가 담당합니다.
-        if (!selection.TryActivate(out _))
-            return false;
+        // begin이 false를 반환하거나 예외를 던지면 TryActivate가 지불한 Charge를 환급합니다.
+        return selection.TryActivate(
+            (in AbilityUse<ExecutionDefinition> use) => Begin(use, instigator),
+            out _,
+            out _
+        );
+    }
 
-        var session = selection.Execution.CreateSession(
+    private bool Begin(in AbilityUse<ExecutionDefinition> use, object instigator)
+    {
+        var session = use.Execution.CreateSession(
             ++nextId, new inonego.Xeri.Game.ExecutionContext(this, instigator)
         );
         session.OnEnded += HandleEnded;
@@ -101,8 +106,9 @@ public sealed class ExampleAbilityHost : IDisposable
         }
         catch
         {
+            session.OnEnded -= HandleEnded;
             if (ReferenceEquals(active, session)) active = null;
-            throw; // 이미 소비한 Cost는 자동으로 복구되지 않습니다.
+            throw; // TryActivate가 Charge를 환급하고 같은 예외를 다시 던집니다.
         }
     }
 
@@ -141,17 +147,17 @@ public sealed class ExampleAbilityHost : IDisposable
 
 사용하는 측에서는 Host를 생성한 후 사용 시점에 `TryUse(instigator)`를 호출하고, 프레임 또는 게임 Tick마다 `Tick(deltaTime)`을 호출합니다. Host 소유 수명이 끝나면 `Dispose()`를 호출해 진행 중인 실행과 Binding Layer 등록을 정리합니다. 실제 게임에서는 게임 루프/Actor·Service 수명에 이 호출을 연결합니다.
 
-이 예제의 `object` Definition과 `string` 요청 Context는 Xeri가 강제하는 데이터 모델이 아닙니다. 실제 게임에서는 공유 Definition과 구조화된 요청 Context를 사용하면 됩니다. 새로운 입력·모드·타깃 규칙은 `AbilityUseSelector`의 규칙과 `AbilityUseChoice`의 Execution·Policy·Transition 선택에 반영합니다.
+이 예제의 `object` Definition과 `string` Payload(게임이 요청에 덧붙이는 데이터)는 Xeri가 강제하는 데이터 모델이 아닙니다. 실제 게임에서는 공유 Definition과 구조화된 요청 Context를 사용하면 됩니다. `AbilityActivationContext.Payload`는 `object`이며 Selector가 `TPayload`로 캐스팅해 규칙에 전달합니다. 새로운 입력·모드·타깃 규칙은 `AbilityUseSelector`의 규칙과 `AbilityUseChoice`의 Execution·Policy·Transition 선택에 반영합니다.
 
 ## 2. 사용 선택과 비용 소비
 
 - `bindings.TryResolve(entry, out binding)`은 현재 Entry에서 사용할 실제 Ability Instance를 해석합니다.
-- `selector.TrySelect(context, ...)`는 일치하는 첫 규칙의 Execution·Requirement·Cost를 고르며 **부작용을 발생시키지 않아야 합니다**.
-- `selection.Evaluate()`는 현재성, Requirement, Cost를 **비용 소비 없이** 검사합니다. 통과했다고 이후 자원이 예약되는 것은 아닙니다.
-- `selection.TryActivate(out result)`는 현재성을 재검사하고 모든 Cost가 허용되면 등록 순서대로 `Pay()`한 후 상태 전이를 실행합니다. **Selection은 성공·거부·예외 후에도 재사용할 수 없습니다.**
-- `AbilityCooldownRequirement`와 `AbilityChargeCost`는 선택적인 정책 구성 요소입니다. Cooldown은 별도의 `Transition`에서 시작하도록 이 예제에서 설정했습니다.
+- `selector.TrySelect(bindings, context, out selection, out reason)`는 일치하는 첫 규칙의 Execution·Requirement·Cost를 고르며 **부작용을 발생시키지 않아야 합니다**. 선택 시점의 `bindings.Revision`·`State.Revision`·Instance를 함께 기록합니다.
+- `selection.Evaluate()`는 현재성(기록한 값이 그대로인지, 선택적 `isCurrent`), Requirement, Cost를 **비용 소비 없이** 검사합니다. 통과했다고 이후 자원이 예약되는 것은 아닙니다.
+- `selection.TryActivate(begin, out result, out use)`는 현재성을 재검사하고 비용을 지불한 뒤 `begin(in use)`로 실행을 시작합니다. 실행을 시작하지 못하면(`begin`이 false 또는 예외) 지불한 비용을 영수증으로 되돌립니다. **Selection은 성공·거부·예외 후에도 재사용할 수 없습니다.**
+- `AbilityCooldownRequirement`와 `AbilityChargeCost`는 선택적인 정책 구성 요소입니다. 이 예제는 Cooldown을 `begin` 성공 후 실행되는 `Transition`에서 시작합니다.
 
-Cost가 실제 소비되기 시작한 후 `Pay`, `Transition`, `CreateSession`, `Begin`에서 예외가 발생하더라도 Xeri는 이미 지불한 Charge를 자동 복구하지 않습니다. 같은 자원을 여러 Cost가 소비한다면 합계 검사를 한 Resource Owner에 모아야 합니다.
+환급 규칙의 전체 표(`Pay` 중 예외, `begin` 실패, `Transition` 예외)와 Xeri가 보장하지 않는 범위는 [Ability — Cost 환급과 게임 Host 책임](../../modules/action/ability.md#cost-환급과-게임-host-책임)에 있습니다. 영수증을 반환하지 않는 외부 자원의 소비는 Host가 직접 되돌립니다.
 
 ## 3. Host 슬롯·실행 종료
 
@@ -159,7 +165,7 @@ Cost가 실제 소비되기 시작한 후 `Pay`, `Transition`, `CreateSession`, 
 
 `ExecutionDefinition.CreateSession()`은 별도 Session을 만들며, `session.Begin()`부터 `Advance()` 및 `TryComplete()`가 진행됩니다. `HandleEnded()`는 정상 완료·중단·취소 후 `active`를 비웁니다. `Dispose()`는 세션을 취소하고 Binding 등록 Lease를 해제합니다.
 
-더 복잡한 Host에서는 **슬롯 예약 → 비용 확정 → Session 생성·Begin → 종료 콜백으로 슬롯 해제**를 책임져야 합니다. Begin 실패나 다른 콜백 예외 시에도 슬롯 및 외부 자원 정리가 누락되지 않아야 하며, 비용 환급은 필요할 때만 별도 게임 규칙으로 정의합니다.
+더 복잡한 Host는 **슬롯 예약 → 비용 확정 → Session 생성·Begin(`begin` 콜백) → 종료 콜백으로 슬롯 해제**를 책임집니다. `begin` 실패나 다른 콜백 예외 시에도 슬롯과 외부 자원 정리가 누락되지 않아야 합니다. 슬롯을 `begin` 안에서 확보했다면 `begin`이 false를 반환하거나 예외를 던지는 경로에서 그 슬롯을 비우는 것도 Host의 몫입니다.
 
 ## 4. 위치·타깃을 읽고 Delivery에 전달
 
@@ -220,7 +226,7 @@ for (int i = 0; i < batch.Count; ++i)
 
     // 프로젝트 Operation이 Collider를 실제 수신자로 해석할 수 있습니다.
     var operationContext = new GameplayOperationContext<Collider, float>(
-        owner, instigator, origin, contact.Recipient, project: 12f
+        owner, instigator, origin, contact.Recipient, payload: 12f
     );
     GameplayOperationResult result =
         GameplayOperationRunner.Invoke(operation, operationContext);
@@ -237,7 +243,10 @@ for (int i = 0; i < batch.Count; ++i)
 |---|---|
 | Binding 교체 | 이전 Ability State를 무조건 삭제하지 않고 별도 Owner 수명에 따라 보관 |
 | `Selection.Evaluate()` 통과 후 Slot 실패 | 선택은 소비하지 않음. Host 정책에 따라 재선택 가능 |
-| Cost `Pay()` 중 예외 | 부분 소비가 발생할 수 있음. 자동 환급 없음 |
+| Cost `Pay()`·`begin` 실패 | `TryActivate`가 영수증 비용을 역순 환급. 영수증 없는 외부 자원과 Slot은 Host 정리 |
+| `begin` 성공 후 `Transition` 예외 | 환급하지 않음. 상태 전이 실패 정리는 Host |
+| 선택 이후 State·Binding 변경 | 현재성 토큰이 달라져 `InvalidState`로 거부. 다시 선택 |
+| 저장한 State 복원 | 같은 Key·사용 중 아님을 Host가 확인한 뒤 직렬화로 복원. 복원 전 선택은 거부됨 |
 | `Session.Begin()` 실패 | Xeri Session은 Cancelled 정리를 시도함. Host Slot·외부 부작용 별도 정리 |
 | Contact 후보 부족·검색 불완전 | IsComplete/IsSaturated를 확인하고 재조회·유예·실패 정책 적용 |
 | Execution 종료 후 Projectile 생존 | Projectile/World Owner가 계속 Tick·충돌·회수 담당 |

@@ -103,15 +103,15 @@ switch (step.Status)
 
 ## Gameplay Operation: 게임 결과의 의미를 소유하는 계층
 
-`IGameplayOperation<TRecipient,TProjectContext>`는 다음 메서드를 구현합니다.
+`IGameplayOperation<TRecipient,TPayload>`는 다음 메서드를 구현합니다.
 
 ~~~csharp
 GameplayOperationResult Invoke(
-    in GameplayOperationContext<TRecipient, TProjectContext> context
+    in GameplayOperationContext<TRecipient, TPayload> context
 );
 ~~~
 
-`GameplayOperationContext<TRecipient,TProjectContext>(owner, instigator, origin, recipient, project)`는 지속 Owner·발생 주체·출처·실제 수신자·프로젝트 데이터의 의미를 분리합니다.
+`GameplayOperationContext<TRecipient,TPayload>(owner, instigator, origin, recipient, payload)`는 지속 Owner·발생 주체·출처·실제 수신자·Payload의 의미를 분리합니다. Payload는 게임이 요청에 덧붙이는 데이터입니다.
 
 `GameplayOperationRunner.Invoke(operation, context)`가 게임 Operation을 호출합니다. operation이 null이면 `Rejected` 결과를 반환합니다. 실제 Damage·Heal·Buff 수치는 Operation 구현과 대상의 게임별 Rule이 결정합니다.
 
@@ -132,11 +132,11 @@ public sealed class ExampleProgressOperation : IGameplayOperation<string, int>
     {
         if (string.IsNullOrWhiteSpace(context.Recipient))
             return GameplayOperationResult.Reject("Recipient가 없습니다.");
-        if (context.Project <= 0)
+        if (context.Payload <= 0)
             return GameplayOperationResult.NoOp("변경량이 없습니다.");
 
         totals.TryGetValue(context.Recipient, out int previous);
-        totals[context.Recipient] = previous + context.Project;
+        totals[context.Recipient] = previous + context.Payload;
         return GameplayOperationResult.Applied();
     }
 
@@ -150,7 +150,7 @@ public sealed class ExampleProgressOperation : IGameplayOperation<string, int>
 }
 ~~~
 
-호출자는 `ExampleProgressOperation.Apply(owner, instigator, origin, recipient, amount)`를 사용합니다. `Invoke`에서 `Recipient`와 `Project`를 해석하는 것은 프로젝트 책임이며, Xeri는 사용자의 진행량 딕셔너리나 체력 구조를 알지 못합니다.
+호출자는 `ExampleProgressOperation.Apply(owner, instigator, origin, recipient, amount)`를 사용합니다. `Invoke`에서 `Recipient`와 `Payload`를 해석하는 것은 프로젝트 책임이며, Xeri는 사용자의 진행량 딕셔너리나 체력 구조를 알지 못합니다.
 
 `GameplayOperationResult` 상태는 `Applied`, `NoOp`, `Rejected`입니다. `Succeeded`는 Rejected가 아닌 경우를 포함하며 `NoOp`도 성공한 호출로 분류될 수 있습니다. `Reason`은 프로젝트 Operation이 설정한 이유를 전달합니다.
 
