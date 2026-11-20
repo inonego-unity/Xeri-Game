@@ -1,9 +1,9 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionTrigger.cs
-수정일 : 2026-10-31
+수정일 : 2026-11-19
 
 # 설명
-Execution Trigger Definition과 실행별 조건 평가·Signal 전달의 기본 계약.
+Execution Trigger Spec과 실행별 조건 평가·Signal 전달의 기본 계약.
 Trigger의 상태는 실행별 인스턴스에 속하고 실제 게임플레이 효과는 Behavior가 담당한다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -13,18 +13,18 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// 실행 조건의 공유 가능한 정의와 시간 범위 정규화 계약.
+    /// 실행 조건의 공유 가능한 Spec과 시간 범위 정규화 계약.
     /// </summary>
     // ============================================================
     [Serializable]
-    public abstract class ExecutionTriggerDefinition
+    public abstract class ExecutionTriggerSpec
     {
 
     #region 생성·정규화
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 공유 정의로부터 독립적인 실행 조건 인스턴스를 생성한다.
+        /// 공유 Spec으로부터 독립적인 실행 조건 인스턴스를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
         public abstract ExecutionTrigger CreateTrigger();

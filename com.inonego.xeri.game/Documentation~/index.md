@@ -22,7 +22,7 @@ Xeri Core를 기반으로 동작하며, 프로젝트별 전투 공식·입력 �
 | World Object에 지속 상태 연결 | [WorldObject와 지속 상태](foundation/world-object.md) |
 | State Machine 구성 | [State Machine](foundation/state-machine.md) |
 | Ability를 Execution·Delivery에 연결 | [Action](modules/action/index.md) |
-| HP·Faction 판정 | [Combat](modules/combat/index.md) |
+| HP·Faction 판정, 대상별 Status | [Combat](modules/combat/index.md) |
 | 상호작용 후보와 Action 연결 | [Interaction](modules/interaction/index.md) |
 | Zone·Board·Physics Query | [World](modules/world/index.md) |
 | AI 판단과 Group | [AI](modules/ai/group-and-brain.md) |

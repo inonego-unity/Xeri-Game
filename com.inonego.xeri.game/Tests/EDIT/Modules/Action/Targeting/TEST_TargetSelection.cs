@@ -6,7 +6,7 @@
 공통 IFilter 기반 Single / All / Top N 선택과 직접 누적 선택의 외부 계약을 검증한다.
 
 # 테스트 구성
- 필터 논리 조합 / 단일 선택 / 전체 선택 / 상위 N개 선택 / 실패와 예외
+ 필터 논리 조합 / 단일 선택 / 전체 선택 / 상위 N개 선택 / 실패와 예외 / 반복 선택 GC 할당
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -374,6 +374,49 @@ namespace inonego.Xeri.Game.TEST._Targeting
             Assert.AreEqual(2, count);
             Assert.AreEqual(4, destination[0].ID);
             Assert.AreEqual(3, destination[1].ID);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 목록 후보로 반복 선택해도 GC 할당이 없는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_TargetSelector_목록후보의반복선택은GC할당없음()
+        {
+            var candidates = new List<Candidate>
+            {
+                new Candidate(1, 3f),
+                new Candidate(2, 1f),
+                new Candidate(3, 2f),
+            };
+            var destination = new List<Candidate>(8);
+            var scorer = new CandidateScorer();
+            var leaked = new List<object>();
+            Func<Candidate, float> score = candidate => candidate.Score;
+
+            // 첫 호출에서 빌려 쓰는 순위 목록을 만든다.
+            TargetSelector.SelectTop(candidates, 2, scorer, destination);
+            TargetSelector.TrySelect(candidates, score, out _);
+            TargetSelector.SelectAll(candidates, destination);
+            destination.Clear();
+
+            // 계측이 실제로 할당을 잡는지 먼저 확인한다.
+            Assert.That(() => leaked.Add(new object()), new UnityEngine.TestTools.Constraints.AllocatingGCMemoryConstraint());
+
+            Assert.That
+            (
+                () =>
+                {
+                    TargetSelector.SelectTop(candidates, 2, scorer, destination);
+                    TargetSelector.TrySelect(candidates, score, out _);
+                    TargetSelector.SelectAll(candidates, destination);
+                },
+                UnityEngine.TestTools.Constraints.ConstraintExtensions.AllocatingGCMemory(Is.Not)
+            );
+
+            Assert.AreEqual(5, destination.Count);
+            Assert.AreEqual(2, destination[0].ID);
         }
 
     #endregion

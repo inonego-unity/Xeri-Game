@@ -1,10 +1,11 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityInstance.cs
-수정일 : 2026-11-08
+수정일 : 2026-11-19
 
 # 설명
-공유 Definition과 Owner별 AbilityState를 하나의 runtime Ability 단위로 조합한다.
+공유 Spec과 Owner별 AbilityState를 하나의 runtime Ability 단위로 조합한다.
 한 번의 사용 실행은 ExecutionSession이 소유하며 AbilityInstance가 active cast를 의미하지 않는다.
+Ability Key가 유효한 State만 연결해 모든 사용 출처가 유효한 Ability Key를 갖게 한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -13,11 +14,11 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// 공유 Definition과 Owner별 State의 runtime 조합.
+    /// 공유 Spec과 Owner별 State의 runtime 조합.
     /// </summary>
     // ============================================================
-    public sealed class AbilityInstance<TDefinition>
-    where TDefinition : class
+    public sealed class AbilityInstance<TSpec>
+    where TSpec : class
     {
 
         // ------------------------------------------------------------
@@ -29,10 +30,10 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 여러 Owner가 공유할 수 있는 Ability Definition을 반환한다.
+        /// 여러 Owner가 공유할 수 있는 Ability Spec을 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public TDefinition Definition { get; }
+        public TSpec Spec { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -43,13 +44,19 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 공유 Definition과 Owner별 AbilityState를 연결한다.
+        /// <br/> 공유 Spec과 Owner별 AbilityState를 연결한다.
+        /// <br/> Key가 없는 State는 사용 출처를 만들 수 없어 연결하지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        public AbilityInstance(TDefinition definition, AbilityState state)
+        public AbilityInstance(TSpec spec, AbilityState state)
         {
-            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            Spec = spec ?? throw new ArgumentNullException(nameof(spec));
             State = state ?? throw new ArgumentNullException(nameof(state));
+
+            if (!state.Key.IsValid)
+            {
+                throw new ArgumentException("유효한 Ability Key를 가진 State가 필요합니다.", nameof(state));
+            }
         }
     }
 
@@ -58,8 +65,8 @@ namespace inonego.Xeri.Game
     /// Entry Key와 실제 Ability Instance를 함께 보존하는 해석 결과.
     /// </summary>
     // ============================================================
-    public readonly struct AbilityBinding<TDefinition>
-    where TDefinition : class
+    public readonly struct AbilityBinding<TSpec>
+    where TSpec : class
     {
 
         // ------------------------------------------------------------
@@ -74,7 +81,7 @@ namespace inonego.Xeri.Game
         /// 해석 당시 선택된 Ability Instance를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public AbilityInstance<TDefinition> Instance { get; }
+        public AbilityInstance<TSpec> Instance { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -84,7 +91,7 @@ namespace inonego.Xeri.Game
         public AbilityBinding
         (
             AbilityEntryKey entryKey,
-            AbilityInstance<TDefinition> instance
+            AbilityInstance<TSpec> instance
         )
         {
             if (!entryKey.IsValid)

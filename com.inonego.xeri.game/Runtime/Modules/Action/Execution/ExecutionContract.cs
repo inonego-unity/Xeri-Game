@@ -1,10 +1,10 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionContract.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-19
 
 # 설명
 Execution의 종료 사유, 관찰용 Signal, 결과가 있는 Command와 실행 Context, 실행 Mode를 정의한다.
-Context는 구조화된 owner/instigator/data 참조만 보유하고 named primitive 변수는 Session ValueRegistry가 소유한다.
+Context는 구조화된 owner/instigator 참조와 실행 mode만 보유하고 named primitive 변수는 Session ValueRegistry가 소유한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;

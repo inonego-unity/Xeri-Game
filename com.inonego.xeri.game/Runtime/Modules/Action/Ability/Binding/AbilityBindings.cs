@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityBindings.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-19
 
 # 설명
 XOrdered의 우선순위·동순위 등록 순서로 부분 Binding Layer를 합성해 현재 Entry의 Ability를 해석한다.
@@ -23,8 +23,8 @@ namespace inonego.Xeri.Game
     /// Entry별 Ability와 우선순위를 보관하는 부분 Layer.
     /// </summary>
     // ============================================================
-    public sealed class AbilityBindingLayer<TDefinition>
-    where TDefinition : class
+    public sealed class AbilityBindingLayer<TSpec>
+    where TSpec : class
     {
 
     #region 필드
@@ -36,7 +36,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public int Priority { get; }
 
-        private readonly Dictionary<AbilityEntryKey, AbilityInstance<TDefinition>> binding = new();
+        private readonly Dictionary<AbilityEntryKey, AbilityInstance<TSpec>> binding = new();
 
         // Entry 설정·제거가 실제로 일어난 뒤 발생한다.
         internal event Action OnChange = null;
@@ -67,7 +67,7 @@ namespace inonego.Xeri.Game
         public void Set
         (
             AbilityEntryKey entryKey,
-            AbilityInstance<TDefinition> instance
+            AbilityInstance<TSpec> instance
         )
         {
             if (!entryKey.IsValid)
@@ -114,7 +114,7 @@ namespace inonego.Xeri.Game
         public bool TryResolve
         (
             AbilityEntryKey entryKey,
-            out AbilityInstance<TDefinition> instance
+            out AbilityInstance<TSpec> instance
         ) => binding.TryGetValue(entryKey, out instance);
 
         // ------------------------------------------------------------
@@ -146,8 +146,8 @@ namespace inonego.Xeri.Game
     /// <br/> Lease 해제 시 하위 Layer의 Binding이 다시 노출된다.
     /// </summary>
     // ======================================================================
-    public sealed class AbilityBindings<TDefinition>
-    where TDefinition : class
+    public sealed class AbilityBindings<TSpec>
+    where TSpec : class
     {
 
     #region 내부 데이터
@@ -174,7 +174,7 @@ namespace inonego.Xeri.Game
 
         private static readonly IComparer<AbilityEntryKey> entryKeyComparer = new EntryKeyComparer();
 
-        private readonly XOrdered<int, AbilityBindingLayer<TDefinition>> layer = new();
+        private readonly XOrdered<int, AbilityBindingLayer<TSpec>> layer = new();
         private readonly List<AbilityEntryKey> entryKeyScratch = new();
 
         // ----------------------------------------------------------------------
@@ -193,7 +193,7 @@ namespace inonego.Xeri.Game
         /// Layer를 등록하고 해제 시 원상 복귀하는 Lease를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public Lease AcquireLayer(AbilityBindingLayer<TDefinition> bindingLayer)
+        public Lease AcquireLayer(AbilityBindingLayer<TSpec> bindingLayer)
         {
             if (bindingLayer == null)
             {
@@ -224,11 +224,6 @@ namespace inonego.Xeri.Game
             );
         }
 
-        private void OnLayerChange()
-        {
-            Revision++;
-        }
-
         // ----------------------------------------------------------------------
         /// <summary>
         /// 단일 Entry의 임시 Override Layer를 만들고 해제용 Lease를 반환한다.
@@ -237,13 +232,18 @@ namespace inonego.Xeri.Game
         public Lease AcquireOverride
         (
             AbilityEntryKey entryKey,
-            AbilityInstance<TDefinition> instance,
+            AbilityInstance<TSpec> instance,
             int priority
         )
         {
-            var overrideLayer = new AbilityBindingLayer<TDefinition>(priority);
+            var overrideLayer = new AbilityBindingLayer<TSpec>(priority);
             overrideLayer.Set(entryKey, instance);
             return AcquireLayer(overrideLayer);
+        }
+
+        private void OnLayerChange()
+        {
+            Revision++;
         }
 
     #endregion
@@ -258,7 +258,7 @@ namespace inonego.Xeri.Game
         public bool TryResolve
         (
             AbilityEntryKey entryKey,
-            out AbilityBinding<TDefinition> binding
+            out AbilityBinding<TSpec> binding
         )
         {
             binding = default;
@@ -275,7 +275,7 @@ namespace inonego.Xeri.Game
                     continue;
                 }
 
-                binding = new AbilityBinding<TDefinition>(entryKey, instance);
+                binding = new AbilityBinding<TSpec>(entryKey, instance);
                 return true;
             }
 
@@ -289,7 +289,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void ResolveAll
         (
-            List<AbilityBinding<TDefinition>> destination
+            List<AbilityBinding<TSpec>> destination
         )
         {
             if (destination == null)

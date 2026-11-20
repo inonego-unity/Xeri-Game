@@ -101,6 +101,8 @@ TargetSelector.SelectTop(candidateDistances, 2, distance => distance, top);
 
 `SelectAll`과 `SelectTop`은 **destination에 추가**하며 자동 중복 제거·초기화는 하지 않습니다. `SelectAll`은 열거 도중 예외가 발생하면 이미 추가된 결과를 복구하지 않습니다. `SelectTop`은 후보 평가를 완료한 뒤 결과를 추가하지만, destination의 `Add` 자체가 실패하는 경우까지 원자성을 보장하지는 않습니다.
 
+후보가 `IReadOnlyList<TCandidate>`(`List`, 배열 등)이면 인덱스로 읽어 열거자를 만들지 않고, `SelectTop`의 순위 계산 목록은 Unity `ListPool`에서 빌려 쓰므로 매 프레임 선택해도 GC 할당이 없습니다. 이 경로는 열거자를 쓰지 않으므로 선택 중 후보 목록이 바뀌어도 예외로 알리지 않습니다. 일반 `IEnumerable`은 기존처럼 열거자를 씁니다.
+
 `TargetSelection<...>`은 아주 많은 후보를 직접 순회하면서 현재 최적 하나만 유지하려는 경우에 사용합니다. `TryConsider(in candidate, score)`는 NaN을 거부하며 `HasValue`·`Selected`·`Score`로 결과를 확인합니다. 재사용 시에는 새로운 선택 상태를 만들어 이전 후보와의 혼합을 방지하세요.
 
 ## 공간·선택·접촉의 경계

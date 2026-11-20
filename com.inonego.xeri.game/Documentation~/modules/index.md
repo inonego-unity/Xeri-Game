@@ -3,7 +3,7 @@
 | 영역 | 주요 계약 | 문서 |
 |---|---|---|
 | Action | Ability·Execution·Targeting·Delivery·Operation | [Action](action/index.md) |
-| Combat | HP·Faction | [Combat](combat/index.md) |
+| Combat | HP·Faction·Status | [Combat](combat/index.md) |
 | Interaction | Use·Reaction | [Interaction](interaction/index.md) |
 | World | Zone·Board·Physics Query | [World](world/index.md) |
 | Character | Controller·GroundCheck·Jump | [Controller](character/controller.md) |

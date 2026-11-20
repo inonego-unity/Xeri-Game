@@ -1,15 +1,22 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TargetSelector.cs
-수정일 : 2026-10-31
+수정일 : 2026-11-20
 
 # 설명
 외부 후보와 IFilter 정책을 이용해 Single, All, Top N 결과를 선택한다.
 선택 대상의 도메인 의미와 결과 컬렉션 수명은 호출자가 소유한다.
+
+# 특이사항, 제약사항
+반복 호출에서 할당하지 않도록 IReadOnlyList 후보는 인덱스로 읽고, 상위 N개 계산 목록은 Unity ListPool에서 빌려 쓴다.
+목록 후보는 열거자를 쓰지 않으므로 선택 중 목록 변경을 예외로 감지하지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
+
+using UnityEngine;
+using UnityEngine.Pool;
 
 using inonego;
 using inonego.Xeri;
@@ -79,6 +86,57 @@ namespace inonego.Xeri.Game
             {
                 Candidate = candidate;
                 Score = score;
+            }
+        }
+
+    #endregion
+
+    #region 후보 열거
+
+        // 후보를 한 번 열거한다. 목록이면 인덱스로 읽어 열거자를 박싱하지 않는다.
+        private struct CandidateCursor<TCandidate>
+        {
+            private readonly IReadOnlyList<TCandidate> list;
+            private readonly IEnumerator<TCandidate> enumerator;
+            private int index;
+
+            internal TCandidate Current { get; private set; }
+
+            internal CandidateCursor(IEnumerable<TCandidate> candidates)
+            {
+                list       = candidates as IReadOnlyList<TCandidate>;
+                enumerator = list == null ? candidates.GetEnumerator() : null;
+                index      = -1;
+                Current    = default;
+            }
+
+            internal bool MoveNext()
+            {
+                if (list != null)
+                {
+                    index++;
+
+                    if (index >= list.Count)
+                    {
+                        return false;
+                    }
+
+                    Current = list[index];
+                    return true;
+                }
+
+                if (!enumerator.MoveNext())
+                {
+                    return false;
+                }
+
+                Current = enumerator.Current;
+                return true;
+            }
+
+            internal void Dispose()
+            {
+                enumerator?.Dispose();
             }
         }
 
@@ -170,15 +228,26 @@ namespace inonego.Xeri.Game
             }
 
             var count = 0;
-            foreach (var candidate in candidates)
-            {
-                if (filter != null && !filter.IsMatch(candidate))
-                {
-                    continue;
-                }
+            var cursor = new CandidateCursor<TCandidate>(candidates);
 
-                destination.Add(candidate);
-                count++;
+            try
+            {
+                while (cursor.MoveNext())
+                {
+                    var candidate = cursor.Current;
+
+                    if (filter != null && !filter.IsMatch(candidate))
+                    {
+                        continue;
+                    }
+
+                    destination.Add(candidate);
+                    count++;
+                }
+            }
+            finally
+            {
+                cursor.Dispose();
             }
 
             return count;
@@ -276,31 +345,41 @@ namespace inonego.Xeri.Game
             var hasValue = false;
             var bestScore = default(float);
             scoreComparer ??= Comparer<float>.Default;
+            var cursor = new CandidateCursor<TCandidate>(candidates);
 
-            foreach (var candidate in candidates)
+            try
             {
-                if (filter != null && !filter.IsMatch(candidate))
+                while (cursor.MoveNext())
                 {
-                    continue;
-                }
+                    var candidate = cursor.Current;
 
-                if (!scorer.TryScore(candidate, out var score) || float.IsNaN(score))
-                {
-                    continue;
-                }
+                    if (filter != null && !filter.IsMatch(candidate))
+                    {
+                        continue;
+                    }
 
-                if
-                (
-                    hasValue &&
-                    Compare(candidate, score, selected, bestScore, scoreComparer, tieBreaker) >= 0
-                )
-                {
-                    continue;
-                }
+                    if (!scorer.TryScore(candidate, out var score) || float.IsNaN(score))
+                    {
+                        continue;
+                    }
 
-                selected = candidate;
-                bestScore = score;
-                hasValue = true;
+                    if
+                    (
+                        hasValue &&
+                        Compare(candidate, score, selected, bestScore, scoreComparer, tieBreaker) >= 0
+                    )
+                    {
+                        continue;
+                    }
+
+                    selected = candidate;
+                    bestScore = score;
+                    hasValue = true;
+                }
+            }
+            finally
+            {
+                cursor.Dispose();
             }
 
             return hasValue;
@@ -345,57 +424,68 @@ namespace inonego.Xeri.Game
             }
 
             scoreComparer ??= Comparer<float>.Default;
-            var ranked = new List<RankedCandidate<TCandidate>>();
+            var ranked = ListPool<RankedCandidate<TCandidate>>.Get();
+            var cursor = new CandidateCursor<TCandidate>(candidates);
 
-            // 후보 수와 관계없이 상위 maxCount개만 유지한다.
-            foreach (var candidate in candidates)
+            try
             {
-                if (filter != null && !filter.IsMatch(candidate))
+                // 후보 수와 관계없이 상위 maxCount개만 유지한다.
+                while (cursor.MoveNext())
                 {
-                    continue;
-                }
+                    var candidate = cursor.Current;
 
-                if (!scorer.TryScore(candidate, out var score) || float.IsNaN(score))
-                {
-                    continue;
-                }
-
-                var index = 0;
-                while (index < ranked.Count)
-                {
-                    var current = ranked[index];
-                    var order = Compare
-                    (
-                        candidate, score, current.Candidate, current.Score,
-                        scoreComparer, tieBreaker
-                    );
-                    if (order < 0)
+                    if (filter != null && !filter.IsMatch(candidate))
                     {
-                        break;
+                        continue;
                     }
 
-                    index++;
+                    if (!scorer.TryScore(candidate, out var score) || float.IsNaN(score))
+                    {
+                        continue;
+                    }
+
+                    var index = 0;
+                    while (index < ranked.Count)
+                    {
+                        var current = ranked[index];
+                        var order = Compare
+                        (
+                            candidate, score, current.Candidate, current.Score,
+                            scoreComparer, tieBreaker
+                        );
+                        if (order < 0)
+                        {
+                            break;
+                        }
+
+                        index++;
+                    }
+
+                    if (index >= maxCount)
+                    {
+                        continue;
+                    }
+
+                    ranked.Insert(index, new RankedCandidate<TCandidate>(candidate, score));
+                    if (ranked.Count > maxCount)
+                    {
+                        ranked.RemoveAt(ranked.Count - 1);
+                    }
                 }
 
-                if (index >= maxCount)
+                // 계산이 모두 끝난 후 호출자가 소유하는 목록에 결과를 추가한다.
+                foreach (var item in ranked)
                 {
-                    continue;
+                    destination.Add(item.Candidate);
                 }
 
-                ranked.Insert(index, new RankedCandidate<TCandidate>(candidate, score));
-                if (ranked.Count > maxCount)
-                {
-                    ranked.RemoveAt(ranked.Count - 1);
-                }
+                return ranked.Count;
             }
-
-            // 계산이 모두 끝난 후 호출자가 소유하는 목록에 결과를 추가한다.
-            foreach (var item in ranked)
+            finally
             {
-                destination.Add(item.Candidate);
+                cursor.Dispose();
+                ListPool<RankedCandidate<TCandidate>>.Release(ranked);
             }
-
-            return ranked.Count;
         }
 
         // ------------------------------------------------------------

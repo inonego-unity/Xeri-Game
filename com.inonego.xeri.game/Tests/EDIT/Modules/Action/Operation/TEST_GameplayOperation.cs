@@ -1,14 +1,18 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_GameplayOperation.cs
-수정일 : 2026-11-12
+수정일 : 2026-11-19
 
 # 설명
 GameplayOperation의 direct invocation, no-op/reject 결과와 AbilityState feedback 조합을 검증한다.
 Cooldown·Charge·Owner 후속 단계가 이후 activation 평가에 반영되는 경계를 확인한다.
+
+# 테스트 구성
+ O: 호출 결과·NoOp/Reject·Ability 상태 Feedback·후속 단계
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 
 using NUnit;
 using NUnit.Framework;
@@ -334,7 +338,7 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
                 }
             );
 
-            Assert.IsFalse(policy.TryActivate(activationContext, out _));
+            Assert.IsFalse(policy.TryActivate(activationContext, null, new List<AbilityCostReceipt>(), out _));
 
             var feedback = new AbilityFeedback(0f, 0, 2);
             var operationContext = new GameplayOperationContext
@@ -363,13 +367,15 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
                 policy.TryActivate
                 (
                     activationContext,
+                    null,
+                    new List<AbilityCostReceipt>(),
                     out var activationResult
                 )
             );
             Assert.IsTrue(activationResult.Succeeded);
 
             state.Values.Remove("FollowupStage");
-            Assert.IsFalse(policy.TryActivate(activationContext, out _));
+            Assert.IsFalse(policy.TryActivate(activationContext, null, new List<AbilityCostReceipt>(), out _));
         }
 
     #endregion

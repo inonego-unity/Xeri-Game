@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionTimeWindowTrigger.cs
-수정일 : 2026-10-31
+수정일 : 2026-11-19
 
 # 설명
 시간창과 진행 구간의 교차를 Tick마다 평가하는 조건.
@@ -14,11 +14,11 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// 지정된 시간 구간에 유효한 Trigger 조건을 표현하는 정의.
+    /// 지정된 시간 구간에 유효한 Trigger 조건을 표현하는 Spec.
     /// </summary>
     // ============================================================
     [Serializable]
-    public sealed class ExecutionTimeWindowTriggerDefinition : ExecutionTriggerDefinition
+    public sealed class ExecutionTimeWindowTriggerSpec : ExecutionTriggerSpec
     {
 
     #region 설정
@@ -52,7 +52,7 @@ namespace inonego.Xeri.Game
         /// Unity 직렬화용 기본 시간창을 구성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionTimeWindowTriggerDefinition()
+        public ExecutionTimeWindowTriggerSpec()
         {
             // NONE
         }
@@ -62,7 +62,7 @@ namespace inonego.Xeri.Game
         /// 시작과 종료 시각을 정규화하여 시간창을 정의한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionTimeWindowTriggerDefinition(float beginTime, float endTime)
+        public ExecutionTimeWindowTriggerSpec(float beginTime, float endTime)
         {
             this.beginTime = beginTime;
             this.endTime = endTime;
@@ -75,7 +75,7 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 정의의 시간창을 가진 실행별 Trigger를 생성한다.
+        /// 현재 Spec의 시간창을 가진 실행별 Trigger를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
         public override ExecutionTrigger CreateTrigger() => new ExecutionTimeWindowTrigger(this);
@@ -120,15 +120,15 @@ namespace inonego.Xeri.Game
         /// 실행별 시간창 설정값을 복사하여 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal ExecutionTimeWindowTrigger(ExecutionTimeWindowTriggerDefinition definition)
+        internal ExecutionTimeWindowTrigger(ExecutionTimeWindowTriggerSpec spec)
         {
-            if (definition == null)
+            if (spec == null)
             {
-                throw new ArgumentNullException(nameof(definition));
+                throw new ArgumentNullException(nameof(spec));
             }
 
-            beginTime = definition.BeginTime;
-            endTime = definition.EndTime;
+            beginTime = spec.BeginTime;
+            endTime = spec.EndTime;
         }
 
     #endregion

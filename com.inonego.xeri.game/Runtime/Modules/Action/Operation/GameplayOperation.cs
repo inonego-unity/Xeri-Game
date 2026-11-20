@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : GameplayOperation.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-19
 
 # 설명
 Execution 또는 Delivery 이후 project-domain 작업을 호출하는 공통 GameplayOperation 경계를 정의한다.

@@ -1,19 +1,18 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeState.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-19
 
 # 설명
 Ability의 Charge 수량과 순차 Recharge를 Cooldown과 독립 관리한다.
 충전 시계의 시작 시점을 Charge 자체가 식별하며 모든 충전 완료를 동일한 경로로 처리한다.
-Definition 사용 의미는 소유하지 않으며 충전량 경계와 수량 복원의 오버플로를 방지한다.
-저장된 JSON 상태로 수량과 충전 시계 진행을 정확히 덮어쓸 수 있다.
+Spec 사용 의미는 소유하지 않으며 충전량 경계와 수량 복원의 오버플로를 방지한다.
+충전 Timer는 내부 저장소로만 쓰고 값 읽기(ITimerProgress)만 공개하므로 진행 중 외부 코드를 호출하지 않는다.
+복제는 수량·구성·충전 시계를 변경 알림 없이 정확히 덮어쓴다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime;
-using System.Runtime.ExceptionServices;
 
 using UnityEngine;
 
@@ -63,7 +62,7 @@ namespace inonego.Xeri.Game
         /// 현재 충전 타이머를 읽기 전용으로 제공한다.
         /// </summary>
         // ------------------------------------------------------------
-        IReadOnlyTimer Recharge { get; }
+        ITimerProgress Recharge { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -79,7 +78,8 @@ namespace inonego.Xeri.Game
     /// </summary>
     // ============================================================
     [Serializable]
-    public sealed class AbilityChargeState : IReadOnlyAbilityChargeState, ISerializationCallbackReceiver
+    public sealed class AbilityChargeState :
+        IReadOnlyAbilityChargeState, ISerializationCallbackReceiver, IDeepCloneable<AbilityChargeState>
     {
 
     #region 상태
@@ -123,7 +123,7 @@ namespace inonego.Xeri.Game
         /// 현재 충전 타이머를 읽기 전용으로 제공한다.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyTimer Recharge => recharge;
+        public ITimerProgress Recharge => recharge;
 
         [SerializeField]
         private Timer recharge = new();
@@ -137,35 +137,6 @@ namespace inonego.Xeri.Game
 
         [SerializeField, Min(0.01f)]
         private float rechargeDuration = 1f;
-
-        // Recharge 진행 중 수량이나 구성이 외부에서 변경됐는지 판별한다.
-        [NonSerialized]
-        private uint version = 0;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// Charge 구성 재설정 횟수를 반환한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        internal uint ConfigurationVersion => configurationVersion;
-
-        [NonSerialized]
-        private uint configurationVersion = 0;
-
-        // 이 Charge 소유자가 새 충전 시계를 시작한 횟수.
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 새 충전 시계가 시작된 횟수를 반환한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        internal uint RechargeVersion => rechargeVersion;
-
-        [NonSerialized]
-        private uint rechargeVersion = 0;
-
-        [NonSerialized]
-        private bool isAdvancing = false;
 
     #endregion
 
@@ -198,159 +169,106 @@ namespace inonego.Xeri.Game
 
     #endregion
 
+    #region 복제
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 빈 AbilityChargeState 인스턴스를 생성한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public AbilityChargeState @new() => new AbilityChargeState();
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/> source의 수량·구성·충전 시계를 변경 알림 없이 복제한다.
+        /// <br/> 충전 Timer 인스턴스는 유지한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public void CloneFrom(AbilityChargeState source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            if (ReferenceEquals(source, this))
+            {
+                return;
+            }
+
+            capacity = source.capacity;
+            current = source.current;
+            rechargeDuration = source.rechargeDuration;
+            recharge.CloneFrom(source.recharge);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// other와 수량·구성·충전 시계 값이 모두 같은지 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool IsSame(AbilityChargeState other)
+        {
+            return other != null
+                && capacity == other.capacity
+                && current == other.current
+                && rechargeDuration.Equals(other.rechargeDuration)
+                && recharge.Current == other.recharge.Current
+                && recharge.Duration.Equals(other.recharge.Duration)
+                && recharge.ElapsedTime.Equals(other.recharge.ElapsedTime);
+        }
+
+    #endregion
+
     #region 시간 진행
 
         // ----------------------------------------------------------------------
         /// <summary>
-        /// 경과 시간을 소비하면서 필요한 경우 여러 Charge의 연속 충전을 진행한다.
+        /// <br/> 경과 시간만큼 충전 주기를 순서대로 진행하고 완료한 Charge 수를 반환한다.
+        /// <br/> 진행 중에는 외부 코드를 호출하지 않는다.
         /// </summary>
         // ----------------------------------------------------------------------
-        public void Advance(float deltaTime)
+        internal int Advance(float deltaTime)
         {
             if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime))
             {
                 throw new ArgumentOutOfRangeException(nameof(deltaTime));
             }
 
-            if (isAdvancing)
-            {
-                throw new InvalidOperationException("Recharge 진행 중 중첩 Advance는 허용하지 않습니다.");
-            }
+            var remainingDeltaTime = (double)deltaTime;
+            var recharged = 0;
 
-            recharge ??= new Timer();
-            if (deltaTime <= 0f || IsFull || !recharge.IsRunning)
+            while (remainingDeltaTime > 0d && !IsFull && recharge.IsRunning)
             {
-                return;
-            }
-
-            isAdvancing = true;
-            try
-            {
-                AdvanceRecharge((double)deltaTime);
-            }
-            finally
-            {
-                isAdvancing = false;
-            }
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 동일 시간 기준으로 충전하고 이벤트는 개별 발행한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        private void AdvanceRecharge(double remainingDeltaTime)
-        {
-            List<Exception> notificationErrors = null;
-            while
-            (
-                remainingDeltaTime > 0f &&
-                !IsFull &&
-                recharge.IsRunning
-            )
-            {
-                var timer = recharge;
-                var initialVersion = version;
-                var initialConfigurationVersion = configurationVersion;
-                var remainingRechargeTime = timer.RemainingTime;
-
+                var remainingRechargeTime = recharge.RemainingTime;
                 if (remainingDeltaTime < remainingRechargeTime)
                 {
-                    // float 반올림으로 미완료 구간의 종료 이벤트가 앞서 발생하지 않게 한다.
-                    var nextElapsed = (float)((double)timer.ElapsedTime + remainingDeltaTime);
-                    if (nextElapsed >= timer.Duration)
+                    // float 반올림으로 미완료 구간이 완료로 바뀌지 않게 한다.
+                    var nextElapsed = (float)((double)recharge.ElapsedTime + remainingDeltaTime);
+                    if (nextElapsed >= recharge.Duration)
                     {
                         nextElapsed = BitConverter.Int32BitsToSingle
                         (
-                            BitConverter.SingleToInt32Bits(timer.Duration) - 1
+                            BitConverter.SingleToInt32Bits(recharge.Duration) - 1
                         );
                     }
 
-                    timer.ElapsedTime = nextElapsed;
+                    recharge.ElapsedTime = nextElapsed;
                     break;
                 }
 
-                // 완료량을 먼저 확정해야 완료 이벤트의 소비자가 새 Charge를 볼 수 있다.
-                // 콜백 변경으로 버전이 바뀌어도 이미 완료한 충전은 사라지지 않는다.
                 current++;
-                // 알림 실패는 보관하고, 동일 구성이 유지되면 남은 시간도 끝까지 적용한다.
-                try
-                {
-                    timer.Tick(remainingRechargeTime);
-                }
-                catch (Exception exception)
-                {
-                    (notificationErrors ??= new List<Exception>()).Add(exception);
-                }
+                recharged++;
 
-                if (configurationVersion != initialConfigurationVersion ||
-                    !ReferenceEquals(timer, recharge))
-                {
-                    // 구성 교체는 새로운 시계이므로 이전 Tick의 잔여시간을 넘기지 않는다.
-                    break;
-                }
-
-                if (version != initialVersion)
-                {
-                    // 기존 수량의 소비·복원은 충전 시계 교체가 아니다.
-                    // 남은 시간은 동일 Owner의 다음 충전 주기에 계속 적용한다.
-                    try
-                    {
-                        BeginRechargeIfNeeded();
-                    }
-                    catch (Exception exception)
-                    {
-                        (notificationErrors ??= new List<Exception>()).Add(exception);
-                        if (!recharge.IsRunning)
-                        {
-                            break;
-                        }
-                    }
-
-                    remainingDeltaTime -= remainingRechargeTime;
-                    continue;
-                }
-
-                try
-                {
-                    BeginRechargeIfNeeded();
-                }
-                catch (Exception exception)
-                {
-                    (notificationErrors ??= new List<Exception>()).Add(exception);
-                    // Start 알림이 실패해도 동일 구성으로 새 주기가 실행 중이면 계속 진행한다.
-                    if (configurationVersion != initialConfigurationVersion ||
-                        !ReferenceEquals(timer, recharge) ||
-                        (!IsFull && !recharge.IsRunning))
-                    {
-                        break;
-                    }
-                }
-
-                if (configurationVersion != initialConfigurationVersion ||
-                    !ReferenceEquals(timer, recharge))
-                {
-                    break;
-                }
-
+                // 남은 시간만큼 Tick하면 float 반올림으로 경과 시간 합이 지속 시간에 못 미쳐
+                // 타이머가 멈추지 않을 수 있으므로 이번 주기를 직접 완료 상태로 끝낸다.
+                recharge.ElapsedTime = recharge.Duration;
+                recharge.Stop();
                 remainingDeltaTime -= remainingRechargeTime;
-                if (version != initialVersion)
-                {
-                    // Run 콜백의 수량 소비·복원은 구성 변경이 아니므로 남은 시간은 유효하다.
-                    continue;
-                }
-
+                BeginRechargeWhenNeeded();
             }
 
-            if (notificationErrors?.Count == 1)
-            {
-                ExceptionDispatchInfo.Capture(notificationErrors[0]).Throw();
-            }
-
-            if (notificationErrors?.Count > 1)
-            {
-                throw new AggregateException("Charge 충전 알림 처리 중 복수의 오류가 발생했습니다.", notificationErrors);
-            }
+            return recharged;
         }
 
     #endregion
@@ -384,13 +302,14 @@ namespace inonego.Xeri.Game
                 throw new ArgumentOutOfRangeException(nameof(rechargeDuration));
             }
 
-            version++;
-            configurationVersion++;
             this.capacity = capacity;
             this.rechargeDuration = rechargeDuration;
             current = startFull ? capacity : 0;
-            recharge = new Timer();
-            BeginRechargeIfNeeded();
+
+            // 읽기 전용 참조를 들고 있는 쪽이 계속 같은 Timer를 보도록 인스턴스를 유지한다.
+            recharge.Stop();
+            recharge.Reset();
+            BeginRechargeWhenNeeded();
         }
 
         // ------------------------------------------------------------
@@ -410,9 +329,8 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            version++;
             current -= amount;
-            BeginRechargeIfNeeded();
+            BeginRechargeWhenNeeded();
             return true;
         }
 
@@ -430,72 +348,9 @@ namespace inonego.Xeri.Game
 
             // Capacity까지 복원 가능한 수량을 먼저 구해 정수 덧셈 오버플로를 막는다.
             var restored = Math.Min(amount, capacity - current);
-            if (restored > 0)
-            {
-                version++;
-            }
-
             current += restored;
-
-            if (IsFull)
-            {
-                recharge?.Stop();
-            }
-            else
-            {
-                BeginRechargeIfNeeded();
-            }
-
+            BeginRechargeWhenNeeded();
             return restored;
-        }
-
-        // --------------------------------------------------------------------------------
-        /// <summary>
-        /// <br/> 저장된 JSON 상태로 수량과 충전 시계 진행을 덮어쓴다.
-        /// <br/> 기존 Timer 인스턴스는 유지하며 덮어쓴 변경은 충전 진행 중 변경으로 취급한다.
-        /// </summary>
-        // --------------------------------------------------------------------------------
-        internal void OverwriteFromJson(string json)
-        {
-            var timer = recharge;
-
-            JsonUtility.FromJsonOverwrite(json, this);
-
-            if (timer != null && !ReferenceEquals(timer, recharge))
-            {
-                JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(recharge), timer);
-                recharge = timer;
-            }
-
-            version++;
-        }
-
-    #endregion
-
-    #region 충전 주기 복원
-
-        // ----------------------------------------------------------------------
-        /// <summary>
-        /// 완료 알림 중 저장된 Ready Timer도 복원 뒤 다음 충전 주기를 이어간다.
-        /// </summary>
-        // ----------------------------------------------------------------------
-        public void OnBeforeSerialize()
-        {
-            // NONE
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 역직렬화 후 필요한 다음 충전 주기를 복원한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public void OnAfterDeserialize()
-        {
-            if (capacity > 0 && rechargeDuration > 0f &&
-                !float.IsNaN(rechargeDuration) && !float.IsInfinity(rechargeDuration))
-            {
-                BeginRechargeIfNeeded();
-            }
         }
 
         // ------------------------------------------------------------
@@ -503,20 +358,51 @@ namespace inonego.Xeri.Game
         /// 충전이 필요하고 타이머가 준비된 경우에만 다음 주기를 시작한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void BeginRechargeIfNeeded()
+        private void BeginRechargeWhenNeeded()
         {
             if (IsFull)
             {
-                recharge?.Stop();
+                recharge.Stop();
                 return;
             }
 
-            recharge ??= new Timer();
             if (!recharge.IsRunning && !recharge.IsPaused)
             {
-                rechargeVersion++;
                 recharge.Start(rechargeDuration);
             }
+        }
+
+    #endregion
+
+    #region 직렬화 복원
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직렬화 전에 처리할 내용이 없다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public void OnBeforeSerialize()
+        {
+            // NONE
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 역직렬화한 값을 구성 규칙의 범위로 고친 뒤 필요한 다음 충전 주기를 복원한다.
+        /// <br/> 용량은 1 이상, 잔량은 0~용량으로 맞추고
+        /// <br/> 충전 시간이 유한한 양수가 아니면 기본값 1초로 되돌린다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public void OnAfterDeserialize()
+        {
+            capacity = Math.Max(1, capacity);
+            current = Math.Clamp(current, 0, capacity);
+            if (!(rechargeDuration > 0f) || float.IsInfinity(rechargeDuration))
+            {
+                rechargeDuration = 1f;
+            }
+
+            BeginRechargeWhenNeeded();
         }
 
     #endregion

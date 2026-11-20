@@ -39,6 +39,8 @@
       href: modules/combat/hp.md
     - name: Faction
       href: modules/combat/faction.md
+    - name: Status
+      href: modules/combat/status.md
 - name: Interaction
   href: modules/interaction/index.md
   items:

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeCost.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-19
 
 # 설명
 Ability Charge 비용을 현재 수량으로 검사하고 사용 확정 시 직접 소비한다.
@@ -16,9 +16,9 @@ namespace inonego.Xeri.Game
     /// Ability의 Charge 수량을 검사하고 사용 확정 시 소비한다.
     /// </summary>
     // ============================================================
-    public sealed class AbilityChargeCost<TDefinition> :
-        IAbilityActivationCost<TDefinition>
-    where TDefinition : class
+    public sealed class AbilityChargeCost<TSpec> :
+        IAbilityActivationCost<TSpec>
+    where TSpec : class
     {
 
     #region 비용 구성
@@ -56,7 +56,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityActivationCheck Evaluate
         (
-            in AbilityActivationContext<TDefinition> context
+            in AbilityActivationContext<TSpec> context
         )
         {
             return context.Ability?.State?.Charge?.Current >= Amount
@@ -73,7 +73,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public AbilityCostReceipt Pay
         (
-            in AbilityActivationContext<TDefinition> context
+            in AbilityActivationContext<TSpec> context
         )
         {
             var state = context.Ability?.State;

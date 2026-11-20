@@ -1,10 +1,10 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionBehavior.cs
-수정일 : 2026-09-23
+수정일 : 2026-11-19
 
 # 설명
-Execution 중 병렬로 참여하는 Behavior의 Definition과 Runtime 수명 계약을 정의한다.
-Definition은 공유 가능한 authoring이고 Runtime은 Session마다 새로 생성한다.
+Execution 중 병렬로 참여하는 Behavior의 Spec과 Runtime 수명 계약을 정의한다.
+Spec은 공유 가능한 설정이고 Runtime은 Session마다 새로 생성한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -13,20 +13,21 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// Execution Behavior의 공유 가능한 authoring base.
+    /// Execution Behavior의 공유 가능한 Spec base.
     /// </summary>
     // ============================================================
     [Serializable]
-    public abstract class ExecutionBehaviorDefinition
+    public abstract class ExecutionBehaviorSpec
     {
 
     #region 생성·정규화
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// Behavior 정의로부터 실행별 독립 Runtime 객체를 생성한다.
+        /// <br/> Behavior Spec으로부터 실행별 독립 Runtime 객체를 생성한다.
+        /// <br/> null을 반환하면 Session 생성이 예외로 실패한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         public abstract ExecutionBehaviorRuntime CreateRuntime();
 
         // ------------------------------------------------------------

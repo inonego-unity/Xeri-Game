@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionSignalTrigger.cs
-수정일 : 2026-10-31
+수정일 : 2026-11-19
 
 # 설명
 첫 Signal 수신과 Offset 뒤의 한 번 발동을 평가하는 조건.
@@ -14,11 +14,11 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// 특정 Execution Signal의 수신을 조건으로 삼는 Trigger 정의.
+    /// 특정 Execution Signal의 수신을 조건으로 삼는 Trigger Spec.
     /// </summary>
     // ============================================================
     [Serializable]
-    public sealed class ExecutionSignalTriggerDefinition : ExecutionTriggerDefinition
+    public sealed class ExecutionSignalTriggerSpec : ExecutionTriggerSpec
     {
 
     #region 설정
@@ -52,7 +52,7 @@ namespace inonego.Xeri.Game
         /// Unity 직렬화용 기본 Signal 조건을 구성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionSignalTriggerDefinition()
+        public ExecutionSignalTriggerSpec()
         {
             // NONE
         }
@@ -62,7 +62,7 @@ namespace inonego.Xeri.Game
         /// 감지할 Signal과 지연 시간을 지정한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionSignalTriggerDefinition(string signalKey, float offset = 0f)
+        public ExecutionSignalTriggerSpec(string signalKey, float offset = 0f)
         {
             this.signalKey = signalKey;
             this.offset = offset;
@@ -120,15 +120,15 @@ namespace inonego.Xeri.Game
         /// 실행별 Signal 키와 Offset을 복사하여 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal ExecutionSignalTrigger(ExecutionSignalTriggerDefinition definition)
+        internal ExecutionSignalTrigger(ExecutionSignalTriggerSpec spec)
         {
-            if (definition == null)
+            if (spec == null)
             {
-                throw new ArgumentNullException(nameof(definition));
+                throw new ArgumentNullException(nameof(spec));
             }
 
-            signalKey = definition.SignalKey;
-            offset = definition.Offset;
+            signalKey = spec.SignalKey;
+            offset = spec.Offset;
         }
 
     #endregion

@@ -13,9 +13,9 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 
 | 계층 | 핵심 계약 | 보관·결정하는 것 | 보관하지 않는 것 |
 |---|---|---|---|
-| Ability 상태·바인딩 | `AbilityInstance<TDefinition>`, `AbilityState`, `AbilityBindings<TDefinition>` | 논리 Ability Identity, 소유자별 지속 값, 현재 Entry 연결 | 한 번의 Action 진행 |
-| 사용 선택·승인 | `AbilityUseSelector<...>`, `AbilityUseSelection<...>`, `AbilityActivationPolicy<TDefinition>` | 선택한 실행, 선택 후 변경 감지(현재성), Requirement·Cost 평가, 비용 소비·실행 시작 실패 시 환급, 상태 전이 | 프로젝트의 배타 실행 슬롯 |
-| Execution | `ExecutionDefinition`, `ExecutionSession`, Flow·Behavior·Trigger | 단일 행동의 시간, Command·Signal, Commit, Child·종료 | 영구 Ability 상태와 게임별 Effect 관리 |
+| Ability 상태·바인딩 | `AbilityInstance<TSpec>`, `AbilityState`, `AbilityBindings<TSpec>` | 논리 Ability Identity, 소유자별 지속 값, 현재 Entry 연결 | 한 번의 Action 진행 |
+| 사용 선택·승인 | `AbilityUseSelector<...>`, `AbilityUseSelection<...>`, `AbilityActivationPolicy<TSpec>` | 선택한 실행, 선택 후 변경 감지(현재성), Requirement·Cost 평가, 비용 소비·실행 시작 실패 시 환급, 상태 전이 | 배타 실행(Execution의 `ExecutionChannel`이 담당) |
+| Execution | `ExecutionSpec`, `ExecutionSession`, Flow·Behavior·Trigger, `ExecutionChannel<TClaim>` | 단일 행동의 시간, Command·Signal, Commit, Child·종료, 배타 실행 선점 | 영구 Ability 상태와 게임별 Effect 관리 |
 | Spatial | `SpatialRequest<TReference>`, `SpatialSession<TReference>` | 위치·방향·회전 출처, Capture·Follow·Lock | 게임의 위치 히스토리·되감기 |
 | Targeting | `SpatialTargetRequirement`, `TargetSelector` | 필수 입력 필드 검증과 대상 후보 선택·순위 | 적·아군·면역·피해 정책 |
 | Delivery | `PhysicsDelivery2D/3D`, `ProjectileDelivery2D/3D` | Unity Collider Contact, 쿼리 완전성, 선형 Sweep | Contact의 전투적 의미 |
@@ -31,9 +31,10 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
     │   └─ AbilityActivationContext(Owner, Instigator, Binding, Payload)
     ├─ AbilityUseSelector.TrySelect(Bindings, Context, ...)
     │   └─ AbilityUseSelection (Execution + Policy + 상태 전이)
-    ├─ 프로젝트 Host가 배타 슬롯·기존 Action 정책 결정
+    ├─ 프로젝트 Host가 선점 판정(ExecutionChannel의 판정 함수)과 기존 Action 정책 결정
     ├─ Selection.TryActivate(begin, ...)  ← Requirement/Cost 검사 → Cost.Pay → begin 콜백 → 상태 전이
-    │   └─ begin 콜백: ExecutionDefinition.CreateSession(...) → Session.Begin()
+    │   └─ begin 콜백: channel.TryStart(ExecutionSpec.CreateSession(...), claim)
+    │       └─ 이전 Session End(Replaced/Interrupted) → 새 Session.Begin()
     └─ 시작된 Session을 Host가 진행
         ├─ Session.Advance(deltaTime) → Flow, Behavior
         ├─ Behavior에서 SpatialSession/TargetSelector 호출
@@ -42,7 +43,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
         └─ Session.TryComplete() 또는 End(reason)
 ~~~
 
-선택은 부작용 없이 후보를 결정해야 합니다. `AbilityUseSelection.Evaluate()`는 무소비 사전 검사이며 실행 슬롯 예약이 아닙니다. 프로젝트 Host는 **슬롯 거부·선점, 실제 Session 생성·시작과 정리, 게임별 자원 원자성**을 명시적으로 소유합니다.
+선택은 부작용 없이 후보를 결정해야 합니다. `AbilityUseSelection.Evaluate()`는 무소비 사전 검사이며 실행 채널 예약이 아닙니다. 채널 경쟁은 `ExecutionChannel.CanStart()`로 미리 거를 수 있습니다. 프로젝트 Host는 **선점 규칙(판정 함수), Session 생성과 진행, Session이 아닌 배타 행동, 게임별 자원 원자성**을 소유합니다.
 
 ### 서로 다른 확정·결과를 혼동하지 않기
 
@@ -60,7 +61,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 
 **지속 상태.** `AbilityState`의 Cooldown·Charge·`Values`는 논리 Owner가 보관하고 `Advance(deltaTime)`로 갱신합니다. 시간 진행을 제외한 이산 변경은 `State.Revision`, Binding 변경은 `AbilityBindings.Revision`에 반영되어 선택 이후의 변경을 감지합니다. 저장·복원은 Unity 직렬화로 하며, 같은 Key의 데이터만 사용 중이 아닐 때 복원하는 규칙은 Host가 지킵니다. Owner 교체 정책은 프로젝트가 정합니다. Binding 변경은 이미 시작된 실행의 Identity를 다시 선택하지 않습니다.
 
-**실행 상태.** `ExecutionDefinition`은 재사용 가능한 설정이고, 각 `CreateSession`은 별도 Flow·Behavior Runtime을 생성합니다. Session은 한 번만 `Begin()`할 수 있습니다. 완료를 감지한 Host가 `TryComplete()`를 호출하거나 종료 이유를 지정해 `End(reason)`해야 합니다.
+**실행 상태.** `ExecutionSpec`은 재사용 가능한 설정이고, 각 `CreateSession`은 별도 Flow·Behavior Runtime을 생성합니다. Session은 한 번만 `Begin()`할 수 있습니다. 완료를 감지한 Host가 `TryComplete()`를 호출하거나 종료 이유를 지정해 `End(reason)`해야 합니다.
 
 **대상과 접촉.** Spatial의 관측 실패는 `SpatialSample.HasPosition/HasDirection/HasRotation`으로 분리됩니다. Targeting 후보·필터·점수는 프로젝트가 제공합니다. Delivery는 검색 버퍼가 포화되면 `IsComplete` 또는 `IsSaturated`로 불완전성을 보고합니다. 불완전한 결과를 확정적인 부재나 최근접 접촉으로 해석하지 마세요.
 
@@ -71,16 +72,17 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 | 시점 | Xeri가 수행하는 처리 | 프로젝트가 책임질 부분 |
 |---|---|---|
 | Requirement 또는 Cost 평가 거부 | 비용을 소비하지 않고 거부 결과 반환 | 사용자 피드백, 재시도·대체 Action |
-| Cost의 `Pay()` 중 예외 또는 `begin` 실패(false·예외) | `Selection.TryActivate`가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달 | 영수증이 없는 외부 자원의 원자성·환급 규칙 |
+| Cost의 `Pay()` 중 예외 | Policy가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달(Selection 경로와 Policy 직접 호출 모두) | 영수증이 없는 외부 자원의 원자성·환급 규칙 |
+| `begin` 실패(false·예외) | `Selection.TryActivate`가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달 | 영수증이 없는 외부 자원의 환급. `ExecutionChannel`을 쓰지 않는 Slot의 회수 |
 | `begin` 성공 후 `Transition` 예외 | 예외 전달, 환급하지 않음 | 상태 전이 실패 후 정리 |
-| 실행 `Begin()` 중 Flow·Behavior·Observer 실패 | 시작된 실행 요소를 역순 정리하며 Cancelled 종료 | 이미 발생한 외부 효과와 Host 슬롯 정리 |
+| 실행 `Begin()` 중 Flow·Behavior·Observer 실패 | 시작된 실행 요소를 역순 정리하며 Cancelled 종료 | 이미 발생한 외부 효과 정리. `ExecutionChannel`은 Session 종료와 함께 비워짐 |
 | 실행 `Advance()`·Command·Signal 중 예외 | Session 실패 종료·예외 전달 | 입력 차단, 월드 작업 정리 |
 | Spatial 대상 소실·물리 검색 불완전 | 유효성·완전성의 관측 결과 제공 | 재조회, 불발/유예, 게임별 적합성 판정 |
 | Operation `Rejected` / `NoOp` | 프로젝트가 반환한 상태 전달 | 실제 피해·면역·수치 처리 |
 
 ## 상세 문서
 
-- [Ability — 상태·바인딩·활성화](ability.md): Definition·Instance, Layer, Cooldown·Charge, 선택·비용 계약
+- [Ability — 상태·바인딩·활성화](ability.md): Spec·Instance, Layer, Cooldown·Charge, 선택·비용 계약
 - [Execution — Flow·Behavior·Trigger](execution.md): Session 생성, 시간 진행, Command·Signal, Commit·종료
 - [Spatial·Targeting](spatial-targeting.md): 위치 출처·시간 모드, 필드 요구, 대상 점수화
 - [Delivery·Gameplay Operation](delivery-operation.md): 2D/3D 접촉·버퍼·Projectile·결과 적용

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionTimePointTrigger.cs
-수정일 : 2026-10-31
+수정일 : 2026-11-19
 
 # 설명
 지정 시점을 처음 통과할 때 한 번 발동하는 조건.
@@ -14,11 +14,11 @@ namespace inonego.Xeri.Game
 {
     // ============================================================
     /// <summary>
-    /// 지정 시간 지점의 Trigger 조건을 표현하는 정의.
+    /// 지정 시간 지점의 Trigger 조건을 표현하는 Spec.
     /// </summary>
     // ============================================================
     [Serializable]
-    public sealed class ExecutionTimePointTriggerDefinition : ExecutionTriggerDefinition
+    public sealed class ExecutionTimePointTriggerSpec : ExecutionTriggerSpec
     {
 
     #region 설정
@@ -39,10 +39,10 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Unity 직렬화용 기본 시간 지점 정의를 생성한다.
+        /// Unity 직렬화용 기본 시간 지점 Spec을 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionTimePointTriggerDefinition()
+        public ExecutionTimePointTriggerSpec()
         {
             // NONE
         }
@@ -52,7 +52,7 @@ namespace inonego.Xeri.Game
         /// 지정한 시간으로 지점 Trigger를 구성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ExecutionTimePointTriggerDefinition(float time)
+        public ExecutionTimePointTriggerSpec(float time)
         {
             this.time = Mathf.Max(0f, time);
         }
@@ -63,7 +63,7 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 정의의 시간값을 가진 실행별 Trigger를 생성한다.
+        /// 현재 Spec의 시간값을 가진 실행별 Trigger를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
         public override ExecutionTrigger CreateTrigger() => new ExecutionTimePointTrigger(this);
@@ -104,9 +104,9 @@ namespace inonego.Xeri.Game
         /// 실행별 시간 설정값을 복사하여 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal ExecutionTimePointTrigger(ExecutionTimePointTriggerDefinition definition)
+        internal ExecutionTimePointTrigger(ExecutionTimePointTriggerSpec spec)
         {
-            time = definition?.Time ?? throw new ArgumentNullException(nameof(definition));
+            time = spec?.Time ?? throw new ArgumentNullException(nameof(spec));
         }
 
     #endregion

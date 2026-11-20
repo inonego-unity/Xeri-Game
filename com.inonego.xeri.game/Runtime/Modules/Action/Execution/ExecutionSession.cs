@@ -1,10 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionSession.cs
-수정일 : 2026-11-01
+수정일 : 2026-11-19
 
 # 설명
 Execution의 요청·적용 시간, Flow/Behavior, 독립 Signal·Command, Commit·종료 수명을 소유한다.
-observer 예외와 단계별 실패를 Cancelled 종료로 수렴시키고 세션별 ValueRegistry를 격리한다.
+시작·진행·Command·Signal·확정 단계의 실패는 Cancelled 종료로 수렴시키고, 종료 통지 실패는 모아서 전달한다.
+세션별 ValueRegistry를 격리한다.
+수명은 시작 전·시작 중·활성·종료 단계 하나로 관리하며 종료가 확정되면 시작 중이어도 종료 단계가 우선한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -111,30 +113,46 @@ namespace inonego.Xeri.Game
 
     #region 수명 상태
 
+        // ============================================================
+        /// <summary>
+        /// Session 수명의 단계.
+        /// </summary>
+        // ============================================================
+        private enum Phase
+        {
+            NotBegun,
+            Beginning,
+            Active,
+            Ended,
+        }
+
+        private Phase phase = Phase.NotBegun;
+
+        // 연산별 중첩 금지 가드. 서로 동시에 켜질 수 있어 단계와 분리한다.
+        private bool isAdvancing = false;
+        private bool isPublishingSignal = false;
+        private bool isCommanding = false;
+
         // ------------------------------------------------------------
         /// <summary>
         /// Begin 호출이 수행되었는지 나타낸다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool HasBegun => hasBegun;
-        private bool hasBegun = false;
-        private bool isBeginning = false;
-        private bool isAdvancing = false;
+        public bool HasBegun => phase != Phase.NotBegun;
 
         // ------------------------------------------------------------
         /// <summary>
         /// Begin이 호출되었고 아직 종료되지 않은 실행 상태.
         /// </summary>
         // ------------------------------------------------------------
-        public bool IsActive => hasBegun && !hasEnded;
+        public bool IsActive => phase is Phase.Beginning or Phase.Active;
 
         // ------------------------------------------------------------
         /// <summary>
         /// 종료 처리가 확정되었는지 나타낸다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool HasEnded => hasEnded;
-        private bool hasEnded = false;
+        public bool HasEnded => phase == Phase.Ended;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -256,13 +274,12 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public void Begin()
         {
-            if (hasBegun)
+            if (phase != Phase.NotBegun)
             {
                 throw new InvalidOperationException("ExecutionSession은 한 번만 시작할 수 있습니다.");
             }
 
-            hasBegun = true;
-            isBeginning = true;
+            phase = Phase.Beginning;
             var flowBegan = false;
             var behaviorBeginCount = 0;
 
@@ -279,25 +296,23 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                if (!hasEnded)
+                if (phase != Phase.Ended)
                 {
                     RollbackBegin(flowBegan, behaviorBeginCount, exception);
                 }
 
                 throw;
             }
-            finally
-            {
-                isBeginning = false;
-            }
+
+            phase = Phase.Active;
 
             try
             {
-                OnBegun?.Invoke(this);
+                InvokeWhileActive(OnBegun);
             }
             catch (Exception exception)
             {
-                if (!hasEnded)
+                if (phase != Phase.Ended)
                 {
                     RollbackBegin(flowBegan, behaviorBeginCount, exception);
                 }
@@ -319,7 +334,7 @@ namespace inonego.Xeri.Game
         )
         {
             // rollback 중에는 Session이 다시 활성 상태로 관찰되지 않도록 종료를 먼저 확정한다.
-            hasEnded = true;
+            phase = Phase.Ended;
             endReason = ExecutionEndReason.Cancelled;
             List<Exception> failures = null;
 
@@ -378,7 +393,7 @@ namespace inonego.Xeri.Game
         public void Advance(float deltaTime)
         {
             RequireActive();
-            if (isBeginning || isAdvancing)
+            if (phase == Phase.Beginning || isAdvancing)
             {
                 throw new InvalidOperationException("Execution 진행 중 Advance를 재진입할 수 없습니다.");
             }
@@ -434,13 +449,14 @@ namespace inonego.Xeri.Game
         /// <summary>
         /// <br/> Signal 알림을 Behavior에 발행한다.
         /// <br/> Command의 판정과 Flow 상태 전이는 발생시키지 않는다.
+        /// <br/> Signal 전달 중의 Signal 재발행은 거부한다.
         /// </summary>
         // ------------------------------------------------------------
         public void PublishSignal(in ExecutionSignal signal)
         {
             RequireActive();
 
-            if (isBeginning)
+            if (phase == Phase.Beginning)
             {
                 throw new InvalidOperationException("Begin 중에는 Signal을 발행할 수 없습니다.");
             }
@@ -450,6 +466,12 @@ namespace inonego.Xeri.Game
                 throw new ArgumentException("유효한 Execution Signal이 필요합니다.", nameof(signal));
             }
 
+            if (isPublishingSignal)
+            {
+                throw new InvalidOperationException("Signal 전달 중에는 Signal을 다시 발행할 수 없습니다.");
+            }
+
+            isPublishingSignal = true;
             try
             {
                 NotifyBehaviors(signal);
@@ -459,21 +481,32 @@ namespace inonego.Xeri.Game
                 AbortOnFailure(exception);
                 throw;
             }
+            finally
+            {
+                isPublishingSignal = false;
+            }
         }
 
         // ------------------------------------------------------------
         /// <summary>
         /// <br/> Command의 수락·거부·지연은 Flow가 판정한다.
         /// <br/> Signal 알림은 별도 호출로 전달한다.
+        /// <br/> Command 처리 중의 Command 재요청은 거부한다.
         /// </summary>
         // ------------------------------------------------------------
         public ExecutionCommandResult Command(in ExecutionCommand command)
         {
-            if (!IsActive || isBeginning || !command.IsValid)
+            if (phase != Phase.Active || !command.IsValid)
             {
                 return ExecutionCommandResult.Rejected;
             }
 
+            if (isCommanding)
+            {
+                throw new InvalidOperationException("Command 처리 중에는 Command를 다시 요청할 수 없습니다.");
+            }
+
+            isCommanding = true;
             try
             {
                 return flow.Command(this, command);
@@ -482,6 +515,10 @@ namespace inonego.Xeri.Game
             {
                 AbortOnFailure(exception);
                 throw;
+            }
+            finally
+            {
+                isCommanding = false;
             }
         }
 
@@ -612,7 +649,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public bool TryCommit()
         {
-            if (!IsActive || isBeginning || isCommitted)
+            if (phase != Phase.Active || isCommitted)
             {
                 return false;
             }
@@ -621,7 +658,7 @@ namespace inonego.Xeri.Game
 
             try
             {
-                OnCommitted?.Invoke(this);
+                InvokeWhileActive(OnCommitted);
             }
             catch (Exception exception)
             {
@@ -632,14 +669,55 @@ namespace inonego.Xeri.Game
             return true;
         }
 
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         /// <summary>
-        /// Flow가 완료된 Active Session만 Completed 사유로 종료한다.
+        /// <br/> 구독자를 순서대로 호출하되 구독자가 Session을 종료하면 남은 구독자에게는
+        /// <br/> 알리지 않는다. 종료된 Session의 시작·확정 통지가 종료 통지보다 늦게 가지 않는다.
         /// </summary>
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
+        private void InvokeWhileActive(Action<ExecutionSession> observers)
+        {
+            if (observers == null)
+            {
+                return;
+            }
+
+            foreach (Action<ExecutionSession> observer in observers.GetInvocationList())
+            {
+                if (!IsActive)
+                {
+                    return;
+                }
+
+                observer(this);
+            }
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Flow가 완료된 Active Session만 Completed 사유로 종료한다.
+        /// <br/> 완료 판정이 예외를 던지면 Cancelled로 종료하고 예외를 다시 던진다.
+        /// </summary>
+        // ----------------------------------------------------------------------
         public bool TryComplete()
         {
-            if (isBeginning || !IsComplete)
+            if (phase == Phase.Beginning)
+            {
+                return false;
+            }
+
+            bool complete;
+            try
+            {
+                complete = IsComplete;
+            }
+            catch (Exception exception)
+            {
+                AbortOnFailure(exception);
+                throw;
+            }
+
+            if (!complete)
             {
                 return false;
             }
@@ -658,7 +736,7 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         public bool End(ExecutionEndReason reason)
         {
-            if (isBeginning)
+            if (phase == Phase.Beginning)
             {
                 throw new InvalidOperationException("Begin 중에는 Execution을 종료할 수 없습니다.");
             }
@@ -673,7 +751,7 @@ namespace inonego.Xeri.Game
                 throw new ArgumentOutOfRangeException(nameof(reason));
             }
 
-            hasEnded = true;
+            phase = Phase.Ended;
             endReason = reason;
             List<Exception> failures = null;
 
@@ -789,15 +867,16 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 소유한 Child를 분리하고 활성 Child의 종료를 시도한다.
+        /// <br/> 소유한 Child를 분리하고 활성 Child의 종료를 시도한다.
+        /// <br/> 종료 콜백이 목록을 바꿔도 남은 Child만 이어서 정리한다.
         /// </summary>
         // ------------------------------------------------------------
         private void EndAttachedChildren(ref List<Exception> failures)
         {
-            for (var index = attachedChildren.Count - 1; index >= 0; index--)
+            while (attachedChildren.Count > 0)
             {
-                var child = attachedChildren[index];
-                attachedChildren.RemoveAt(index);
+                var child = attachedChildren[attachedChildren.Count - 1];
+                attachedChildren.RemoveAt(attachedChildren.Count - 1);
                 child.OnEnded -= OnChildEnded;
 
                 if (ReferenceEquals(child.attachedParent, this))
