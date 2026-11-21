@@ -6,6 +6,7 @@
 | Combat | HP·Faction·Status | [Combat](combat/index.md) |
 | Interaction | Use·Reaction | [Interaction](interaction/index.md) |
 | World | Zone·Board·Physics Query | [World](world/index.md) |
+| Locomotion | Motion·Motor·Navigation·Movement | [Locomotion](locomotion/index.md) |
 | Character | Controller·GroundCheck·Jump | [Controller](character/controller.md) |
 | AI | EntityBrain·GroupBrain·AIGroup | [AI](ai/group-and-brain.md) |
 | Progression | Level | [Level](progression/level.md) |

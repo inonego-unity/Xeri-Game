@@ -25,6 +25,7 @@ Xeri Core를 기반으로 동작하며, 프로젝트별 전투 공식·입력 �
 | HP·Faction 판정, 대상별 Status | [Combat](modules/combat/index.md) |
 | 상호작용 후보와 Action 연결 | [Interaction](modules/interaction/index.md) |
 | Zone·Board·Physics Query | [World](modules/world/index.md) |
+| 이동 합성·Body 적용·경로 안내·이동 상태 | [Locomotion](modules/locomotion/index.md) |
 | AI 판단과 Group | [AI](modules/ai/group-and-brain.md) |
 | Controller·Jump·GroundCheck | [Controller](modules/character/controller.md) |
 | Level | [Progression](modules/progression/level.md) |

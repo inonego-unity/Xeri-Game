@@ -25,7 +25,7 @@ Foundation 자체가 WorldManager, Simulation Clock, Network Authority를 제공
 
 ## Modules
 
-[Action](../modules/action/index.md), [Combat](../modules/combat/index.md), [Interaction](../modules/interaction/index.md), [World](../modules/world/index.md) 등 기능이 서로 독립적인 정책과 실행 수명을 가집니다.
+[Action](../modules/action/index.md), [Combat](../modules/combat/index.md), [Interaction](../modules/interaction/index.md), [World](../modules/world/index.md), [Locomotion](../modules/locomotion/index.md) 등 기능이 서로 독립적인 정책과 실행 수명을 가집니다.
 
 Ability는 전투 엔진이나 입력 시스템을 직접 소유하지 않고 선택된 결과를 프로젝트 Host가 실행합니다. Zone·Board·Physics도 콘텐츠의 결과 공식을 소유하지 않습니다.
 
