@@ -57,6 +57,19 @@
       href: modules/world/board.md
     - name: Physics Query
       href: modules/world/physics-query.md
+- name: Locomotion
+  href: modules/locomotion/index.md
+  items:
+    - name: 전체 구조
+      href: modules/locomotion/overview.md
+    - name: Motion
+      href: modules/locomotion/motion.md
+    - name: Motor
+      href: modules/locomotion/motor.md
+    - name: Navigation
+      href: modules/locomotion/navigation.md
+    - name: Movement
+      href: modules/locomotion/movement.md
 - name: 기타 모듈
   items:
     - name: AI Group / Brain
@@ -82,5 +95,7 @@
       href: guides/action/ability-execution-delivery.md
     - name: Use와 Reaction 연결
       href: guides/interaction/connect-use-and-reaction.md
+    - name: Locomotion Tick 실행
+      href: guides/locomotion/run-a-tick.md
 - name: Xeri Core 문서
   href: https://inonego-unity.github.io/Xeri/

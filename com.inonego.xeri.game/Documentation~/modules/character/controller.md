@@ -108,4 +108,5 @@ Trigger
 ## 관련 문서
 
 - [Timer](https://inonego-unity.github.io/Xeri/docs/modules/utility/timer.html)
+- [Locomotion](../locomotion/index.md) — Motor가 GroundChecker 결과를 관측으로 연결합니다
 - [Xeri Game](../index.md)
