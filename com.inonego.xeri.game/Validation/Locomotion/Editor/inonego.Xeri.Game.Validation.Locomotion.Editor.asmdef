@@ -1,0 +1,26 @@
+{
+  "name": "inonego.Xeri.Game.Validation.Locomotion.Editor",
+  "rootNamespace": "inonego.Xeri.Game.Validation.Locomotion.Editor",
+  "references": [
+    "inonego.Xeri.Game.Validation.Locomotion"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "XERI_VALIDATION_INPUTSYSTEM"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "1.0.0",
+      "define": "XERI_VALIDATION_INPUTSYSTEM"
+    }
+  ],
+  "noEngineReferences": false
+}
