@@ -1,0 +1,22 @@
+{
+  "name": "inonego.Xeri.Game.TEST.EDIT",
+  "rootNamespace": "inonego.Xeri.Game.TEST",
+  "references": [
+    "inonego.Xeri",
+    "inonego.Xeri.Game"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

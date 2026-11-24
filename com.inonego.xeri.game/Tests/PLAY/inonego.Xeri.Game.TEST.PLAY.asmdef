@@ -1,0 +1,21 @@
+{
+  "name": "inonego.Xeri.Game.TEST.PLAY",
+  "rootNamespace": "inonego.Xeri.Game.TEST",
+  "references": [
+    "inonego.Xeri",
+    "inonego.Xeri.Game",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
