@@ -12,8 +12,6 @@ Pay는 소비를 되돌리는 AbilityCostReceipt를 반환한다. 소비 도중 
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime;
-using System.Runtime.ExceptionServices;
 
 namespace inonego.Xeri.Game
 {
@@ -59,10 +57,10 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         internal static void RefundAll(IReadOnlyList<AbilityCostReceipt> receipts, Exception original)
         {
-            List<Exception> errors = null;
+            var errors = new ExceptionBuffer();
             if (original != null)
             {
-                (errors ??= new List<Exception>()).Add(original);
+                errors.Add(original);
             }
 
             var failed = false;
@@ -75,7 +73,7 @@ namespace inonego.Xeri.Game
                 catch (Exception exception)
                 {
                     failed = true;
-                    (errors ??= new List<Exception>()).Add(exception);
+                    errors.Add(exception);
                 }
             }
 
@@ -84,12 +82,7 @@ namespace inonego.Xeri.Game
                 return;
             }
 
-            if (errors.Count == 1)
-            {
-                ExceptionDispatchInfo.Capture(errors[0]).Throw();
-            }
-
-            throw new AggregateException("Ability 사용 비용 환급 중 오류가 발생했습니다.", errors);
+            errors.ThrowWhenAny("Ability 사용 비용 환급 중 오류가 발생했습니다.");
         }
     }
 

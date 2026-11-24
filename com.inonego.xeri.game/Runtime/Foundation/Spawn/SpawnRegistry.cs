@@ -375,7 +375,7 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception attachException)
                 {
-                    List<Exception> failures = null;
+                    var failures = new ExceptionBuffer();
 
                     for (var index = attachedCount - 1; index >= 0; index--)
                     {
@@ -387,15 +387,14 @@ namespace inonego.Xeri.Game
                         }
                         catch (Exception exception)
                         {
-                            failures ??= new List<Exception>();
                             failures.Add(exception);
                         }
                     }
 
-                    if (failures != null)
+                    if (failures.Count > 0)
                     {
-                        failures.Insert(0, attachException);
-                        throw new AggregateException("SpawnRegistry Binding 연결 및 rollback에 실패했습니다.", failures);
+                        failures.Prepend(attachException);
+                        throw failures.CreateAggregateException("SpawnRegistry Binding 연결 및 rollback에 실패했습니다.");
                     }
 
                     throw;
@@ -429,7 +428,7 @@ namespace inonego.Xeri.Game
             }
 
             var existing = new List<KeyValuePair<TKey, T>>(_Registered);
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             isUpdatingBindings = true;
 
@@ -445,7 +444,6 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        failures ??= new List<Exception>();
                         failures.Add(exception);
                     }
                 }
@@ -458,9 +456,9 @@ namespace inonego.Xeri.Game
                 isUpdatingBindings = false;
             }
 
-            if (failures != null)
+            if (failures.Count > 0)
             {
-                throw new AggregateException("SpawnRegistry Binding 해제 중 일부 정리가 실패했습니다.", failures);
+                throw failures.CreateAggregateException("SpawnRegistry Binding 해제 중 일부 정리가 실패했습니다.");
             }
 
             return true;
@@ -631,11 +629,7 @@ namespace inonego.Xeri.Game
                 }
 
                 // 직접 등록도 일반 Spawn과 동일한 Registry 등록 시작 알림을 제공한다.
-                ThrowObserverFailures
-                (
-                    NotifyObservers(OnRegistering, key, spawnable),
-                    "직접 등록 시작 알림에 실패했습니다."
-                );
+                NotifyObservers(OnRegistering, key, spawnable).ThrowWhenAny("직접 등록 시작 알림에 실패했습니다.");
 
                 if
                 (
@@ -702,11 +696,7 @@ namespace inonego.Xeri.Game
             try
             {
                 // 완료 알림 예외는 확정된 등록을 Rollback하지 않는다.
-                ThrowObserverFailures
-                (
-                    NotifyObservers(OnRegistered, key, spawnable),
-                    "직접 등록 완료 알림에 실패했습니다."
-                );
+                NotifyObservers(OnRegistered, key, spawnable).ThrowWhenAny("직접 등록 완료 알림에 실패했습니다.");
 
                 return spawnable;
             }
@@ -796,7 +786,7 @@ namespace inonego.Xeri.Game
         )
         {
             spawnable.SpawnState = SpawnState.Despawning;
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             if (publishRegistration)
             {
@@ -811,7 +801,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -822,7 +811,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
@@ -837,7 +825,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
             finally
@@ -851,12 +838,7 @@ namespace inonego.Xeri.Game
                 failures = NotifyObservers(OnUnregistered, key, spawnable, reason, failures);
             }
 
-            if (failures != null)
-            {
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException("직접 등록 해제 중 일부 정리가 실패했습니다.", failures);
-            }
+            failures.ThrowWhenAny("직접 등록 해제 중 일부 정리가 실패했습니다.");
         }
 
     #endregion
@@ -923,12 +905,12 @@ namespace inonego.Xeri.Game
         /// 등록·Spawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
         /// </summary>
         // ------------------------------------------------------------
-        private static List<Exception> NotifyObservers
+        private static ExceptionBuffer NotifyObservers
         (
             Action<TKey, T> observers,
             TKey key,
             T spawnable,
-            List<Exception> failures = null
+            ExceptionBuffer failures = default
         )
         {
             if (observers == null)
@@ -944,7 +926,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -957,13 +938,13 @@ namespace inonego.Xeri.Game
         /// 등록 해제·Despawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private static List<Exception> NotifyObservers
+        private static ExceptionBuffer NotifyObservers
         (
             Action<TKey, T, DespawnReason> observers,
             TKey key,
             T spawnable,
             DespawnReason reason,
-            List<Exception> failures = null
+            ExceptionBuffer failures = default
         )
         {
             if (observers == null)
@@ -979,29 +960,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
             return failures;
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 수집된 이벤트 오류를 단일 예외 또는 복합 예외로 전달한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        private static void ThrowObserverFailures(List<Exception> failures, string message)
-        {
-            if (failures == null)
-            {
-                return;
-            }
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException(message, failures);
         }
 
         // ------------------------------------------------------------
@@ -1113,16 +1076,8 @@ namespace inonego.Xeri.Game
 
                 // 외부 관찰자는 등록 직전의 확정된 Key와 Spawning 상태를 받는다.
                 spawnKey = spawningKey;
-                ThrowObserverFailures
-                (
-                    NotifyObservers(OnSpawning, spawningKey, spawnable),
-                    "게임 Spawn 시작 알림에 실패했습니다."
-                );
-                ThrowObserverFailures
-                (
-                    NotifyObservers(OnRegistering, spawningKey, spawnable),
-                    "Registry 등록 시작 알림에 실패했습니다."
-                );
+                NotifyObservers(OnSpawning, spawningKey, spawnable).ThrowWhenAny("게임 Spawn 시작 알림에 실패했습니다.");
+                NotifyObservers(OnRegistering, spawningKey, spawnable).ThrowWhenAny("Registry 등록 시작 알림에 실패했습니다.");
 
                 if (!spawnable.HasKey || !EqualityComparer<TKey>.Default.Equals(spawnable.Key, spawningKey))
                 {
@@ -1198,7 +1153,7 @@ namespace inonego.Xeri.Game
 
             // 두 완료 알림이 끝날 때까지 같은 객체의 제거·일괄 제거를 막는다.
             // Commit 이후 알림 실패는 완료된 Spawn을 되돌리지 않는다.
-            List<Exception> notificationFailures = null;
+            var notificationFailures = new ExceptionBuffer();
 
             try
             {
@@ -1216,11 +1171,7 @@ namespace inonego.Xeri.Game
                 _OperatingEntities.Remove(spawnable);
             }
 
-            ThrowObserverFailures
-            (
-                notificationFailures,
-                "Registry 등록 및 Spawn 완료 알림에 실패했습니다."
-            );
+            notificationFailures.ThrowWhenAny("Registry 등록 및 Spawn 완료 알림에 실패했습니다.");
 
             return spawnable;
         }
@@ -1238,7 +1189,7 @@ namespace inonego.Xeri.Game
         )
         {
             spawnable.SpawnState = SpawnState.Despawning;
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             try
             {
@@ -1253,10 +1204,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures = new List<Exception>
-                {
-                    exception
-                };
+                failures.Add(exception);
             }
 
             spawnable.DespawnFromRegistry = null;
@@ -1285,7 +1233,7 @@ namespace inonego.Xeri.Game
             bool detachRegistration = false
         )
         {
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             try
             {
@@ -1293,10 +1241,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures = new List<Exception>
-                {
-                    exception
-                };
+                failures.Add(exception);
             }
 
             if (publishRegistry)
@@ -1319,7 +1264,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -1332,19 +1276,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
-            if (failures == null)
-            {
-                return;
-            }
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("SpawnRegistry Despawning transaction 중 일부 정리가 실패했습니다.", failures);
+            failures.ThrowWhenAny("SpawnRegistry Despawning transaction 중 일부 정리가 실패했습니다.");
         }
 
     #endregion
@@ -1364,7 +1300,7 @@ namespace inonego.Xeri.Game
             DespawnReason reason,
             bool publishRegistry,
             bool publishRegistration,
-            List<Exception> failures
+            ExceptionBuffer failures
         )
         {
             try
@@ -1373,7 +1309,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
             finally
@@ -1398,16 +1333,10 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
-            if (failures != null)
-            {
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException("SpawnRegistry 종료 중 여러 단계가 실패했습니다.", failures);
-            }
+            failures.ThrowWhenAny("SpawnRegistry 종료 중 여러 단계가 실패했습니다.");
         }
 
         // ------------------------------------------------------------
@@ -1506,7 +1435,7 @@ namespace inonego.Xeri.Game
             try
             {
                 despawnable.SpawnState = SpawnState.Despawning;
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
 
                 try
                 {
@@ -1523,10 +1452,7 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures = new List<Exception>
-                    {
-                        exception
-                    };
+                    failures.Add(exception);
                 }
 
                 // 사전 훅이 실패해도 membership과 객체 수명을 terminal 정리한다.
@@ -1536,7 +1462,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
 
@@ -1608,7 +1533,7 @@ namespace inonego.Xeri.Game
             }
 
             var snapshot = new List<KeyValuePair<TKey, T>>(_Registered);
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             isDespawningAll = true;
 
@@ -1635,7 +1560,6 @@ namespace inonego.Xeri.Game
                     catch (Exception exception)
                     {
                         // 일부 디스폰 실패해도 나머지는 계속 처리한다.
-                        failures ??= new List<Exception>();
                         failures.Add(exception);
                     }
                 }
@@ -1645,9 +1569,9 @@ namespace inonego.Xeri.Game
                 isDespawningAll = false;
             }
 
-            if (failures != null)
+            if (failures.Count > 0)
             {
-                throw new AggregateException("일부 객체를 디스폰하지 못했습니다.", failures);
+                throw failures.CreateAggregateException("일부 객체를 디스폰하지 못했습니다.");
             }
         }
 

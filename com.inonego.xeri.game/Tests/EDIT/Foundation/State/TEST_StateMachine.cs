@@ -981,6 +981,27 @@ namespace inonego.Xeri.Game.TEST._State
 
         // ------------------------------------------------------------
         /// <summary>
+        /// 구독자 예외가 하나면 원래 예외를 스택 추적과 함께 다시 전달한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_StateMachine_이벤트_구독자_예외하나는_원래스택추적유지()
+        {
+            var machine = new StateMachine<TestOwner>(new TestOwner());
+            machine.OnStateChanged += ThrowFromStateObserver;
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => machine.MoveTo(new CallbackState()));
+
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromStateObserver)));
+        }
+
+        private static void ThrowFromStateObserver(IState previous, IState next)
+        {
+            throw new InvalidOperationException("listener failed");
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
         /// 타입 기반 전이도 콜백 재진입을 거절한다. 미등록 타입도 예외가 된다.
         /// </summary>
         // ------------------------------------------------------------

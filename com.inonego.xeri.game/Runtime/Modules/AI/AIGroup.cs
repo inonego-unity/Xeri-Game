@@ -234,7 +234,7 @@ namespace inonego.Xeri.Game
             OnDisposed = null;
             if (callbacks == null) return;
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             foreach (Action<IReadOnlyAIGroup> callback in callbacks.GetInvocationList())
             {
@@ -244,16 +244,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
-            if (failures == null) return;
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("일부 AIGroup 종료 callback이 실패했습니다.", failures);
+            failures.ThrowWhenAny("일부 AIGroup 종료 callback이 실패했습니다.");
         }
 
         // ------------------------------------------------------------

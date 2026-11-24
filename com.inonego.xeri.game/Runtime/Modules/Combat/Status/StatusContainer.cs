@@ -904,7 +904,7 @@ namespace inonego.Xeri.Game
             }
 
             var invocationList = observers.GetInvocationList();
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             foreach (var change in changes)
             {
@@ -916,19 +916,13 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        (failures ??= new List<Exception>()).Add(exception);
+                        failures.Add(exception);
                     }
                 }
             }
 
-            if (failures == null)
-            {
-                return;
-            }
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("Status 변경 알림 중 여러 구독자가 실패했습니다.", failures);
+            // 구독자 예외 하나는 원래 스택 추적을 유지한 채 다시 던진다.
+            failures.ThrowWhenAny("Status 변경 알림 중 여러 구독자가 실패했습니다.");
         }
 
     #endregion

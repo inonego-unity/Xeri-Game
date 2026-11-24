@@ -336,7 +336,7 @@ namespace inonego.Xeri.Game
             // rollback 중에는 Session이 다시 활성 상태로 관찰되지 않도록 종료를 먼저 확정한다.
             phase = Phase.Ended;
             endReason = ExecutionEndReason.Cancelled;
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             for (var index = behaviorBeginCount - 1; index >= 0; index--)
             {
@@ -346,7 +346,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -359,7 +358,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -367,17 +365,13 @@ namespace inonego.Xeri.Game
             EndAttachedChildren(ref failures);
             NotifyEnded(ExecutionEndReason.Cancelled, ref failures);
 
-            if (failures == null)
+            if (failures.Count == 0)
             {
                 return;
             }
 
-            failures.Insert(0, beginException);
-            throw new AggregateException
-            (
-                "Execution 시작 실패와 rollback 정리 실패가 함께 발생했습니다.",
-                failures
-            );
+            failures.Prepend(beginException);
+            throw failures.CreateAggregateException("Execution 시작 실패와 rollback 정리 실패가 함께 발생했습니다.");
         }
 
     #endregion
@@ -753,7 +747,7 @@ namespace inonego.Xeri.Game
 
             phase = Phase.Ended;
             endReason = reason;
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             for (var index = behaviors.Length - 1; index >= 0; index--)
             {
@@ -763,7 +757,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -774,7 +767,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
@@ -782,16 +774,7 @@ namespace inonego.Xeri.Game
 
             NotifyEnded(reason, ref failures);
 
-            if (failures != null)
-            {
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException
-                    (
-                        "Execution 종료 중 여러 정리 단계가 실패했습니다.",
-                        failures
-                    );
-            }
+            failures.ThrowWhenAny("Execution 종료 중 여러 정리 단계가 실패했습니다.");
 
             return true;
         }
@@ -843,7 +826,7 @@ namespace inonego.Xeri.Game
         /// 종료 observer 하나가 실패해도 나머지를 통지한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void NotifyEnded(ExecutionEndReason reason, ref List<Exception> failures)
+        private void NotifyEnded(ExecutionEndReason reason, ref ExceptionBuffer failures)
         {
             var observers = OnEnded;
             if (observers == null)
@@ -859,7 +842,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
@@ -871,7 +853,7 @@ namespace inonego.Xeri.Game
         /// <br/> 종료 콜백이 목록을 바꿔도 남은 Child만 이어서 정리한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void EndAttachedChildren(ref List<Exception> failures)
+        private void EndAttachedChildren(ref ExceptionBuffer failures)
         {
             while (attachedChildren.Count > 0)
             {
@@ -895,7 +877,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }

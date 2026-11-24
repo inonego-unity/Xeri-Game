@@ -15,8 +15,6 @@ CloneFrom은 인스턴스와 구독을 유지한 채 변경 알림 없이 복제
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime;
-using System.Runtime.ExceptionServices;
 
 using UnityEngine;
 
@@ -321,7 +319,7 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         private void RaiseAdvanced(bool cooldownEnded, int recharged)
         {
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             if (cooldownEnded && OnCooldownEnded != null)
             {
@@ -333,7 +331,7 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        (failures ??= new List<Exception>()).Add(exception);
+                        failures.Add(exception);
                     }
                 }
             }
@@ -348,20 +346,12 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        (failures ??= new List<Exception>()).Add(exception);
+                        failures.Add(exception);
                     }
                 }
             }
 
-            if (failures?.Count == 1)
-            {
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
-            }
-
-            if (failures?.Count > 1)
-            {
-                throw new AggregateException("Ability 상태 알림 중 복수의 오류가 발생했습니다.", failures);
-            }
+            failures.ThrowWhenAny("Ability 상태 알림 중 복수의 오류가 발생했습니다.");
         }
 
     #endregion

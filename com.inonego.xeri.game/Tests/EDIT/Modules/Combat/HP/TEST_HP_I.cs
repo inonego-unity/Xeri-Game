@@ -8,9 +8,13 @@ Unity Test Runner (Edit Mode) 에서 실행한다.
 
 # 테스트 구성
  E: 기본 기능 (생성/상태 전환/힐·데미지/MaxValue/Ratio)
- V: 이벤트 (OnValueChange/OnMaxValueChange/OnStateChange/OnHeal/OnDamage)
+ V: 이벤트 (OnValueChange/OnMaxValueChange/OnStateChange/OnHeal/OnDamage), 알림 시점
  U: 유틸리티 (CalculateApplyAmount)
 ========================================================================= BLOCK_HEADER_END */
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
 
 using NUnit;
 using NUnit.Framework;
@@ -278,6 +282,34 @@ namespace inonego.Xeri.Game.TEST._HP
             Assert.IsTrue(damageFired);
             Assert.AreEqual(hp, damageSender);
             Assert.AreEqual(20, damageArgs.Amount);
+        }
+
+    #endregion
+
+    #region V-2: 알림 시점
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 값 변경이 상태를 바꿀 때 OnStateChange 구독자가 이미 갱신된 값을 읽는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_HP_I_상태알림은_갱신된_값을_보여줌()
+        {
+            var hp = new HP_I();
+            hp.MaxValue = 100;
+            hp.MakeAlive();
+
+            var valuesSeenOnStateChange = new List<int>();
+            hp.OnStateChange += (sender, e) => valuesSeenOnStateChange.Add(hp.Value);
+
+            hp.ApplyDamage(100);
+            hp.Value = 30;
+
+            // 사망 알림은 0, 값 변경으로 소생한 알림은 30을 읽어야 한다.
+            Assert.AreEqual(2, valuesSeenOnStateChange.Count);
+            Assert.AreEqual(0, valuesSeenOnStateChange[0]);
+            Assert.AreEqual(30, valuesSeenOnStateChange[1]);
         }
 
     #endregion

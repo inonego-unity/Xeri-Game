@@ -235,7 +235,7 @@ namespace inonego.Xeri.Game
                 return;
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             foreach (Action<IState, IState> callback in callbacks)
             {
@@ -245,17 +245,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
-            if (failures != null)
-            {
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException("StateMachine 상태 변경 알림 중 일부 구독자가 실패했습니다.", failures);
-            }
+            failures.ThrowWhenAny("StateMachine 상태 변경 알림 중 일부 구독자가 실패했습니다.");
         }
 
     #endregion

@@ -8,7 +8,7 @@ Level 및 LevelxEXP 클래스에 대한 Edit Mode 테스트.
 # 테스트 구성
  E: Level 기본 기능 (생성/레벨업/제한)
  P: LevelxEXP 경험치 처리 (생성/EXP/오버플로우/Value 리셋/조회)
- J: JSON 직렬화 (Level / LevelxEXP)
+ J: JSON 직렬화 (Level / LevelxEXP), 역직렬화 뒤 값 변경 알림
  X: 예외 처리 (음수 Max/음수 EXP/null 테이블/음수 테이블/빈 테이블/0포함 테이블)
 ========================================================================= BLOCK_HEADER_END */
 
@@ -320,6 +320,27 @@ namespace inonego.Xeri.Game.TEST._Level
             {
                 Assert.AreEqual(expTable[i], deserializedExpTable[i], $"경험치 테이블[{i}] 값이 올바르게 복원되어야 합니다");
             }
+        }
+
+    #endregion
+
+    #region J-3: 역직렬화 뒤 값 변경 알림
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 직렬화에서 복원된 Level도 생성자로 만든 Level처럼 OnValueChange를 발생시키는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_Level_JSON_역직렬화_뒤에도_OnValueChange_발생()
+        {
+            var deserialized = JsonUtility.FromJson<Level>(JsonUtility.ToJson(new Level(10)));
+            var changeCount = 0;
+
+            deserialized.OnValueChange += (sender, e) => changeCount++;
+            deserialized.Value = 3;
+
+            Assert.AreEqual(1, changeCount, "복원된 Level도 값 변경을 알려야 합니다");
         }
 
     #endregion

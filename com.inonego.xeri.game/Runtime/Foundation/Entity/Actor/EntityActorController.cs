@@ -382,7 +382,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             if (registry.IsBound(actor))
             {
@@ -392,10 +392,7 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures = new List<Exception>
-                    {
-                        exception
-                    };
+                    failures.Add(exception);
                 }
             }
 
@@ -405,7 +402,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
@@ -415,18 +411,12 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
-            if (failures == null)
-            {
-                return true;
-            }
+            failures.ThrowWhenAny("Entity Actor terminal 반환 중 일부 정리가 실패했습니다.");
 
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("Entity Actor terminal 반환 중 일부 정리가 실패했습니다.", failures);
+            return true;
         }
 
         // --------------------------------------------------------------------------------
@@ -445,7 +435,7 @@ namespace inonego.Xeri.Game
                 targets.Add((actor, registry.GetRegistrationSerial(actor)));
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             foreach (var (actor, serial) in targets)
             {
@@ -461,19 +451,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
-            if (failures == null)
-            {
-                return;
-            }
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("일부 Entity Actor 반환에 실패했습니다.", failures);
+            failures.ThrowWhenAny("일부 Entity Actor 반환에 실패했습니다.");
         }
 
         // ----------------------------------------------------------------------

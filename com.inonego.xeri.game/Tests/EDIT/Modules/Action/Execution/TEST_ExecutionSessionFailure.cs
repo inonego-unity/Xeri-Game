@@ -496,6 +496,31 @@ namespace inonego.Xeri.Game.TEST._Execution
             Assert.IsFalse(session.End(ExecutionEndReason.Cancelled));
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 종료 정리 실패가 하나면 원래 예외를 스택 추적과 함께 다시 전달한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_ExecutionSession_종료실패하나는_원래스택추적유지()
+        {
+            var session = CreateTimelineSession();
+            session.OnEnded += ThrowFromEndObserver;
+
+            session.Begin();
+            var thrown = Assert.Throws<InvalidOperationException>
+            (
+                () => session.End(ExecutionEndReason.Cancelled)
+            );
+
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromEndObserver)));
+        }
+
+        private static void ThrowFromEndObserver(ExecutionSession session, ExecutionEndReason reason)
+        {
+            throw new InvalidOperationException("end observer failure");
+        }
+
     #endregion
 
     }

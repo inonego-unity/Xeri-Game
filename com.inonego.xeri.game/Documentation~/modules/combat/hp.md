@@ -54,6 +54,7 @@ ApplyDamage
 - `OnDamage`
 
 상태 전환과 값 변경 이벤트는 같은 변경에서 함께 발생할 수 있으므로 구독자는 각각 독립된 의미로 처리합니다.
+값 변경이 상태를 바꾸면 값을 먼저 확정하므로 `OnStateChange` 구독자도 갱신된 `Value`를 읽습니다. 이벤트는 `OnStateChange`, `OnValueChange` 순서로 발생합니다.
 ## Entity와 조합
 
 HP는 Entity Core의 필수 책임이 아닙니다.

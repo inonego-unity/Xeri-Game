@@ -252,7 +252,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void ReleaseOwned(DespawnReason reason)
         {
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             // 반환마다 추적을 제거하므로 snapshot을 순회한다.
             var snapshot = new List<KeyValuePair<TEntity, TEntityActor>>(actorsByEntity);
@@ -265,7 +265,6 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
                 finally
@@ -274,9 +273,9 @@ namespace inonego.Xeri.Game
                 }
             }
 
-            if (failures != null)
+            if (failures.Count > 0)
             {
-                throw new AggregateException("일부 자동 Actor와 Presentation 반환에 실패했습니다.", failures);
+                throw failures.CreateAggregateException("일부 자동 Actor와 Presentation 반환에 실패했습니다.");
             }
         }
 

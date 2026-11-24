@@ -301,14 +301,15 @@ namespace inonego.Xeri.Game
 
             if (prev.Equals(next)) return;
 
+            // 값을 먼저 확정해 이어지는 상태 알림이 갱신된 값을 읽게 한다.
+            value = next;
+
             if (autoChangeState)
             {
                 // 값이 0 경계를 교차할 때 상태를 자동 전환한다.
                 if      ( prev.IsPositive &&  next.IsZero    ) SetState(HPState.Dead,  autoChangeValue: false);
                 else if ( prev.IsZero     &&  next.IsPositive) SetState(HPState.Alive, autoChangeValue: false);
             }
-
-            value = next;
 
             OnValueChange?.Invoke(this, new(prev.Get(), next.Get()));
         }
