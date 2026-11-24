@@ -1,0 +1,17 @@
+{
+  "name": "inonego.Xeri.Game.Objective",
+  "rootNamespace": "inonego.Xeri.Game.Objective",
+  "references": [
+    "inonego.Xeri",
+    "inonego.Xeri.Game"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

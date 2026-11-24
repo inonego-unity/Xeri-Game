@@ -1,19 +1,22 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ProgressState.cs
-수정일 : 2026-11-14
+수정일 : 2026-11-24
 
 # 설명
 게임의 공용 진행 데이터를 Xeri Core ValueRegistry 하나에 보관한다.
 
 # 특이사항, 제약사항
 World/Account/Session 등 소유자가 독립적인 상태로 사용한다.
-값 등록·조회·알림은 ValueRegistry를 직접 이용하며 목표 판정이나 복제는 제공하지 않는다.
+값 등록·조회·알림은 ValueRegistry를 직접 이용하며 목표 판정은 제공하지 않는다.
+복제는 Core IDeepCloneable로 제공하며 ValueRegistry의 CloneFrom을 따라 변경 알림을 내지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 
 using UnityEngine;
 
+using inonego;
+using inonego.Xeri;
 using inonego.Xeri.Serializable;
 
 namespace inonego.Xeri.Game.Progress
@@ -24,7 +27,7 @@ namespace inonego.Xeri.Game.Progress
     /// </summary>
     // ============================================================
     [Serializable]
-    public sealed class ProgressState
+    public sealed class ProgressState : IDeepCloneable<ProgressState>
     {
 
     #region 필드
@@ -38,6 +41,32 @@ namespace inonego.Xeri.Game.Progress
             values ?? throw new InvalidOperationException("Progress ValueRegistry is missing.");
 
         [SerializeField] private ValueRegistry values = new();
+
+    #endregion
+
+    #region 복제
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 복제에 쓸 빈 ProgressState를 만든다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public ProgressState @new() => new ProgressState();
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// source의 모든 값을 변경 알림 없이 복제한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public void CloneFrom(ProgressState source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            Values.CloneFrom(source.Values);
+        }
 
     #endregion
 

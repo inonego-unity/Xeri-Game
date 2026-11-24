@@ -52,4 +52,4 @@ Runtime/
 
 패키지 구조 및 Unity 메타데이터 검사는 저장소의 `scripts/validate-package.py`로 수행할 수 있습니다. 실제 컴파일과 테스트 실행은 Unity Editor에서 별도로 확인합니다.
 
-Objective·Narrative는 별도 기능 작업 트리에서 개발 중이며 현재 기본 Runtime 구성에는 포함되어 있지 않습니다.
+Objective는 별도 어셈블리 `inonego.Xeri.Game.Objective`로 포함되어 있습니다. Narrative는 별도 기능 작업 트리에서 개발 중이며 현재 기본 Runtime 구성에는 포함되어 있지 않습니다.
