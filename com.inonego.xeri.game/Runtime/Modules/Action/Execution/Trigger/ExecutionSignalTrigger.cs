@@ -12,11 +12,12 @@ using UnityEngine;
 
 namespace inonego.Xeri.Game
 {
-    // ============================================================
+    // ======================================================================
     /// <summary>
-    /// 특정 Execution Signal의 수신을 조건으로 삼는 Trigger Spec.
+    /// <br/> 첫 일치 Signal 수신 뒤 Offset이 지나면 한 번 발동하는 조건의 Spec.
+    /// <br/> 발동 시각이 Signal 수신 시각에 따라 실행 중에 정해진다.
     /// </summary>
-    // ============================================================
+    // ======================================================================
     [Serializable]
     public sealed class ExecutionSignalTriggerSpec : ExecutionTriggerSpec
     {

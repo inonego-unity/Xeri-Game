@@ -12,11 +12,12 @@ using UnityEngine;
 
 namespace inonego.Xeri.Game
 {
-    // ============================================================
+    // ======================================================================
     /// <summary>
-    /// 지정된 시간 구간에 유효한 Trigger 조건을 표현하는 Spec.
+    /// <br/> 진행 구간이 시간창 [begin, end)와 겹치는 Tick마다 참인 조건의 Spec.
+    /// <br/> 한 번 발동하는 것이 아니라 겹치는 동안 매 Tick 참이다.
     /// </summary>
-    // ============================================================
+    // ======================================================================
     [Serializable]
     public sealed class ExecutionTimeWindowTriggerSpec : ExecutionTriggerSpec
     {

@@ -59,12 +59,12 @@ namespace inonego.Xeri.Game.TEST._Ability
             );
 
             first.State.Values.SetI("Stack", 3);
-            first.State.Control.TryBeginCooldown(2f);
-            first.State.Control.ConfigureCharge(2, 1f);
-            first.State.Control.TryConsumeCharge(1);
+            first.State.TryBeginCooldown(2f);
+            first.State.ConfigureCharge(2, 1f);
+            first.State.TryConsumeCharge(1);
             first.State.Values.SetI("FollowupUses", 1);
 
-            second.State.Control.ConfigureCharge(3, 2f);
+            second.State.ConfigureCharge(3, 2f);
             second.State.Values.SetI("Stack", 7);
             second.State.Values.SetI("FollowupUses", 4);
 
@@ -99,17 +99,17 @@ namespace inonego.Xeri.Game.TEST._Ability
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_AbilityStateControl_Cooldown시작감소Reset()
+        public void TEST_AbilityState_Cooldown시작감소Reset()
         {
             var state = new AbilityState(new AbilityKey("Dash"));
 
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             Assert.IsFalse(state.IsCooldownReady);
-            Assert.IsTrue(state.Control.ReduceCooldown(2f));
+            Assert.IsTrue(state.ReduceCooldown(2f));
             Assert.AreEqual(3f, state.Cooldown.RemainingTime, 0.0001f);
-            Assert.IsTrue(state.Control.ResetCooldown());
+            Assert.IsTrue(state.ResetCooldown());
             Assert.IsTrue(state.IsCooldownReady);
-            Assert.IsFalse(state.Control.ResetCooldown());
+            Assert.IsFalse(state.ResetCooldown());
         }
 
         // ------------------------------------------------------------
@@ -121,10 +121,10 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_음수시간은무시하고비정상시간은거부()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.ConfigureCharge(2, 1f);
+            state.ConfigureCharge(2, 1f);
             Assert.AreEqual(1f, state.Charge.RechargeDuration, 0.0001f);
-            state.Control.TryConsumeCharge(1);
-            state.Control.TryBeginCooldown(2f);
+            state.TryConsumeCharge(1);
+            state.TryBeginCooldown(2f);
             state.Values.SetI("FollowupStage", 2);
 
             state.Advance(-5f);
@@ -153,20 +153,20 @@ namespace inonego.Xeri.Game.TEST._Ability
         // ----------------------------------------------------------------------
         [TestCase(false)]
         [TestCase(true)]
-        public void TEST_AbilityStateControl_ReduceCooldown은정밀도로남은시간이0이되면종료(bool paused)
+        public void TEST_AbilityState_ReduceCooldown은정밀도로남은시간이0이되면종료(bool paused)
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            Assert.IsTrue(state.Control.TryBeginCooldown(1f));
+            Assert.IsTrue(state.TryBeginCooldown(1f));
             state.Advance(0.99999994f);
             if (paused)
             {
-                Assert.IsTrue(state.Control.PauseCooldown());
+                Assert.IsTrue(state.PauseCooldown());
             }
 
             var revision = state.Revision;
 
             // 남은 시간(약 6e-8)보다 작은 감소량이라도 Timer가 반영한 값이 0이면 종료한다.
-            Assert.IsTrue(state.Control.ReduceCooldown(3e-8f));
+            Assert.IsTrue(state.ReduceCooldown(3e-8f));
 
             Assert.IsTrue(state.IsCooldownReady);
             Assert.IsFalse(state.Cooldown.IsRunning);
@@ -180,23 +180,23 @@ namespace inonego.Xeri.Game.TEST._Ability
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_AbilityStateControl_Pause는진행을멈추고Resume으로재개()
+        public void TEST_AbilityState_Pause는진행을멈추고Resume으로재개()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            Assert.IsFalse(state.Control.PauseCooldown());
-            Assert.IsFalse(state.Control.ResumeCooldown());
+            Assert.IsFalse(state.PauseCooldown());
+            Assert.IsFalse(state.ResumeCooldown());
             Assert.AreEqual(0UL, state.Revision);
 
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             state.Advance(1f);
-            Assert.IsTrue(state.Control.PauseCooldown());
+            Assert.IsTrue(state.PauseCooldown());
             Assert.IsTrue(state.Cooldown.IsPaused);
             Assert.IsFalse(state.IsCooldownReady);
 
             state.Advance(10f);
             Assert.AreEqual(4f, state.Cooldown.RemainingTime, 0.0001f);
 
-            Assert.IsTrue(state.Control.ResumeCooldown());
+            Assert.IsTrue(state.ResumeCooldown());
             state.Advance(1f);
             Assert.AreEqual(3f, state.Cooldown.RemainingTime, 0.0001f);
         }
@@ -214,7 +214,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_Cooldown종료알림에서외부사건이후속단계를연다()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.TryBeginCooldown(1f);
+            state.TryBeginCooldown(1f);
             state.OnCooldownEnded += _ => state.Values.SetI("FollowupStage", 2);
 
             state.Advance(1f);
@@ -233,8 +233,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_알림은진행이끝난상태로전달()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.ConfigureCharge(2, 1f, startFull: false);
-            Assert.IsTrue(state.Control.TryBeginCooldown(1f));
+            state.ConfigureCharge(2, 1f, startFull: false);
+            Assert.IsTrue(state.TryBeginCooldown(1f));
             var seenCurrent = -1;
             var seenRemaining = -1f;
             state.OnCooldownEnded += _ =>
@@ -259,8 +259,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_알림안의재진행알림은그자리에서먼저전달()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.ConfigureCharge(2, 2f, startFull: false);
-            Assert.IsTrue(state.Control.TryBeginCooldown(1f));
+            state.ConfigureCharge(2, 2f, startFull: false);
+            Assert.IsTrue(state.TryBeginCooldown(1f));
             var log = new List<string>();
             state.OnCooldownEnded += _ =>
             {
@@ -293,8 +293,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_알림구독자예외를모두보낸뒤함께전달()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(2, 1f, startFull: false);
-            Assert.IsTrue(state.Control.TryBeginCooldown(1f));
+            state.ConfigureCharge(2, 1f, startFull: false);
+            Assert.IsTrue(state.TryBeginCooldown(1f));
             var delivered = 0;
             state.OnCooldownEnded += _ =>
                 throw new InvalidOperationException("cooldown failed");
@@ -321,10 +321,10 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_쿨다운알림에서시작한충전은다음Advance부터진행()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.ConfigureCharge(2, 1f, startFull: true);
-            Assert.IsTrue(state.Control.TryBeginCooldown(1f));
+            state.ConfigureCharge(2, 1f, startFull: true);
+            Assert.IsTrue(state.TryBeginCooldown(1f));
             var consumed = false;
-            state.OnCooldownEnded += _ => consumed = state.Control.TryConsumeCharge(1);
+            state.OnCooldownEnded += _ => consumed = state.TryConsumeCharge(1);
 
             state.Advance(1f);
 
@@ -344,53 +344,53 @@ namespace inonego.Xeri.Game.TEST._Ability
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_AbilityStateControl_실제변경마다Revision이한번씩증가()
+        public void TEST_AbilityState_실제변경마다Revision이한번씩증가()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
             Assert.AreEqual(0UL, state.Revision);
 
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             Assert.AreEqual(1UL, state.Revision);
-            Assert.IsFalse(state.Control.TryBeginCooldown(5f));
+            Assert.IsFalse(state.TryBeginCooldown(5f));
             Assert.AreEqual(1UL, state.Revision);
 
-            Assert.IsTrue(state.Control.ReduceCooldown(1f));
+            Assert.IsTrue(state.ReduceCooldown(1f));
             Assert.AreEqual(2UL, state.Revision);
-            Assert.IsFalse(state.Control.ReduceCooldown(0f));
+            Assert.IsFalse(state.ReduceCooldown(0f));
             Assert.AreEqual(2UL, state.Revision);
 
             // float 정밀도보다 작은 감소량은 남은 시간을 바꾸지 않으므로 변경으로 세지 않는다.
-            Assert.IsFalse(state.Control.ReduceCooldown(1e-8f));
+            Assert.IsFalse(state.ReduceCooldown(1e-8f));
             Assert.AreEqual(2UL, state.Revision);
 
-            Assert.IsTrue(state.Control.PauseCooldown());
+            Assert.IsTrue(state.PauseCooldown());
             Assert.AreEqual(3UL, state.Revision);
-            Assert.IsFalse(state.Control.PauseCooldown());
-            Assert.IsTrue(state.Control.ResumeCooldown());
+            Assert.IsFalse(state.PauseCooldown());
+            Assert.IsTrue(state.ResumeCooldown());
             Assert.AreEqual(4UL, state.Revision);
-            Assert.IsFalse(state.Control.ResumeCooldown());
+            Assert.IsFalse(state.ResumeCooldown());
 
-            Assert.IsTrue(state.Control.ResetCooldown());
+            Assert.IsTrue(state.ResetCooldown());
             Assert.AreEqual(5UL, state.Revision);
-            Assert.IsFalse(state.Control.ResetCooldown());
+            Assert.IsFalse(state.ResetCooldown());
             Assert.AreEqual(5UL, state.Revision);
 
             // 지속시간 0은 시작할 상태가 없으므로 성공해도 변경이 아니다.
-            Assert.IsTrue(state.Control.TryBeginCooldown(0f));
+            Assert.IsTrue(state.TryBeginCooldown(0f));
             Assert.AreEqual(5UL, state.Revision);
 
-            state.Control.ConfigureCharge(2, 1f);
+            state.ConfigureCharge(2, 1f);
             Assert.AreEqual(6UL, state.Revision);
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
+            Assert.IsTrue(state.TryConsumeCharge(1));
             Assert.AreEqual(7UL, state.Revision);
-            Assert.IsFalse(state.Control.TryConsumeCharge(2));
+            Assert.IsFalse(state.TryConsumeCharge(2));
             Assert.AreEqual(7UL, state.Revision);
-            Assert.AreEqual(1, state.Control.RestoreCharge(1));
+            Assert.AreEqual(1, state.AddCharge(1));
             Assert.AreEqual(8UL, state.Revision);
-            Assert.AreEqual(0, state.Control.RestoreCharge(1));
+            Assert.AreEqual(0, state.AddCharge(1));
             Assert.AreEqual(8UL, state.Revision);
 
-            state.Control.ConfigureCharge(3, 1f);
+            state.ConfigureCharge(3, 1f);
             Assert.AreEqual(9UL, state.Revision);
         }
 
@@ -434,8 +434,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_Advance는Revision을바꾸지않고소비복원만이산변경으로센다()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.ConfigureCharge(3, 0.5f, startFull: false);
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            state.ConfigureCharge(3, 0.5f, startFull: false);
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             var completed = 0;
             state.OnChargeRecharged += (_, count) => completed += count;
             var revision = state.Revision;
@@ -451,7 +451,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.IsTrue(state.IsCooldownReady);
             Assert.AreEqual(revision, state.Revision);
 
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
+            Assert.IsTrue(state.TryConsumeCharge(1));
             Assert.AreEqual(revision + 1, state.Revision);
 
             // 같은 Tick의 소비와 복원은 결과 수량이 같아도 각각 이산 변경이다.
@@ -460,8 +460,8 @@ namespace inonego.Xeri.Game.TEST._Ability
             var current = state.Charge.Current;
             revision = state.Revision;
 
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
-            Assert.AreEqual(1, state.Control.RestoreCharge(1));
+            Assert.IsTrue(state.TryConsumeCharge(1));
+            Assert.AreEqual(1, state.AddCharge(1));
 
             Assert.AreEqual(revision + 2, state.Revision);
             Assert.AreEqual(current, state.Charge.Current);
@@ -481,7 +481,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_사용구간은중첩을거부하고Advance를막지않음()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            state.Control.TryBeginCooldown(2f);
+            state.TryBeginCooldown(2f);
 
             state.EnterUse();
             Assert.Throws<InvalidOperationException>(() => state.EnterUse());

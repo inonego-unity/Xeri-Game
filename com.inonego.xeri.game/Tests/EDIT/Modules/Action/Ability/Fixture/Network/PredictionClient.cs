@@ -1,11 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : PredictionClient.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 L2 예측 계층의 테스트 전용 Client를 제공한다.
 사용 직전 State 복사본으로 로컬 사용을 예측하고 서버 결과로 확정하거나 되돌리며 예측 투사체를 권한 Key로 인계한다.
 승인된 예측 Session은 권한 측에서 그 실행이 끝나면 같은 종료 사유로 끝낸다.
+채널(ExecutionChannel)을 주면 예측 Session을 그 채널로 시작해 이전 예측 Session을 선점하고, 채널이 거절하면 로컬 예측 자체를 시작하지 않는다.
+선점한 예측이 서버에 거절돼도 이전 Session은 되살리지 않는다(명세 §7.2).
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -71,32 +73,36 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         private readonly AuthorityClient client;
         private readonly int historyCapacity;
         private readonly Func<object> captureExternal;
+        private readonly ExecutionChannel<int> channel;
         private readonly Dictionary<int, PredictedUse> pending = new();
         private readonly List<int> order = new();
         private readonly List<PredictedUse> accepted = new();
         private readonly Dictionary<ulong, ExecutionEndReason> endedBeforeAccept = new();
         private ulong nextTemporaryID = 9000;
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
         /// <br/> Client의 결과·세션 전환·Owner 제거·자기 실행 종료 통지를
         /// <br/> 이 예측 계층이 받도록 연결한다.
         /// <br/> Client 하나에는 계층 하나만 연결할 수 있다.
         /// <br/> 보관 복사본은 최근 historyCapacity개까지만 유지한다.
+        /// <br/> channel을 주면 예측 Session을 그 채널(Claim은 int)로 시작한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         internal PredictionClient
         (
             FakeAbilityNetwork<AuthorityPacket> network,
             AuthorityClient client,
             int historyCapacity = int.MaxValue,
-            Func<object> captureExternal = null
+            Func<object> captureExternal = null,
+            ExecutionChannel<int> channel = null
         )
         {
             this.network = network;
             this.client = client;
             this.historyCapacity = historyCapacity;
             this.captureExternal = captureExternal;
+            this.channel = channel;
             client.Attach(Handle, Reset, Despawn, EndConfirmed);
         }
 
@@ -126,9 +132,11 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         /// <summary>
         /// <br/> 사용 직전 State 복사본을 보관하고 Predicted 모드 Session으로 로컬 사용을
         /// <br/> 예측해 요청을 보낸다. 입력을 받을 수 없거나 로컬 사용이 거부되면 null이다.
+        /// <br/> 채널을 쓰면 claim으로 점유를 요청하고, 채널이 거절하면 로컬 예측을 시작하지 않아
+        /// <br/> 이미 지불한 비용은 환급되고 요청도 보내지 않는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        internal PredictedUse Predict(int delayTicks, int spawnCount = 0)
+        internal PredictedUse Predict(int delayTicks, int spawnCount = 0, int claim = 0)
         {
             if (!client.AcceptsInput) return null;
 
@@ -139,12 +147,18 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             PredictedUse use = null;
             bool Begin(in AbilityUse<string> started)
             {
-                use = new PredictedUse
+                var candidate = new PredictedUse
                 {
                     Kept = kept, KeptTick = keptTick, KeptSnapshots = keptSnapshots, HasKept = true,
                     TemporaryID = nextTemporaryID++, Origin = started.Origin, External = external,
                 };
-                StartPredictedSession(use);
+
+                if (!StartPredictedSession(candidate, claim))
+                {
+                    return false;
+                }
+
+                use = candidate;
                 return true;
             }
 
@@ -163,22 +177,35 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             return use;
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 예측 사용의 Predicted 모드 Session과 Motion Lease를 시작한다.
+        /// <br/> 예측 사용의 Predicted 모드 Session과 Motion Lease를 시작하고
+        /// <br/> 시작했는지 반환한다.
+        /// <br/> 채널을 쓰면 판정이 허락할 때 이전 예측 Session을 끝내고 점유하며,
+        /// <br/> 거절하면 시작하지 않는다.
         /// </summary>
-        // ------------------------------------------------------------
-        private void StartPredictedSession(PredictedUse use)
+        // ----------------------------------------------------------------------
+        private bool StartPredictedSession(PredictedUse use, int claim)
         {
             var flow = new FixedTimelineExecutionFlowSpec(10f);
             var context = new ExecutionContext(client.Owner, client.Owner, ExecutionMode.Predicted);
             var session = new ExecutionSession(use.TemporaryID, context, flow.CreateRuntime(), maximumTime: flow.MaximumDuration);
             var motion = new Lease(() => MotionReleased++);
             session.OnEnded += (_, _) => motion.Release();
-            session.Begin();
+
+            if (channel == null)
+            {
+                session.Begin();
+            }
+            else if (!channel.TryStart(session, claim))
+            {
+                return false;
+            }
+
             Begins++;
             use.Session = session;
             use.Motion = motion;
+            return true;
         }
 
         // ------------------------------------------------------------

@@ -41,8 +41,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_저장복원은진행중Cooldown과부분충전과Values를유지()
         {
             var state = new AbilityState(new AbilityKey("SavedSkill"));
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
-            state.Control.ConfigureCharge(3, 2f, startFull: false);
+            Assert.IsTrue(state.TryBeginCooldown(5f));
+            state.ConfigureCharge(3, 2f, startFull: false);
             state.Values.SetI("Stack", 3);
             state.Values.SetS("Label", "saved");
             state.Values.SetF("Multiplier", 1.25f);
@@ -76,6 +76,38 @@ namespace inonego.Xeri.Game.TEST._Ability
             // 복원한 상태의 Values 변경도 Revision에 반영한다.
             restored.Values.SetI("Stack", 4);
             Assert.AreEqual(2UL, restored.Revision);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 구성하지 않은 Charge는 저장과 복원 뒤에도 null이고, 이미 구성한 State에
+        /// <br/> 구성하지 않은 데이터를 덮어쓰면 Charge가 null로 돌아오는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_구성하지않은Charge는복원뒤에도null()
+        {
+            var plain = new AbilityState(new AbilityKey("Plain"));
+            var saved = JsonUtility.ToJson(plain);
+
+            var restored = JsonUtility.FromJson<AbilityState>(saved);
+            Assert.IsNull(restored.Charge);
+
+            var configured = new AbilityState(new AbilityKey("Plain"));
+            configured.ConfigureCharge(2, 1f);
+            Assert.IsNotNull(configured.Charge);
+
+            JsonUtility.FromJsonOverwrite(saved, configured);
+            Assert.IsNull(configured.Charge);
+
+            // 구성한 Charge는 그대로 복원한다.
+            var burst = new AbilityState(new AbilityKey("Burst"));
+            burst.ConfigureCharge(3, 2f, startFull: false);
+            var burstRestored = JsonUtility.FromJson<AbilityState>(JsonUtility.ToJson(burst));
+
+            Assert.IsNotNull(burstRestored.Charge);
+            Assert.AreEqual(3, burstRestored.Charge.Capacity);
+            Assert.AreEqual(0, burstRestored.Charge.Current);
         }
 
         // ----------------------------------------------------------------------
@@ -127,9 +159,9 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_일시정지한Cooldown도저장복원후남은시간을유지()
         {
             var state = new AbilityState(new AbilityKey("SavedSkill"));
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             state.Advance(2f);
-            Assert.IsTrue(state.Control.PauseCooldown());
+            Assert.IsTrue(state.PauseCooldown());
 
             var restored = JsonUtility.FromJson<AbilityState>(JsonUtility.ToJson(state));
 
@@ -140,7 +172,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             restored.Advance(10f);
             Assert.AreEqual(3f, restored.Cooldown.RemainingTime, 0.0001f);
 
-            Assert.IsTrue(restored.Control.ResumeCooldown());
+            Assert.IsTrue(restored.ResumeCooldown());
             restored.Advance(1f);
             Assert.AreEqual(2f, restored.Cooldown.RemainingTime, 0.0001f);
         }
@@ -152,8 +184,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         private static AbilityState CreateRestoreSource(string key = "Skill")
         {
             var source = new AbilityState(new AbilityKey(key));
-            source.Control.TryBeginCooldown(5f);
-            source.Control.ConfigureCharge(3, 1f, startFull: false);
+            source.TryBeginCooldown(5f);
+            source.ConfigureCharge(3, 1f, startFull: false);
             source.Values.SetI("Stack", 7);
             source.Values.SetS("Label", "saved");
             source.Advance(0.4f);
@@ -175,7 +207,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var target = new AbilityState(new AbilityKey("Skill"));
             target.Values.SetI("Old", 1);
-            target.Control.ConfigureCharge(2, 1f);
+            target.ConfigureCharge(2, 1f);
             var revision = target.Revision;
             var source = CreateRestoreSource();
             var sourceRevision = source.Revision;
@@ -252,12 +284,12 @@ namespace inonego.Xeri.Game.TEST._Ability
         private static AbilityState CreateProgressedState()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 2f);
-            Assert.IsTrue(state.Control.TryConsumeCharge(2));
-            Assert.IsTrue(state.Control.TryBeginCooldown(5f));
+            state.ConfigureCharge(3, 2f);
+            Assert.IsTrue(state.TryConsumeCharge(2));
+            Assert.IsTrue(state.TryBeginCooldown(5f));
             state.Values.SetI("Stage", 2);
             state.Advance(0.5f);
-            Assert.IsTrue(state.Control.PauseCooldown());
+            Assert.IsTrue(state.PauseCooldown());
             return state;
         }
 
@@ -278,7 +310,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(source.Key, clone.Key);
             Assert.AreEqual(JsonUtility.ToJson(source), JsonUtility.ToJson(clone));
 
-            clone.Control.ResumeCooldown();
+            clone.ResumeCooldown();
             clone.Advance(1f);
             clone.Values.SetI("Stage", 3);
 
@@ -298,7 +330,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var source = CreateProgressedState();
             var target = new AbilityState(new AbilityKey("Burst"));
-            target.Control.ConfigureCharge(5, 1f);
+            target.ConfigureCharge(5, 1f);
             var values = target.Values;
             var charge = target.Charge;
             var cooldown = target.Cooldown;

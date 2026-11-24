@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AuthorityClient.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 자기 State 뷰로 먼저 판단하고 서버 결과와 State 복사본으로 정정되는 테스트 전용 권한 Client를 제공한다.
@@ -56,18 +56,29 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         // --------------------------------------------------------------------------------
         internal void Advance(float deltaTime)
         {
-            var states = new List<AbilityState>(Kit.States);
-            foreach (var replica in replicas.Values)
-            {
-                states.AddRange(replica.Values);
-            }
+            var sets = new List<AbilityStateSet>(replicas.Values);
+            sets.Insert(0, Kit.Abilities);
 
             List<Exception> failures = null;
-            foreach (var state in states)
+            foreach (var set in sets)
             {
                 try
                 {
-                    state.Advance(deltaTime);
+                    set.Advance(deltaTime);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>()).Add(exception);
+                }
+            }
+
+            var statuses = new List<StatusContainer<int>>(statusReplicas.Values);
+            statuses.Insert(0, Kit.Statuses);
+            foreach (var container in statuses)
+            {
+                try
+                {
+                    container.Advance(deltaTime);
                 }
                 catch (Exception exception)
                 {
@@ -190,6 +201,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             appliedRevisions.Clear();
             appliedCounts.Clear();
             replicas.Clear();
+            statusReplicas.Clear();
+            appliedStatusRevisions.Clear();
             RemoteRunning.Clear();
             OwnRunning.Clear();
             Despawned = false;
@@ -248,6 +261,11 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             if (payload.HasSnapshot)
             {
                 Apply(payload.Owner, payload.Snapshot);
+            }
+
+            if (payload.HasStatus)
+            {
+                ApplyStatus(payload.Owner, payload.StatusSnapshot);
             }
         }
 
@@ -399,6 +417,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         {
             RemoteRunning.Remove(owner);
             replicas.Remove(owner);
+            statusReplicas.Remove(owner);
+            appliedStatusRevisions.Remove(owner);
             RemoveOwner(appliedRevisions, owner);
             RemoveOwner(appliedCounts, owner);
         }
@@ -433,8 +453,11 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
         private readonly Dictionary<(int Owner, AbilityKey Key), ulong> appliedRevisions = new();
         private readonly Dictionary<(int Owner, AbilityKey Key), int> appliedCounts = new();
-        private readonly Dictionary<int, Dictionary<AbilityKey, AbilityState>> replicas = new();
+        private readonly Dictionary<int, AbilityStateSet> replicas = new();
+        private readonly Dictionary<int, StatusContainer<int>> statusReplicas = new();
+        private readonly Dictionary<int, ulong> appliedStatusRevisions = new();
         internal int SnapshotsApplied;
+        internal int StatusSnapshotsApplied;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -443,7 +466,18 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         // ------------------------------------------------------------
         internal AbilityState Replica(int owner, AbilityKey key)
         {
-            return replicas.TryGetValue(owner, out var states) && states.TryGetValue(key, out var state) ? state : null;
+            return replicas.TryGetValue(owner, out var set) && set.TryGet(key, out var state) ? state : null;
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 원격 Owner의 Status 사본을 반환하며 아직 받지 않았으면 null이다.
+        /// <br/> 자기 Owner는 Kit.Statuses이다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        internal StatusContainer<int> StatusReplica(int owner)
+        {
+            return statusReplicas.TryGetValue(owner, out var container) ? container : null;
         }
 
         // ----------------------------------------------------------------------
@@ -484,6 +518,38 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             SnapshotsApplied++;
         }
 
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 그 Owner의 Status 컨테이너에 처음이거나 마지막 적용보다 작지 않은 Revision의
+        /// <br/> 복사본만 CloneFrom으로 적용하고 전송에 걸린 Tick만큼 진행해 보정한다.
+        /// <br/> Status는 예측하지 않으므로 자기 Owner도 같은 경로로만 바뀐다.
+        /// <br/> 원격 Owner는 처음 받을 때 사본을 만든다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        private void ApplyStatus(int owner, AuthorityStatusSnapshot snapshot)
+        {
+            if (appliedStatusRevisions.TryGetValue(owner, out var applied) && snapshot.Revision < applied)
+            {
+                return;
+            }
+
+            StatusContainer<int> target;
+            if (owner == Owner)
+            {
+                target = Kit.Statuses;
+            }
+            else if (!statusReplicas.TryGetValue(owner, out target))
+            {
+                target = new StatusContainer<int>();
+                statusReplicas.Add(owner, target);
+            }
+
+            target.CloneFrom(snapshot.State);
+            target.Advance((network.Tick - snapshot.Tick) * network.TickDelta);
+            appliedStatusRevisions[owner] = snapshot.Revision;
+            StatusSnapshotsApplied++;
+        }
+
         // ----------------------------------------------------------------------
         /// <summary>
         /// <br/> Snapshot을 적용할 State를 찾는다. 자기 Owner는 Kit의 State이고
@@ -494,22 +560,16 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         {
             if (owner == Owner)
             {
-                return Kit.FindState(key);
+                return Kit.Abilities.TryGet(key, out var own) ? own : null;
             }
 
-            if (!replicas.TryGetValue(owner, out var states))
+            if (!replicas.TryGetValue(owner, out var set))
             {
-                states = new Dictionary<AbilityKey, AbilityState>();
-                replicas.Add(owner, states);
+                set = new AbilityStateSet();
+                replicas.Add(owner, set);
             }
 
-            if (!states.TryGetValue(key, out var state))
-            {
-                state = new AbilityState(key);
-                states.Add(key, state);
-            }
-
-            return state;
+            return set.GetOrAdd(key);
         }
 
     #endregion

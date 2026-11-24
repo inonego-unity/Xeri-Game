@@ -13,7 +13,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 
 | 계층 | 핵심 계약 | 보관·결정하는 것 | 보관하지 않는 것 |
 |---|---|---|---|
-| Ability 상태·바인딩 | `AbilityInstance<TSpec>`, `AbilityState`, `AbilityBindings<TSpec>` | 논리 Ability Identity, 소유자별 지속 값, 현재 Entry 연결 | 한 번의 Action 진행 |
+| Ability 상태·바인딩 | `AbilityInstance<TSpec>`, `AbilityState`, `AbilityStateSet`, `AbilityBindings<TSpec>` | 논리 Ability Identity, 소유자별 지속 값, 현재 Entry 연결 | 한 번의 Action 진행 |
 | 사용 선택·승인 | `AbilityUseSelector<...>`, `AbilityUseSelection<...>`, `AbilityActivationPolicy<TSpec>` | 선택한 실행, 선택 후 변경 감지(현재성), Requirement·Cost 평가, 비용 소비·실행 시작 실패 시 환급, 상태 전이 | 배타 실행(Execution의 `ExecutionChannel`이 담당) |
 | Execution | `ExecutionSpec`, `ExecutionSession`, Flow·Behavior·Trigger, `ExecutionChannel<TClaim>` | 단일 행동의 시간, Command·Signal, Commit, Child·종료, 배타 실행 선점 | 영구 Ability 상태와 게임별 Effect 관리 |
 | Spatial | `SpatialRequest<TReference>`, `SpatialSession<TReference>` | 위치·방향·회전 출처, Capture·Follow·Lock | 게임의 위치 히스토리·되감기 |

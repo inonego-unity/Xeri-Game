@@ -177,7 +177,15 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             var model = CreateWarmModel();
             var key = new MotionSourceKey("Knockback", 1);
 
-            Assert.That(() => model.TryGetModifier(key, out _), Is.Not.AllocatingGCMemory());
+            // 조회 결과는 쓰지 않으므로 반환값 없는 메서드로 감싸 TestDelegate로 받는다.
+            void Lookup()
+            {
+                model.TryGetModifier(key, out _);
+            }
+
+            Lookup();
+
+            Assert.That(Lookup, Is.Not.AllocatingGCMemory());
         }
 
         // ------------------------------------------------------------

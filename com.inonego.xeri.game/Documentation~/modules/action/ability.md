@@ -18,7 +18,8 @@ Ability는 **재사용 가능한 Spec**, **소유자별 지속 상태**, **입�
 |---|---|
 | `AbilityKey` / `AbilityEntryKey` | 실제 Ability Identity와 입력 Entry Identity를 각각 식별하는 문자열 기반 값 |
 | `AbilityInstance<TSpec>` | 공유 Spec과 Owner별 `AbilityState` 조합. 실행 중인 Cast를 뜻하지 않음 |
-| `AbilityState` / `AbilityStateControl` | 지속 Cooldown·Charge·`ValueRegistry` 관찰과 변경, 변경 번호 `Revision` |
+| `AbilityState` | 지속 Cooldown·Charge·`ValueRegistry` 관찰과 변경, 변경 번호 `Revision` |
+| `AbilityStateSet` | 한 Owner의 State를 Key마다 하나씩 보관. Key 조회, 추가·제거, 일괄 `Advance` |
 | `AbilityBindingLayer<TSpec>` | Entry → Instance의 일부 연결과 Priority |
 | `AbilityBindings<TSpec>` | Layer 등록 `AcquireLayer`·`AcquireOverride`, `TryResolve`, `ResolveAll`, 변경 번호 `Revision` |
 | `AbilityActivationContext<TSpec>` | Owner, Instigator, 현재 Binding, 게임이 요청에 덧붙이는 `object` Payload |
@@ -38,20 +39,24 @@ Ability는 **재사용 가능한 Spec**, **소유자별 지속 상태**, **입�
 using inonego.Xeri.Game;
 
 var state = new AbilityState(new AbilityKey("dash"));
-state.Control.ConfigureCharge(capacity: 2, rechargeDuration: 3f);
+state.ConfigureCharge(capacity: 2, rechargeDuration: 3f);
 var instance = new AbilityInstance<object>(new object(), state);
 
 // 실제 게임의 논리 Owner가 매 Tick 호출합니다.
 state.Advance(0.016f); // 실제 게임에서는 Tick의 deltaTime을 전달
 
-// 변경은 읽기 전용 Charge가 아니라 Control을 통해 수행합니다.
-bool spent = state.Control.TryConsumeCharge(1);
-bool cooldownStarted = state.Control.TryBeginCooldown(1.5f);
+// 변경은 읽기 전용 Charge가 아니라 State의 변경 메서드로 수행합니다.
+bool spent = state.TryConsumeCharge(1);
+bool cooldownStarted = state.TryBeginCooldown(1.5f);
 ~~~
 
-- `State.Cooldown`과 `State.Charge.Recharge`는 값만 읽는 `ITimerProgress`(`IsRunning`, `IsPaused`, `Duration`, `ElapsedTime`, `RemainingTime` 등)로, `State.Charge`는 `IReadOnlyAbilityChargeState`로 노출됩니다. 내부 Timer를 구독할 수는 없으며 종료·충전은 아래 알림으로 받습니다. `Charge`는 구성하지 않은 새 State에서는 null입니다. 다만 Unity 직렬화(`JsonUtility`, 씬·프리팹)로 복원하거나 역직렬화하면 구성하지 않았더라도 기본 Charge(용량 1, 가득 참)가 생기므로 Charge 비용을 쓰는 Ability는 항상 `ConfigureCharge`로 구성하세요. 복원한 Charge 값이 범위를 벗어나면(용량 1 미만, 잔량이 0~용량 밖, 충전 시간이 유한한 양수가 아님) 용량은 1 이상, 잔량은 0~용량으로 맞추고 충전 시간은 기본값 1초로 되돌립니다. `ConfigureCharge`로 다시 구성해도 `Charge`와 `Charge.Recharge` 인스턴스는 그대로라 들고 있던 참조로 계속 읽을 수 있습니다.
+- `State.Cooldown`과 `State.Charge.Recharge`는 값만 읽는 `ITimerProgress`(`IsRunning`, `IsPaused`, `Duration`, `ElapsedTime`, `RemainingTime` 등)로, `State.Charge`는 `IReadOnlyAbilityChargeState`로 노출됩니다. 내부 Timer를 구독할 수는 없으며 종료·충전은 아래 알림으로 받습니다. `Charge`는 구성하지 않은 새 State에서는 null입니다. 구성하지 않은 State는 Unity 직렬화(`JsonUtility`, 씬·프리팹)로 복원해도 `Charge`가 null입니다(구성 여부를 함께 저장합니다). Charge 비용을 쓰는 Ability는 `ConfigureCharge`로 먼저 구성하세요. 복원한 Charge 값이 범위를 벗어나면(용량 1 미만, 잔량이 0~용량 밖, 충전 시간이 유한한 양수가 아님) 용량은 1 이상, 잔량은 0~용량으로 맞추고 충전 시간은 기본값 1초로 되돌립니다. `ConfigureCharge`로 다시 구성해도 `Charge`와 `Charge.Recharge` 인스턴스는 그대로라 들고 있던 참조로 계속 읽을 수 있습니다.
 - `State.Values`는 Owner에 귀속된 직렬화 가능한 primitive 값을 보관하는 `ValueRegistry`입니다. 세션의 `ExecutionSession.Variables`와 다릅니다.
-- `Control.ConfigureCharge(capacity, rechargeDuration, startFull)`로 수량·재충전 주기를 설정하고, `TryConsumeCharge`·`RestoreCharge`로 소비·복원합니다. Charge는 순차 재충전하며 Cooldown과 독립입니다.
+- `ConfigureCharge(capacity, rechargeDuration, startFull)`로 수량·재충전 주기를 설정하고, `TryConsumeCharge`·`AddCharge`로 소비·추가합니다. `AddCharge`는 최대 용량을 넘지 않는 범위에서 더하고 실제 증가량을 반환합니다. Charge는 순차 재충전하며 Cooldown과 독립입니다.
+- `ConfigureCharge`는 처음부터 다시 구성합니다(현재 수량과 충전 진행 초기화). 운영 중 변경(최대 충전 +1, 충전 가속 패시브 등)에는 다음을 씁니다. 둘 다 Charge가 없으면 false이고, 실제로 바뀌었을 때만 `Revision`을 올립니다.
+  - `ResizeCharge(capacity, rechargeDuration)`: 현재 수량과 충전 경과 시간을 유지한 채 구성을 바꿉니다. 용량이 줄면 현재 수량을 용량으로 줄이고, 늘어도 수량을 지급하지 않습니다. 새 주기가 이미 지난 경과 시간 이하면 그 주기를 완료합니다.
+  - `ReduceRecharge(amount)`: 진행 중인 충전 주기의 남은 시간을 줄입니다. 남은 시간 이상이면 그 주기를 완료하고, 초과분은 다음 주기로 넘기지 않습니다(`ReduceCooldown`과 같은 의미).
+- 변경 메서드 이름 규칙: 대상(`Cooldown`, `Charge`, `Recharge`)을 접미사로 두고, 조건이 안 맞는 것이 정상 흐름인 요청(`TryBeginCooldown`, `TryConsumeCharge`)만 `Try`를 붙입니다. `bool`은 "실제로 바뀌었는가"(`Try`는 "요청을 수행했거나 할 일이 없는가"), `int`는 "얼마나 바뀌었는가"(`AddCharge`)를 뜻합니다. 잘못된 인자(NaN·무한대·범위 밖)는 어느 메서드든 `ArgumentOutOfRangeException`입니다.
 - Cooldown은 `TryBeginCooldown`으로 시작합니다. 진행 중이거나 일시정지된 Cooldown이 있으면 시작하지 않고 false를 반환합니다. 지속시간 0은 "Cooldown 없음"이라 시작할 것이 없으므로 항상 true를 반환하고 진행 중인 Cooldown과 `Revision`을 바꾸지 않습니다. 반환값은 "요청한 Cooldown을 시작했거나 시작할 것이 없다"는 뜻입니다. Cooldown은 `PauseCooldown`·`ResumeCooldown`으로 일시정지·재개합니다. 일시정지한 Cooldown은 `Advance`로 줄지 않습니다.
 
 ### 시간 진행과 알림
@@ -63,11 +68,11 @@ bool cooldownStarted = state.Control.TryBeginCooldown(1.5f);
 | 알림 | 시점 |
 | --- | --- |
 | `OnCooldownEnded(state)` | 진행 중이던 Cooldown이 시간 진행으로 끝났을 때. `ResetCooldown`·`ReduceCooldown`으로 끝낸 경우는 알리지 않습니다 |
-| `OnChargeRecharged(state, count)` | 시간 진행으로 Charge가 충전됐을 때. 한 번의 `Advance`에서 충전된 수를 함께 전달합니다 |
+| `OnChargeRecharged(state, count)` | 시간 진행으로 Charge가 충전됐을 때. 한 번의 `Advance`에서 충전된 수를 함께 전달합니다. `ResizeCharge`·`ReduceRecharge`로 완료한 경우는 알리지 않습니다 |
 
 알림 규칙은 다음과 같습니다.
 
-- **진행이 끝난 뒤 보냅니다.** 구독자는 Cooldown과 Charge 진행이 모두 끝난 상태를 보며, 알림 안에서 Control·`Advance`·사용을 호출해도 됩니다. 그래서 충전이 가득 찬 직후 알림에서 사용하면 다시 시작되는 충전 주기는 다음 `Advance`부터 진행합니다.
+- **진행이 끝난 뒤 보냅니다.** 구독자는 Cooldown과 Charge 진행이 모두 끝난 상태를 보며, 알림 안에서 State 변경·`Advance`·사용을 호출해도 됩니다. 그래서 충전이 가득 찬 직후 알림에서 사용하면 다시 시작되는 충전 주기는 다음 `Advance`부터 진행합니다.
 - 한 번의 `Advance`에서 둘 다 생기면 `OnCooldownEnded`, `OnChargeRecharged` 순서로 보냅니다.
 - 알림 안에서 다시 `Advance`하면 그 진행의 알림은 그 자리에서 먼저 보냅니다.
 - 구독자 예외는 모든 구독자에게 보낸 뒤 전달합니다(하나면 그 예외, 여럿이면 `AggregateException`). 상태는 이미 확정돼 있으므로 되돌리지 않습니다.
@@ -76,7 +81,7 @@ bool cooldownStarted = state.Control.TryBeginCooldown(1.5f);
 
 `State.Revision`은 상태를 실제로 바꾼 연산마다 정확히 1씩 증가합니다. 바뀌지 않았으면 그대로입니다. 증가하는 경우는 다음과 같습니다.
 
-- Control 호출이 실제로 상태를 바꾼 경우
+- 변경 메서드가 실제로 상태를 바꾼 경우
 - `Values` 변경
 - 복원(`CloneFrom`, 직렬화 복원)
 - 비용 환급
@@ -101,6 +106,39 @@ bool cooldownStarted = state.Control.TryBeginCooldown(1.5f);
 - 사용 중인 State(`Selection.TryActivate` 실행 도중)에는 복원하지 않습니다.
 
 프로젝트 전체의 Save/Load, 소유자 복원, 실행 Session 재생은 Xeri가 제공하지 않습니다. Session은 저장 대상이 아닙니다.
+
+### Owner의 State 묶음: AbilityStateSet
+
+Owner가 여러 Ability를 가지면 `AbilityStateSet`에 State를 Key마다 하나씩 보관하고 Tick마다 `Advance`를 한 번 호출합니다.
+
+~~~csharp
+var states = new AbilityStateSet();
+var dash = states.GetOrAdd(new AbilityKey("dash"));    // 없으면 만들어 추가
+dash.ConfigureCharge(capacity: 2, rechargeDuration: 3f);
+
+states.Advance(deltaTime);                              // 모든 State를 같은 시간만큼 진행
+~~~
+
+- `Add(state)`는 구성한 State를 넣습니다. Key가 없거나 같은 Key가 이미 있으면 `ArgumentException`입니다.
+- `Remove(key)`는 사용 중인 State(`Selection.TryActivate` 실행 도중)를 `InvalidOperationException`으로 거부합니다. Binding에 연결된 Instance는 바꾸지 않으므로 필요하면 Layer에서도 해제하세요.
+- `Advance`는 호출 시점의 구성원만 진행합니다. 알림 안에서 제거한 State는 건너뛰고, 추가한 State는 다음 `Advance`부터 진행합니다. 한 State의 구독자 예외가 나머지 진행을 막지 않으며, 모두 진행한 뒤 예외를 전달합니다(하나면 그 예외, 여럿이면 `AggregateException`).
+- 집합에는 `Revision`과 변경 알림이 없습니다. 변경 감지는 State 단위로 합니다.
+- `CloneFrom(source)`·`Clone()`은 메모리 안의 복원(Core `IDeepCloneable`)입니다. source와 **같은 Key 집합**이 되도록 만들며 다음 규칙을 따릅니다.
+  - Key가 같은 State는 인스턴스를 유지한 채 State별 `CloneFrom`으로 덮어씁니다(`Revision` 1 증가, Binding·Instance의 State 참조가 그대로 유지됩니다).
+  - source에만 있는 Key는 새 State로 추가하고, 대상에만 있는 Key는 제거합니다. 목록 순서는 source를 따릅니다.
+  - 이 집합의 State 중 **사용 중인 것이 하나라도 있으면** 아무것도 바꾸기 전에 `InvalidOperationException`을 던집니다.
+  - 실패 정책은 두 단계입니다. 새 State를 복제하다 실패하면 집합은 바뀌지 않습니다. 기존 State를 덮어쓰다 실패하면 나머지를 끝까지 진행하고 Key 구성과 목록 순서를 source에 맞춘 뒤 실패를 전달합니다(하나면 그 예외, 여럿이면 `AggregateException`). 덮어쓰기에 실패한 State는 일부 단계만 바뀔 수 있으며 그래도 `Revision`은 오릅니다. 제거된 State와 Binding의 연결은 바꾸지 않으므로 필요하면 Layer에서도 해제하세요.
+- Unity 직렬화는 State 목록을 저장하고 복원 뒤 Key 조회를 다시 만듭니다. Key가 없거나 중복된 State는 첫 항목만 남깁니다. 진행 중인 Owner에는 집합을 `FromJsonOverwrite`로 덮어쓰지 말고 집합 `CloneFrom`을 쓰세요. `AbilityState` 파생 타입은 `AbilityState` 필드만 저장됩니다.
+
+  이미 있는 집합에 `FromJsonOverwrite`를 적용했을 때의 동작을 Unity 6000.7.0a6 EditMode에서 측정했습니다(2026-11-24).
+
+  | 저장 데이터와 현재 집합 | 결과 |
+  |---|---|
+  | 같은 개수·같은 순서 | 기존 `AbilityState` 인스턴스를 **인덱스 순서대로 재사용**하며 내용을 덮어쓰고 각 `Revision`이 1 증가합니다. Key 조회는 같은 인스턴스를 가리킵니다. |
+  | 개수가 다름(늘거나 줄어듦) | 목록이 **전부 새 인스턴스로 교체**됩니다. 이전 인스턴스는 집합에서 분리되고 `Revision`도 이어지지 않습니다. |
+  | 같은 개수·다른 순서 | 인스턴스를 Key가 아니라 **인덱스로 재사용**하므로, 예를 들어 `A`였던 인스턴스가 `B`의 내용과 Key를 갖게 됩니다. Key 조회는 복원 뒤 다시 만들어져 새 Key를 가리키지만 이전에 `A`로 들고 있던 참조는 `B`가 됩니다. |
+
+  Binding·Instance가 State 참조를 들고 있으면 위 두 번째·세 번째 경우에 참조가 어긋나므로, 집합을 `FromJsonOverwrite`로 덮어쓰는 복원은 참조를 새로 연결할 수 있는 시점(예: 로드 직후 Binding을 만들기 전)에만 쓰세요. 저장 데이터를 먼저 새 집합으로 `FromJson`한 뒤 현재 집합에 `CloneFrom`하면 참조를 유지한 채 복원할 수 있습니다. `FromJson`으로 새 집합을 만드는 것은 영향이 없습니다.
 
 ## Entry Binding: 지금 사용할 Instance 해석
 
@@ -161,9 +199,28 @@ Bindings.TryResolve(entry) → AbilityActivationContext
 3. 모두 허용되면 Cost의 `Pay`를 등록 순서로 호출하고 반환된 `AbilityCostReceipt`를 모읍니다.
 4. `begin(in use)`를 호출합니다. `use`는 `AbilityUse<TExecution>`으로, `Origin`(`AbilityUseOrigin`의 `AbilityKey`·`EntryKey`)과 선택한 `Execution`을 담습니다.
 5. `begin`이 true를 반환하면 `Transition`을 실행합니다.
-6. 결과로 `AbilityActivationResult`(`Succeeded`, `Failure`, `PolicyIndex`, `Reason`)를 반환합니다.
+6. 결과로 `AbilityActivationResult`(`Succeeded`, `Failure`, `PolicyIndex`, `Reason`, `Code`)를 반환합니다.
 
 `AbilityActivationFailure`는 `InvalidState`, `RequirementRejected`, `CostRejected`, `StartRejected`를 구분합니다. 성공 결과의 `Failure`는 `None`이며 `Succeeded`는 그때만 true입니다. 기본값(`default(AbilityActivationResult)`)은 `Uninitialized`이므로 `Succeeded`가 false입니다. 외부 콜백의 예외는 반환형 실패 결과로 자동 변환되지 않으므로 호출 프로젝트가 처리해야 합니다.
+
+### 매 프레임 조회와 할당
+
+공개 비소비 조회 API는 따로 없습니다. `TrySelect`는 호출마다 새 `AbilityUseSelection`을 만들고(규칙이 돌려준 `AbilityUseChoice`는 그대로 담습니다), `Selection`은 현재성 토큰을 담은 1회용 값이라 풀링이나 재사용을 하지 않습니다. 그래서 HUD가 사용 가능 여부를 **매 프레임 선택·검사하는 것은 권하지 않습니다.**
+
+- **변경 신호로 갱신합니다.** 사용 가능 여부는 `AbilityState.Revision`(시간 외 변경), `OnCooldownEnded`·`OnChargeRecharged`(시간 진행으로 끝난 Cooldown·재충전), `AbilityBindings.Revision`(연결 변경)이 바뀔 때만 달라집니다. 이 신호를 받은 Tick에만 `TrySelect` 후 `Evaluate()`를 호출해 결과를 보관합니다. 자원처럼 State 밖의 값이 바뀌는 경우의 신호는 그 자원 Owner가 제공합니다.
+- **남은 시간 표시는 값을 직접 읽습니다.** Cooldown 진행도와 Charge 수량은 `State.Cooldown`·`State.Charge`의 읽기 전용 값으로 UI가 보간하고, 판정은 위 신호로만 다시 합니다.
+
+규칙(`Func<...>`)이 돌려주는 `AbilityUseChoice`는 불변이고 사용 상태를 담지 않습니다(시도 여부는 `Selection`이 가집니다). 규칙이 호출마다 `new AbilityUseChoice(...)`와 캡처하는 람다를 만들면 선택할 때마다 할당이 생기므로, **(Instance, Execution)마다 Choice를 한 번 만들어 보관하고 규칙은 그 객체를 돌려주세요.** 보관하는 `isCurrent`·`transition` 델리게이트는 선택 시점의 값을 캡처하지 말고 호출 시점의 현재 값을 읽게 작성합니다. `isCurrent`는 `Evaluate`·`TryActivate` 때마다 평가되기 때문입니다.
+
+### 거부 Code
+
+`Reason`은 사람이 읽는 문장이고, `Code`는 UI의 분기·현지화에 쓰는 안정적인 문자열입니다. Requirement와 Cost는 `AbilityActivationCheck.Reject(reason, code)`로 Code를 붙일 수 있고, 붙이지 않으면 빈 문자열입니다. 결과(`AbilityActivationResult`)는 거부한 Requirement·Cost의 Code를 그대로 전달하므로 `PolicyIndex`로 정책을 역추적하지 않아도 됩니다.
+
+내장 거부는 `AbilityActivationCodes`의 상수를 씁니다. `CooldownActive`(Cooldown 진행 중·일시정지), `ChargeShortage`(Charge 부족), `SelectionInvalid`·`SelectionChanged`(선택이 현재가 아님), `SelectionAttempted`(이미 시도한 선택), `StartRejected`(실행 시작 거부)입니다. 프로젝트의 Code는 `Ability.` 접두를 쓰지 않아 내장 값과 겹치지 않게 합니다. `Code`는 네트워크 `Result`의 `Reason` 문자열과 별개이며 L1 프로토콜 메시지는 바꾸지 않습니다.
+
+### 자원 비용
+
+마나·기력 같은 자원은 Ability 시스템의 상태가 아니라 호스트의 도메인이므로 내장 Cost를 제공하지 않습니다. 자원 모델(타입, 재생·고갈, 하한 규칙, 비용 공식)이 호스트마다 달라서입니다. 프로젝트가 `IAbilityActivationCost<TSpec>`를 구현하고, `Evaluate`는 상태를 바꾸지 않고 `AbilityActivationCheck.Reject(reason, code)`에 자기 Code를 붙여 거부하며, `Pay`는 차감하고 `AbilityCostReceipt`로 환급을 돌려줍니다. 환급이 필요 없으면 `AbilityCostReceipt.NoChange`를 반환합니다.
 
 ## Cost 환급과 게임 Host 책임
 
@@ -177,7 +234,7 @@ Bindings.TryResolve(entry) → AbilityActivationContext
 | `Pay` 중 예외 | 이미 지불한 영수증을 역순으로 환급하고 예외를 다시 던짐 |
 | `begin`이 false 반환 | 영수증을 역순으로 환급하고 `StartRejected` 반환 |
 | `begin` 예외 | 영수증을 역순으로 환급하고 원래 예외를 다시 던짐 |
-| `begin`이 지불 뒤 State를 바꿔(`Advance`·`RestoreCharge`·`ConfigureCharge` 등) Charge가 달라짐 | 영수증이 환급을 거부하는 예외를 던지고 Charge는 되돌려지지 않음. `begin` 예외가 함께 있으면 그 예외를 첫 항목으로 한 `AggregateException`, 없으면 환급 예외 하나를 전달 |
+| `begin`이 지불 뒤 State를 바꿔(`Advance`·`AddCharge`·`ConfigureCharge` 등) Charge가 달라짐 | 영수증이 환급을 거부하는 예외를 던지고 Charge는 되돌려지지 않음. `begin` 예외가 함께 있으면 그 예외를 첫 항목으로 한 `AggregateException`, 없으면 환급 예외 하나를 전달 |
 | `Transition` 예외 | 환급하지 않고 예외 전달 |
 
 환급 중 오류가 겹치면 원래 예외를 첫 항목으로 하는 `AggregateException` 하나로 전달합니다. 환급은 `State.Revision`을 올립니다.

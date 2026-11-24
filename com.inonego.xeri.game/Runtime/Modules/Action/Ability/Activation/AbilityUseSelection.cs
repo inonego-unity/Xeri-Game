@@ -1,17 +1,21 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityUseSelection.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 사용 출처(Origin)·사용(Use)·시작 대리자와, 규칙으로 사용 후보(Choice)를 고르는 Selector·Selection을 제공한다.
 선택한 실행과 승인 정책을 한 번의 사용 시도로 묶고, 실행 시작이 실패하면 소비한 비용을 역순으로 환급한다.
 소비 도중 예외의 환급은 정책(AbilityActivationPolicy)이 맡아 두 사용 경로의 지불 단계 사후 조건이 같다.
 선택 후 Binding·State가 바뀌면 현재성 토큰으로 거부한다.
+비용 영수증 목록은 Unity ListPool에서 빌려 한 번의 시도 안에서만 쓴다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
+
+using UnityEngine;
+using UnityEngine.Pool;
 
 namespace inonego.Xeri.Game
 {
@@ -357,7 +361,8 @@ namespace inonego.Xeri.Game
                 ? AbilityActivationResult.Reject
                 (
                     AbilityActivationFailure.InvalidState,
-                    reason: "이미 시도한 사용 선택입니다."
+                    reason: "이미 시도한 사용 선택입니다.",
+                    code: AbilityActivationCodes.SelectionAttempted
                 )
                 : choice.Policy.Evaluate(Context, IsCurrent);
         }
@@ -390,20 +395,23 @@ namespace inonego.Xeri.Game
                 result = AbilityActivationResult.Reject
                 (
                     AbilityActivationFailure.InvalidState,
-                    reason: "이미 시도한 사용 선택입니다."
+                    reason: "이미 시도한 사용 선택입니다.",
+                    code: AbilityActivationCodes.SelectionAttempted
                 );
                 return false;
             }
 
             var state = instance.State;
             state.EnterUse();
+
+            // 시도마다 다른 목록을 빌리므로 콜백 안의 다른 사용 시도와 겹치지 않는다.
+            var receipt = ListPool<AbilityCostReceipt>.Get();
             try
             {
                 // Cost·Begin·Transition 콜백의 재진입에도 같은 선택을 다시 소비하지 않는다.
                 attempted = true;
 
                 // 지불 단계의 실패와 그 환급은 정책이 맡는다. 여기서는 시작 단계의 환급만 맡는다.
-                var receipt = new List<AbilityCostReceipt>();
                 if (!choice.Policy.TryActivate(Context, IsCurrent, receipt, out result))
                 {
                     return false;
@@ -432,7 +440,8 @@ namespace inonego.Xeri.Game
                     result = AbilityActivationResult.Reject
                     (
                         AbilityActivationFailure.StartRejected,
-                        reason: "Ability 실행 시작이 거부됐습니다."
+                        reason: "Ability 실행 시작이 거부됐습니다.",
+                        code: AbilityActivationCodes.StartRejected
                     );
                     AbilityCostReceipt.RefundAll(receipt, null);
                     return false;
@@ -447,6 +456,7 @@ namespace inonego.Xeri.Game
             }
             finally
             {
+                ListPool<AbilityCostReceipt>.Release(receipt);
                 state.ExitUse();
             }
         }

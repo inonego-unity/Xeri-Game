@@ -93,6 +93,10 @@ Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른
 
 `SpawnRegistry.OnAfterDeserialize()`는 저장된 membership을 기준으로 Registry 내부 수명 연결을 복원합니다. 외부 Binding과 게임 Spawn 이벤트를 자동 재실행하지 않습니다. 필요한 Actor/Presentation은 Host가 `AttachBinding` 또는 `EntityActorRuntimeBinding.Bind(registry)`로 현재 등록 대상에 다시 연결합니다.
 
+## 소환체 묶음은 게임이 구성
+
+소환체·설치물의 개수 상한, 초과 시 교체 방식, 소유자가 사라질 때의 처리는 게임 규칙이라 Foundation이 묶음 도구를 제공하지 않습니다. 게임이 Registry의 공개 계약으로 구성합니다. 구성원 목록은 `OnUnregistered`로 등록 해제를 따라가며 정리하고, 정리는 `Despawn` 확장 메서드로 하며, 여러 객체의 실패는 Core `ExceptionBuffer`로 모아 전달할 수 있습니다. 같은 객체의 수명 작업 중 같은 객체로 다시 진입하는 것은 Registry가 거절하므로, 이런 정리는 그 객체의 Spawned 훅이나 공개 이벤트 밖에서 호출합니다.
+
 ## Actor·Presentation과 연결하는 경계
 
 Entity Registry는 **논리 객체의 등록 수명**을 관리하며 Actor의 GameObject 획득이나 Presentation 자원을 직접 생성하지 않습니다. 표현이 필요할 때만 `ISpawnRegistryBinding`을 통해 `EntityActorRuntimeBinding`을 선택적으로 연결합니다. 이 Binding은 현재·이후 등록된 Entity에 필요한 Actor와 Presentation을 구성하고, **자신이 자동 생성한 자원만** 반환합니다. `Unbind()` 후에도 Registry의 Entity는 유지됩니다.

@@ -157,8 +157,8 @@ namespace inonego.Xeri.Game.TEST._Ability
             var attack = new AbilityEntryKey("Attack");
             var baseSkill = CreateInstance("BaseSkill");
             var formSkill = CreateInstance("FormSkill");
-            baseSkill.State.Control.TryBeginCooldown(5f);
-            formSkill.State.Control.ConfigureCharge(2, 1f);
+            baseSkill.State.TryBeginCooldown(5f);
+            formSkill.State.ConfigureCharge(2, 1f);
             var bindings = new AbilityBindings<TestSpec>();
             var baseLayer = new AbilityBindingLayer<TestSpec>(0);
             baseLayer.Set(entry, baseSkill);
@@ -176,7 +176,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // Form 중에도 두 상태는 서로의 시간과 변경 번호에 영향을 주지 않는다.
             var baseRevision = baseSkill.State.Revision;
-            formSkill.State.Control.TryConsumeCharge(1);
+            formSkill.State.TryConsumeCharge(1);
             baseSkill.State.Advance(1f);
             Assert.AreEqual(baseRevision, baseSkill.State.Revision);
             Assert.AreEqual(4f, baseSkill.State.Cooldown.RemainingTime, 0.0001f);
@@ -221,10 +221,10 @@ namespace inonego.Xeri.Game.TEST._Ability
             var original = CreateInstance("A");
             var replacement = CreateInstance("B");
             original.State.Values.SetI("Stack", 4);
-            original.State.Control.ConfigureCharge(2, 1f, startFull: false);
-            replacement.State.Control.ConfigureCharge(3, 2f, startFull: false);
-            Assert.IsTrue(original.State.Control.TryBeginCooldown(5f));
-            Assert.IsTrue(replacement.State.Control.TryBeginCooldown(9f));
+            original.State.ConfigureCharge(2, 1f, startFull: false);
+            replacement.State.ConfigureCharge(3, 2f, startFull: false);
+            Assert.IsTrue(original.State.TryBeginCooldown(5f));
+            Assert.IsTrue(replacement.State.TryBeginCooldown(9f));
 
             var baseLayer = new AbilityBindingLayer<TestSpec>(0);
             baseLayer.Set(entry, original);

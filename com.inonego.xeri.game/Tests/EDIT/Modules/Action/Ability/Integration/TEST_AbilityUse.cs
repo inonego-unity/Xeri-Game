@@ -77,7 +77,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 Ability = new AbilityInstance<object>(new object(), new AbilityState(new AbilityKey(key)));
                 if (charges > 0)
                 {
-                    Ability.State.Control.ConfigureCharge(charges, 10f);
+                    Ability.State.ConfigureCharge(charges, 10f);
                 }
 
                 var layer = new AbilityBindingLayer<object>(0);
@@ -85,7 +85,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 layerLease = Bindings.AcquireLayer(layer);
                 void StartCooldown()
                 {
-                    if (!Ability.State.Control.TryBeginCooldown(cooldown))
+                    if (!Ability.State.TryBeginCooldown(cooldown))
                     {
                         throw new InvalidOperationException("Cooldown 시작이 승인 후 실패했습니다.");
                     }
@@ -299,7 +299,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 2회차 직전 State 변경: 변경 전에 선택한 Selection은 거절되고 비용을 소비하지 않는다.
             var stale = request.Select();
-            Assert.AreEqual(1, state.Control.RestoreCharge(1));
+            Assert.AreEqual(1, state.AddCharge(1));
             Assert.AreEqual(2, state.Charge.Current);
             Assert.AreEqual(AbilityActivationFailure.InvalidState, stale.Evaluate().Failure);
             Assert.IsFalse(request.Run(stale, Begin, out var staleResult, out _));

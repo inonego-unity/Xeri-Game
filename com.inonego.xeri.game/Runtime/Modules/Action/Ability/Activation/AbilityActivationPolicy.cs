@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivationPolicy.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 Requirement와 모든 Cost를 상태 변경 없이 검사한 뒤 등록 순서대로 비용을 소비한다.
@@ -126,7 +126,7 @@ namespace inonego.Xeri.Game
         {
             return context.Ability?.State?.IsCooldownReady == true
                 ? AbilityActivationCheck.Allow()
-                : AbilityActivationCheck.Reject("Cooldown이 진행 중입니다.");
+                : AbilityActivationCheck.Reject("Cooldown이 진행 중입니다.", AbilityActivationCodes.CooldownActive);
         }
     }
 
@@ -239,7 +239,8 @@ namespace inonego.Xeri.Game
                 return AbilityActivationResult.Reject
                 (
                     AbilityActivationFailure.InvalidState,
-                    reason: "Ability 사용 선택이 유효하지 않습니다."
+                    reason: "Ability 사용 선택이 유효하지 않습니다.",
+                    code: AbilityActivationCodes.SelectionInvalid
                 );
             }
 
@@ -250,7 +251,7 @@ namespace inonego.Xeri.Game
                 {
                     return AbilityActivationResult.Reject
                     (
-                        AbilityActivationFailure.RequirementRejected, index, check.Reason
+                        AbilityActivationFailure.RequirementRejected, index, check.Reason, check.Code
                     );
                 }
             }
@@ -262,7 +263,7 @@ namespace inonego.Xeri.Game
                 {
                     return AbilityActivationResult.Reject
                     (
-                        AbilityActivationFailure.CostRejected, index, check.Reason
+                        AbilityActivationFailure.CostRejected, index, check.Reason, check.Code
                     );
                 }
             }
@@ -272,7 +273,8 @@ namespace inonego.Xeri.Game
                 return AbilityActivationResult.Reject
                 (
                     AbilityActivationFailure.InvalidState,
-                    reason: "검사 중 Ability 사용 선택이 변경됐습니다."
+                    reason: "검사 중 Ability 사용 선택이 변경됐습니다.",
+                    code: AbilityActivationCodes.SelectionChanged
                 );
             }
 

@@ -1,12 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AuthorityHost.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-24
 
 # 설명
 권한 사용 프로토콜(L1)의 테스트 전용 권한 Host를 제공한다.
 요청 검증, 중복 제거, 서버 재선택과 Owner 수명을 맡고 AOI와 변경분 복제는 AuthorityReplicator에 맡긴다.
 요청자의 연결 신원은 전송 계층이 붙인 값만 쓰고, 결과는 요청한 연결에만 보낸다.
-요청 장부는 (Owner, Epoch)마다 마지막 Request ID와 최근 RequestWindow개의 결과를 보관하고 지난 세대 장부는 버린다.
+요청 장부는 (Owner, Epoch)마다 마지막 Request ID와 최근 RequestWindow개의 결과(BoundedFIFOMap)를 보관하고 지난 세대 장부는 버린다.
+RequestWindow는 장부가 처음 만들어질 때 적용되며 그 뒤 값을 바꿔도 이미 만들어진 장부의 창 크기는 바뀌지 않는다.
 결과는 결과 채널(ReplyDelay), 관측 사건·Owner 목록은 순서가 보장되는 관측 채널(ObservationDelay)로 보내며 두 채널끼리는 순서가 바뀔 수 있다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -37,8 +38,12 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         private sealed class RequestLedger
         {
             internal int Last;
-            internal readonly Dictionary<int, AuthorityResult> Results = new();
-            internal readonly Queue<int> Order = new();
+            internal readonly BoundedFIFOMap<int, AuthorityResult> Results;
+
+            internal RequestLedger(int window)
+            {
+                Results = new BoundedFIFOMap<int, AuthorityResult>(window);
+            }
         }
 
     #endregion
@@ -60,7 +65,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         internal AuthorityHost(FakeAbilityNetwork<AuthorityPacket> network)
         {
             this.network = network;
-            Replication = new AuthorityReplicator(network, FindStates, () => ObservationTicks);
+            Replication = new AuthorityReplicator(network, FindStates, () => ObservationTicks, FindStatuses);
         }
 
         // ------------------------------------------------------------
@@ -93,11 +98,12 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
         private int ObservationTicks => ObservationDelay ?? ReplyDelay;
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 요청 장부가 결과를 보관하는 최근 요청 수이다. 1보다 작으면 1로 본다.
+        /// <br/> 요청 장부가 결과를 보관하는 최근 요청 수이다. 1보다 작으면 1로 본다.
+        /// <br/> 장부가 처음 만들어질 때 적용되므로 요청을 보내기 전에 정한다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         internal int RequestWindow = 8;
 
         // ------------------------------------------------------------
@@ -175,17 +181,27 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         // ------------------------------------------------------------
         private IReadOnlyList<AbilityState> FindStates(int owner)
         {
-            return kits.TryGetValue(owner, out var kit) ? kit.States : null;
+            return kits.TryGetValue(owner, out var kit) ? kit.Abilities.States : null;
         }
 
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 등록된 Owner의 Status 컨테이너를 반환하며 없으면 null이다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private StatusContainer<int> FindStatuses(int owner)
+        {
+            return kits.TryGetValue(owner, out var kit) ? kit.Statuses : null;
+        }
+
+        // ------------------------------------------------------------
         /// <summary>
         /// <br/> 모든 Owner의 모든 Ability State를 같은 시간만큼 진행한다.
-        /// <br/> Revision은 바뀌지 않는다. 진행 뒤 알림이 Owner를 제거하면
-        /// <br/> 그 Owner의 남은 Ability는 건너뛰고 남은 Owner를 이어서 진행한다.
+        /// <br/> Revision은 바뀌지 않는다. 진행 뒤 알림이 Owner를 제거해도
+        /// <br/> 남은 Owner를 이어서 진행한다.
         /// <br/> 알림 예외는 남은 진행을 막지 않고 모두 마친 뒤 전달한다.
         /// </summary>
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         internal void Advance(float deltaTime)
         {
             List<Exception> failures = null;
@@ -193,18 +209,23 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 if (!kits.TryGetValue(owner, out var kit)) continue;
 
-                foreach (var state in new List<AbilityState>(kit.States))
+                try
                 {
-                    if (!kits.ContainsKey(owner)) break;
+                    kit.Abilities.Advance(deltaTime);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>()).Add(exception);
+                }
 
-                    try
-                    {
-                        state.Advance(deltaTime);
-                    }
-                    catch (Exception exception)
-                    {
-                        (failures ??= new List<Exception>()).Add(exception);
-                    }
+                // Status 시계도 같은 시간만큼 진행한다. 시간 만료는 Revision을 바꾸지 않는다.
+                try
+                {
+                    kit.Statuses.Advance(deltaTime);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>()).Add(exception);
                 }
             }
 
@@ -499,17 +520,13 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
                     }
                 }
 
-                ledger = new RequestLedger();
+                ledger = new RequestLedger(Math.Max(1, RequestWindow));
                 ledgers.Add(key, ledger);
             }
 
+            // 같은 Request ID는 Handle이 Duplicate로 먼저 걸러 새 ID만 들어온다. 가득 차면 가장 오래된 결과가 밀려난다.
             ledger.Last = result.RequestID;
-            ledger.Results[result.RequestID] = result;
-            ledger.Order.Enqueue(result.RequestID);
-            while (ledger.Order.Count > Math.Max(1, RequestWindow))
-            {
-                ledger.Results.Remove(ledger.Order.Dequeue());
-            }
+            ledger.Results.TryAdd(result.RequestID, result);
         }
 
     #endregion

@@ -11,7 +11,7 @@ Execution은 **하나의 행동이 시작되고 진행되고 종료되는 수명
 | `ExecutionBehaviorSpec` / `ExecutionBehaviorRuntime` | 실행별 로직의 Begin·Advance·Signal·End 수명 |
 | `ExecutionSession` | ID, Owner·Instigator, 시간, Flow, Behaviors, Variables, Commit·End, Child 소유 |
 | `ExecutionSignal` / `ExecutionCommand` | Behavior 알림과 Flow 제어 요청을 구별하는 문자열 키 |
-| `ExecutionTriggerSpec` / `ExecutionTrigger` | 시간창·시간점·Signal 조건을 Runtime에서 평가 |
+| `ExecutionTriggerSpec` / `ExecutionTrigger` | 시간창·시간점·주기·Signal 조건을 Runtime에서 평가 |
 | `ExecutionEndReason` | Completed, Cancelled, Interrupted, Replaced |
 | `ExecutionChannel<TClaim>` | 활성 Session을 최대 하나만 두고 선점 판정·이전 종료·새 시작 순서를 보장 |
 
@@ -112,13 +112,26 @@ ExecutionCommandResult result =
 
 Trigger는 **Behavior 또는 호출자가 직접 생성·구동**합니다. `ExecutionSpec`에 Trigger 목록을 전달한다고 자동 설치되는 구조가 아닙니다. Behavior에서 필요한 Trigger Runtime을 만든 후 `Begin()`, `Signal(signal, time)`, `TryEvaluate(previousTime, currentTime, out effectiveTime)`, `End()`를 해당 수명에 맞춰 호출합니다.
 
-| Trigger Spec | 판정 |
-|---|---|
-| `ExecutionTimePointTriggerSpec(time)` | 시간 지점을 처음 통과할 때 한 번 |
-| `ExecutionTimeWindowTriggerSpec(beginTime, endTime)` | 진행 구간이 반열린 시간창 [begin, end)와 교차할 때 |
-| `ExecutionSignalTriggerSpec(signalKey, offset)` | 첫 일치 Signal을 기록하고 Offset 이후 한 번 |
+이름은 판정 기준을 따릅니다. `ExecutionTime…`은 실행 시간만으로 판정하고, `ExecutionSignal…`은 실행 중에 수신한 사건으로 판정합니다. 네 Trigger는 발동 모델이 다르므로 하나로 합치지 않습니다. 필요한 다른 발동 방식은 `ExecutionTrigger`를 상속해 직접 구현합니다.
 
-시간 기반 Trigger(TimePoint·Window)는 시간이 앞으로 흐른 구간(`previousTime < currentTime`)에서만 발동하므로 `Advance(0)`처럼 시간이 흐르지 않은 Tick에서는 발동하지 않습니다. 0초 지점 TimePoint도 첫 양의 진행에서 발동합니다. Signal Trigger는 기록한 Signal 시각에 Offset을 더한 시각이 지나면 시간이 흐르지 않은 Tick에서도 발동합니다. `TryEvaluate`가 false를 반환하면 `effectiveTime`은 유효한 이벤트 시각이 아닙니다. Trigger는 피해 적용 자체를 담당하지 않으며, 그 조건을 사용하는 Behavior가 프로젝트 작업을 호출합니다. Trigger 설정의 `Normalize(maximumDuration)`은 호출자가 적절한 시점에 수행해야 합니다.
+| Trigger Spec | 발동 모델 | 판정 | 시간이 흐르지 않은 Tick |
+|---|---|---|---|
+| `ExecutionTimePointTriggerSpec(time)` | 한 번 | 시간 지점을 처음 통과할 때 | 발동하지 않음 |
+| `ExecutionTimeWindowTriggerSpec(beginTime, endTime)` | 지속 | 진행 구간이 반열린 시간창 [begin, end)와 교차하는 **Tick마다** 참. 상태가 없음 | 발동하지 않음 |
+| `ExecutionTimeIntervalTriggerSpec(beginTime, endTime, interval, maxCount)` | 주기 | 시간창 [begin, end) 안에서 begin부터 interval마다. `maxCount`가 0보다 크면 그 횟수까지. 한 Tick에 여러 번 가능 | 발동하지 않음 |
+| `ExecutionSignalTriggerSpec(signalKey, offset)` | 한 번 | 첫 일치 Signal을 기록하고 Offset 이후. 발동 시각이 실행 중에 정해짐 | 시각이 지났다면 발동함 |
+
+시간 기반 Trigger(TimePoint·Window·Interval)는 시간이 앞으로 흐른 구간(`previousTime < currentTime`)에서만 발동하므로 `Advance(0)`처럼 시간이 흐르지 않은 Tick에서는 발동하지 않습니다. 0초 지점 TimePoint도 첫 양의 진행에서 발동합니다. Signal Trigger는 기록한 Signal 시각에 Offset을 더한 시각이 지나면 시간이 흐르지 않은 Tick에서도 발동합니다. `TryEvaluate`가 false를 반환하면 `effectiveTime`은 유효한 이벤트 시각이 아닙니다. Trigger는 피해 적용 자체를 담당하지 않으며, 그 조건을 사용하는 Behavior가 프로젝트 작업을 호출합니다. Trigger 설정의 `Normalize(maximumDuration)`은 호출자가 적절한 시점에 수행해야 합니다.
+
+주기 Trigger는 한 번의 `TryEvaluate`에서 주기 하나만 반환합니다. 큰 시간 간격에 주기가 여러 개 들어 있으면 **`false`가 나올 때까지 같은 구간으로 반복 호출**해 놓친 주기를 모두 받습니다. 각 호출의 `effectiveTime`은 그 주기의 발동 시각이며 오름차순입니다. 구간 시작 시각과 정확히 겹치는 주기는 앞 구간이 소유하므로 이어지는 구간에서 중복 발동하지 않습니다(0초 주기만 첫 구간이 소유합니다). 호출자가 평가하지 못한 앞 구간의 주기는 발동 없이 건너뛰고, 간격은 최소 `ExecutionTimeIntervalTriggerSpec.MinimumInterval`(0.001초)로 정규화합니다.
+
+~~~csharp
+// 한 Tick에 여러 주기가 지났을 수 있으므로 false가 나올 때까지 반복합니다.
+while (trigger.TryEvaluate(session.PreviousTime, session.Time, out float effectiveTime))
+{
+    onPulse(session, effectiveTime);
+}
+~~~
 
 ### Trigger를 Behavior 실행 수명에 연결하기
 

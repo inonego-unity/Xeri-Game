@@ -1,12 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityChargeState.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
-Charge의 충전 시간 진행과 ChargeState 복원·경계 계약, 지불 영수증 환급이 수량과 충전 시계를 지불 전 상태로 되돌리는지 검증한다.
+Charge의 충전 시간 진행과 ChargeState 복원·경계 계약, 운영 중 구성 변경과 충전 단축, 지불 영수증 환급이 수량과 충전 시계를 지불 전 상태로 되돌리는지 검증한다.
 
 # 테스트 구성
- C: Charge 충전 진행·복원
+ C: Charge 충전 진행·복원·운영 중 구성 변경과 충전 단축
  R: 지불 영수증 환급
 ========================================================================= BLOCK_HEADER_END */
 
@@ -44,10 +44,10 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityChargeState_Cooldown과독립적으로순차Recharge()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 1f);
-            state.Control.TryBeginCooldown(5f);
+            state.ConfigureCharge(3, 1f);
+            state.TryBeginCooldown(5f);
 
-            Assert.IsTrue(state.Control.TryConsumeCharge(2));
+            Assert.IsTrue(state.TryConsumeCharge(2));
             Assert.AreEqual(1, state.Charge.Current);
 
             state.Advance(1f);
@@ -71,9 +71,9 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityChargeState_큰Delta에서여러Charge를연속복구()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 1f);
+            state.ConfigureCharge(3, 1f);
 
-            Assert.IsTrue(state.Control.TryConsumeCharge(3));
+            Assert.IsTrue(state.TryConsumeCharge(3));
             Assert.AreEqual(0, state.Charge.Current);
 
             var ended = 0;
@@ -85,7 +85,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(0.5f, state.Charge.Recharge.RemainingTime, 0.0001f);
 
             var large = new AbilityState(new AbilityKey("Large"));
-            large.Control.ConfigureCharge(1_000_001, 1f, startFull: false);
+            large.ConfigureCharge(1_000_001, 1f, startFull: false);
             large.Advance(1_000_000.5f);
             Assert.AreEqual(1_000_000, large.Charge.Current);
             Assert.AreEqual(0.5f, large.Charge.Recharge.RemainingTime, 0.0001f);
@@ -102,8 +102,8 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             // float에서 0.0343 + (0.7 - 0.0343)이 0.7보다 작아지는 값이다.
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 0.7f);
-            Assert.IsTrue(state.Control.TryConsumeCharge(2));
+            state.ConfigureCharge(3, 0.7f);
+            Assert.IsTrue(state.TryConsumeCharge(2));
             state.Advance(0.0343f);
 
             var recharged = 0;
@@ -129,11 +129,11 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityChargeState_진행중Restore는충전경과시간을유지()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 1f);
-            Assert.IsTrue(state.Control.TryConsumeCharge(3));
+            state.ConfigureCharge(3, 1f);
+            Assert.IsTrue(state.TryConsumeCharge(3));
 
             state.Advance(0.4f);
-            Assert.AreEqual(1, state.Control.RestoreCharge(1));
+            Assert.AreEqual(1, state.AddCharge(1));
             Assert.AreEqual(1, state.Charge.Current);
             Assert.AreEqual(0.6f, state.Charge.Recharge.RemainingTime, 0.0001f);
 
@@ -141,7 +141,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(2, state.Charge.Current);
             Assert.AreEqual(1f, state.Charge.Recharge.RemainingTime, 0.0001f);
 
-            Assert.AreEqual(1, state.Control.RestoreCharge(2));
+            Assert.AreEqual(1, state.AddCharge(2));
             Assert.IsTrue(state.Charge.IsFull);
             Assert.IsFalse(state.Charge.Recharge.IsRunning);
         }
@@ -155,12 +155,12 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityChargeState_최대정수용량에서도Restore가넘치지않음()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(int.MaxValue, 1f, startFull: false);
+            state.ConfigureCharge(int.MaxValue, 1f, startFull: false);
 
-            Assert.AreEqual(int.MaxValue, state.Control.RestoreCharge(int.MaxValue));
+            Assert.AreEqual(int.MaxValue, state.AddCharge(int.MaxValue));
             Assert.AreEqual(int.MaxValue, state.Charge.Current);
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
-            Assert.AreEqual(1, state.Control.RestoreCharge(int.MaxValue));
+            Assert.IsTrue(state.TryConsumeCharge(1));
+            Assert.AreEqual(1, state.AddCharge(int.MaxValue));
             Assert.AreEqual(int.MaxValue, state.Charge.Current);
         }
 
@@ -176,16 +176,16 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             Assert.Throws<ArgumentOutOfRangeException>
             (
-                () => state.Control.ConfigureCharge(0, 1f)
+                () => state.ConfigureCharge(0, 1f)
             );
             Assert.IsNull(state.Charge);
 
-            state.Control.ConfigureCharge(2, 1f);
-            state.Control.TryConsumeCharge(1);
+            state.ConfigureCharge(2, 1f);
+            state.TryConsumeCharge(1);
 
             Assert.Throws<ArgumentOutOfRangeException>
             (
-                () => state.Control.ConfigureCharge(3, float.NaN)
+                () => state.ConfigureCharge(3, float.NaN)
             );
             Assert.AreEqual(2, state.Charge.Capacity);
             Assert.AreEqual(1, state.Charge.Current);
@@ -201,13 +201,13 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityChargeState_재구성은인스턴스를유지하고충전을새로시작()
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(3, 1f);
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
+            state.ConfigureCharge(3, 1f);
+            Assert.IsTrue(state.TryConsumeCharge(1));
             state.Advance(0.4f);
             var charge = state.Charge;
             var recharge = state.Charge.Recharge;
 
-            state.Control.ConfigureCharge(2, 3f, startFull: false);
+            state.ConfigureCharge(2, 3f, startFull: false);
 
             Assert.AreSame(charge, state.Charge);
             Assert.AreSame(recharge, state.Charge.Recharge);
@@ -219,7 +219,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(1, charge.Current);
             Assert.AreEqual(3f, recharge.RemainingTime, 0.0001f);
 
-            state.Control.ConfigureCharge(2, 3f);
+            state.ConfigureCharge(2, 3f);
             Assert.IsTrue(charge.IsFull);
             Assert.IsFalse(recharge.IsRunning);
         }
@@ -257,12 +257,141 @@ namespace inonego.Xeri.Game.TEST._Ability
 
     #endregion
 
+    #region C-3: 운영 중 구성 변경과 충전 단축
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> ResizeCharge가 현재 수량과 충전 경과 시간을 유지하고, 용량이 줄면 수량을 줄이며
+        /// <br/> 늘어도 수량을 지급하지 않고, 같은 구성이면 바뀌지 않는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityChargeState_Resize는현재수와충전진행을유지()
+        {
+            var state = new AbilityState(new AbilityKey("Burst"));
+            state.ConfigureCharge(3, 2f);
+            Assert.IsTrue(state.TryConsumeCharge(2));
+            state.Advance(0.5f);
+            var charge = state.Charge;
+            var recharge = charge.Recharge;
+            var revision = state.Revision;
+
+            Assert.IsTrue(state.ResizeCharge(4, 4f));
+            Assert.AreSame(charge, state.Charge);
+            Assert.AreEqual(4, charge.Capacity);
+            Assert.AreEqual(1, charge.Current);
+            Assert.AreEqual(4f, recharge.Duration, 0.0001f);
+            Assert.AreEqual(0.5f, recharge.ElapsedTime, 0.0001f);
+            Assert.AreEqual(revision + 1, state.Revision);
+
+            Assert.IsFalse(state.ResizeCharge(4, 4f));
+            Assert.AreEqual(revision + 1, state.Revision);
+
+            // 용량이 현재 수량 이하로 줄면 가득 찬 상태가 되어 충전이 멈춘다.
+            Assert.IsTrue(state.ResizeCharge(1, 4f));
+            Assert.AreEqual(1, charge.Current);
+            Assert.IsFalse(recharge.IsRunning);
+
+            // 용량이 늘어도 수량은 지급하지 않고 새 충전만 시작한다.
+            Assert.IsTrue(state.ResizeCharge(2, 4f));
+            Assert.AreEqual(1, charge.Current);
+            Assert.IsTrue(recharge.IsRunning);
+            Assert.AreEqual(4f, recharge.RemainingTime, 0.0001f);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 새 충전 주기가 이미 지난 경과 시간 이하면 그 주기를 알림 없이 완료하고
+        /// <br/> 다음 주기를 새 구성으로 시작하는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityChargeState_Resize로주기가경과시간보다짧아지면그주기를완료()
+        {
+            var state = new AbilityState(new AbilityKey("Burst"));
+            state.ConfigureCharge(3, 2f);
+            Assert.IsTrue(state.TryConsumeCharge(2));
+            state.Advance(1.5f);
+            var notified = 0;
+            state.OnChargeRecharged += (_, _) => notified++;
+
+            Assert.IsTrue(state.ResizeCharge(3, 1f));
+
+            Assert.AreEqual(2, state.Charge.Current);
+            Assert.IsTrue(state.Charge.Recharge.IsRunning);
+            Assert.AreEqual(1f, state.Charge.Recharge.RemainingTime, 0.0001f);
+            Assert.AreEqual(0, notified);
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> ReduceRecharge가 현재 주기의 남은 시간만 줄이고, 소진하면 알림 없이 완료하며
+        /// <br/> 초과분은 다음 주기로 넘기지 않는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityChargeState_ReduceRecharge는남은시간만줄이고초과분을넘기지않음()
+        {
+            var state = new AbilityState(new AbilityKey("Burst"));
+            state.ConfigureCharge(3, 2f);
+            Assert.IsTrue(state.TryConsumeCharge(2));
+            var notified = 0;
+            state.OnChargeRecharged += (_, _) => notified++;
+            var revision = state.Revision;
+
+            Assert.IsTrue(state.ReduceRecharge(0.5f));
+            Assert.AreEqual(1, state.Charge.Current);
+            Assert.AreEqual(1.5f, state.Charge.Recharge.RemainingTime, 0.0001f);
+            Assert.AreEqual(revision + 1, state.Revision);
+
+            Assert.IsTrue(state.ReduceRecharge(10f));
+            Assert.AreEqual(2, state.Charge.Current);
+            Assert.AreEqual(2f, state.Charge.Recharge.RemainingTime, 0.0001f);
+            Assert.AreEqual(revision + 2, state.Revision);
+            Assert.AreEqual(0, notified);
+
+            // 줄일 것이 없으면 바뀌지 않는다.
+            Assert.IsFalse(state.ReduceRecharge(0f));
+            Assert.AreEqual(1, state.AddCharge(1));
+            Assert.IsFalse(state.ReduceRecharge(1f));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Charge가 없으면 false, 잘못된 인자는 예외인지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityChargeState_Resize와ReduceRecharge인자와미구성처리()
+        {
+            var unconfigured = new AbilityState(new AbilityKey("Plain"));
+
+            Assert.IsFalse(unconfigured.ResizeCharge(2, 1f));
+            Assert.IsFalse(unconfigured.ReduceRecharge(1f));
+            Assert.IsNull(unconfigured.Charge);
+
+            var state = new AbilityState(new AbilityKey("Burst"));
+            state.ConfigureCharge(2, 1f);
+            var revision = state.Revision;
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ResizeCharge(0, 1f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ResizeCharge(2, 0f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ResizeCharge(2, float.NaN));
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ReduceRecharge(-1f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ReduceRecharge(float.PositiveInfinity));
+
+            Assert.AreEqual(revision, state.Revision);
+            Assert.AreEqual(2, state.Charge.Capacity);
+        }
+
+    #endregion
+
     #region R-1: 지불 영수증 환급
 
         private static AbilityState CreateState(int capacity = 3)
         {
             var state = new AbilityState(new AbilityKey("Burst"));
-            state.Control.ConfigureCharge(capacity, 1f);
+            state.ConfigureCharge(capacity, 1f);
             return state;
         }
 
@@ -303,7 +432,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_PayCharge환급은충전시계진행도지불전으로복원()
         {
             var state = CreateState(3);
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
+            Assert.IsTrue(state.TryConsumeCharge(1));
             state.Advance(0.4f);
             var beforeJson = JsonUtility.ToJson(state.Charge);
 
@@ -337,17 +466,31 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             var restored = CreateState(3);
             var restoredReceipt = restored.PayCharge(2);
-            Assert.AreEqual(1, restored.Control.RestoreCharge(1));
+            Assert.AreEqual(1, restored.AddCharge(1));
 
             Assert.Throws<InvalidOperationException>(() => restoredReceipt.Refund());
             Assert.AreEqual(2, restored.Charge.Current);
 
             var configured = CreateState(3);
             var configuredReceipt = configured.PayCharge(1);
-            configured.Control.ConfigureCharge(5, 1f);
+            configured.ConfigureCharge(5, 1f);
 
             Assert.Throws<InvalidOperationException>(() => configuredReceipt.Refund());
             Assert.AreEqual(5, configured.Charge.Capacity);
+
+            var resized = CreateState(3);
+            var resizedReceipt = resized.PayCharge(1);
+            Assert.IsTrue(resized.ResizeCharge(4, 1f));
+
+            Assert.Throws<InvalidOperationException>(() => resizedReceipt.Refund());
+            Assert.AreEqual(2, resized.Charge.Current);
+
+            var reduced = CreateState(3);
+            var reducedReceipt = reduced.PayCharge(1);
+            Assert.IsTrue(reduced.ReduceRecharge(0.5f));
+
+            Assert.Throws<InvalidOperationException>(() => reducedReceipt.Refund());
+            Assert.AreEqual(2, reduced.Charge.Current);
         }
 
         // ----------------------------------------------------------------------
@@ -359,7 +502,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_PayCharge는지불불가시상태를바꾸지않음()
         {
             var state = CreateState(1);
-            Assert.IsTrue(state.Control.TryConsumeCharge(1));
+            Assert.IsTrue(state.TryConsumeCharge(1));
             var revision = state.Revision;
 
             Assert.Throws<InvalidOperationException>(() => state.PayCharge(1));

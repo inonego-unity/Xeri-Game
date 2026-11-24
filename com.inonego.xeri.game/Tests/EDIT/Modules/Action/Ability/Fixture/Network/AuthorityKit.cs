@@ -1,10 +1,11 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AuthorityKit.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 권한 Host와 Client가 Owner마다 쓰는 Ability State, Binding과 선택 규칙 묶음을 제공한다.
 사용 규칙은 기본 Ability 하나에만 두고, 추가 Ability는 Ability 단위 복제 검증용 State로만 둔다.
+Owner의 State는 AbilityStateSet 하나에 보관하고 조회·진행은 그 집합에 맡긴다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -60,8 +61,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         )
         {
             Ability = new AbilityInstance<AuthoritySpec>(new AuthoritySpec(), new AbilityState(new AbilityKey(key)));
-            Ability.State.Control.ConfigureCharge(charges, 10f);
-            states.Add(Ability.State);
+            Ability.State.ConfigureCharge(charges, 10f);
+            abilities.Add(Ability.State);
             layer = new AbilityBindingLayer<AuthoritySpec>(0);
             layer.Set(new AbilityEntryKey(EntryName), Ability);
             lease = Bindings.AcquireLayer(layer);
@@ -115,7 +116,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         // ----------------------------------------------------------------------
         private void StartCooldown(float cooldown, Action transition)
         {
-            if (cooldown > 0f && !Ability.State.Control.TryBeginCooldown(cooldown))
+            if (cooldown > 0f && !Ability.State.TryBeginCooldown(cooldown))
             {
                 throw new InvalidOperationException("Cooldown 시작이 승인 후 실패했습니다.");
             }
@@ -137,13 +138,21 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
     #region Ability 목록
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 기본 Ability를 처음으로 하는 이 Owner의 모든 Ability State 집합이다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        internal AbilityStateSet Abilities => abilities;
+        private readonly AbilityStateSet abilities = new();
+
         // ------------------------------------------------------------
         /// <summary>
-        /// 기본 Ability를 처음으로 하는 이 Owner의 모든 Ability State이다.
+        /// <br/> 이 Owner가 대상인 Status 컨테이너이다.
+        /// <br/> 서버 권한이며 Client는 예측하지 않고 Snapshot으로만 받는다.
         /// </summary>
         // ------------------------------------------------------------
-        internal IReadOnlyList<AbilityState> States => states;
-        private readonly List<AbilityState> states = new();
+        internal readonly StatusContainer<int> Statuses = new();
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -154,33 +163,14 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         internal AbilityState AddAbility(string key)
         {
             var abilityKey = new AbilityKey(key);
-            if (FindState(abilityKey) != null)
+            if (abilities.TryGet(abilityKey, out _))
             {
                 throw new ArgumentException("이미 있는 Ability Key입니다.", nameof(key));
             }
 
-            var ability = new AbilityInstance<AuthoritySpec>(new AuthoritySpec(), new AbilityState(abilityKey));
+            var ability = new AbilityInstance<AuthoritySpec>(new AuthoritySpec(), abilities.GetOrAdd(abilityKey));
             layer.Set(new AbilityEntryKey(key), ability);
-            states.Add(ability.State);
             return ability.State;
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// Key가 같은 Ability State를 반환하며 없으면 null이다.
-        /// </summary>
-        // ------------------------------------------------------------
-        internal AbilityState FindState(AbilityKey key)
-        {
-            foreach (var state in states)
-            {
-                if (state.Key == key)
-                {
-                    return state;
-                }
-            }
-
-            return null;
         }
 
     #endregion

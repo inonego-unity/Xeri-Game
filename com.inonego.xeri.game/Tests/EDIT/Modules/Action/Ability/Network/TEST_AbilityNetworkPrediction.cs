@@ -283,7 +283,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 {
                     if (!accepted && tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
                     }
                 }
             );
@@ -374,7 +374,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 {
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(0.4f));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(0.4f));
                     }
                 }
             );
@@ -443,7 +443,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 {
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
                     }
                 }
             );
@@ -494,8 +494,8 @@ namespace inonego.Xeri.Game.TEST._Ability
                     // 요청이 서버에 닿기 전에 서버 상태가 바뀌어 요청은 거절되고 Snapshot이 먼저 도착한다.
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
-                        Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
+                        Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
                     }
                 }
             );
@@ -537,8 +537,8 @@ namespace inonego.Xeri.Game.TEST._Ability
                 network, host, client,
                 serverEvent: () =>
                 {
-                    Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
-                    Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+                    Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
+                    Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
                 }
             );
 
@@ -1213,7 +1213,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                     // 다른 경로의 서버 소비로 서버 값이 클라이언트 예측과 어긋난다.
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+                        Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
                     }
                 }
             );
@@ -1263,7 +1263,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 {
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
                     }
                 }
             );
@@ -1328,7 +1328,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 {
                     if (tick == 1)
                     {
-                        Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
+                        Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
                     }
                 }
             );

@@ -1,11 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StatusSpec.cs
-수정일 : 2026-11-20
+수정일 : 2026-11-24
 
 # 설명
-Status 한 종류의 스택·지속 시간·출처·초과 규칙을 정의한다.
+Status 한 종류의 스택·지속 시간·출처·최대치 도달 규칙을 정의한다.
 값 동등성으로 같은 Key의 규칙이 일치하는지 비교하고, 적용 시점의 복사본을 만든다.
-동등성은 동작에 쓰이는 값만 비교한다. 지속 시간이 없으면 Duration을, Independent가 아니면 Overflow를 비교하지 않는다.
+동등성은 동작에 쓰이는 값만 비교한다. 지속 시간이 없으면 Duration을 비교하지 않고, Overflow는 스택 규칙에서 실제로 쓰이는 값(EffectiveOverflow)으로 비교한다.
+Overflow의 기본값은 스택 규칙에 따른다(SharedRenew는 Renew, 나머지는 Reject). Renew는 SharedRenew에서만 쓸 수 있다.
 
 # 특이사항, 제약사항
 Unity 직렬화로 채워진 값은 생성자 검사를 거치지 않으므로 사용 전에 Validate로 검사한다.
@@ -26,21 +27,24 @@ namespace inonego.Xeri.Game
 
     // ============================================================
     /// <summary>
-    /// 같은 Key의 Status를 출처별로 나눌지 여부.
+    /// <br/> 같은 Key의 Status를 출처별로 나눌지 여부.
+    /// <br/> PerOrigin은 출처마다, PerKey는 Key마다 하나를 둔다.
     /// </summary>
     // ============================================================
-    public enum StatusSourcing { PerOrigin, Shared }
+    public enum StatusSourcing { PerOrigin, PerKey }
+
+    // ================================================================================
+    /// <summary>
+    /// <br/> 스택이 최대치에 도달했을 때의 처리.
+    /// <br/> Reject는 거절, ReplaceEarliest는 가장 먼저 끝날 스택을 교체(Independent),
+    /// <br/> Renew는 스택은 그대로 두고 시간만 다시 시작(SharedRenew)한다.
+    /// </summary>
+    // ================================================================================
+    public enum StatusOverflow { Reject, ReplaceEarliest, Renew }
 
     // ============================================================
     /// <summary>
-    /// 독립 만료 스택이 최대치에 도달했을 때의 처리.
-    /// </summary>
-    // ============================================================
-    public enum StatusOverflow { Reject, ReplaceEarliest }
-
-    // ============================================================
-    /// <summary>
-    /// Status 한 종류의 스택·지속 시간·출처·초과 규칙.
+    /// Status 한 종류의 스택·지속 시간·출처·최대치 도달 규칙.
     /// </summary>
     // ============================================================
     [Serializable]
@@ -111,7 +115,7 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 독립 만료 스택이 최대치에 도달했을 때의 처리.
+        /// 스택이 최대치에 도달했을 때의 처리.
         /// </summary>
         // ------------------------------------------------------------
         public StatusOverflow Overflow => overflow;
@@ -119,16 +123,31 @@ namespace inonego.Xeri.Game
         [SerializeField]
         private StatusOverflow overflow = StatusOverflow.Reject;
 
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 스택 규칙에서 실제로 쓰이는 Overflow.
+        /// <br/> Independent는 ReplaceEarliest가 아니면 Reject,
+        /// <br/> SharedRenew는 Reject가 아니면 Renew, SharedKeep은 항상 Reject로 본다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        internal StatusOverflow EffectiveOverflow => stacking switch
+        {
+            StatusStacking.Independent => overflow == StatusOverflow.ReplaceEarliest ? StatusOverflow.ReplaceEarliest : StatusOverflow.Reject,
+            StatusStacking.SharedRenew => overflow == StatusOverflow.Reject ? StatusOverflow.Reject : StatusOverflow.Renew,
+            _                          => StatusOverflow.Reject,
+        };
+
     #endregion
 
     #region 생성자
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
         /// <br/> 검사한 규칙으로 Status Spec을 생성한다.
         /// <br/> duration이 null이면 시간으로 만료되지 않는다.
+        /// <br/> overflow를 생략하면 SharedRenew는 Renew, 나머지는 Reject를 쓴다.
         /// </summary>
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         public StatusSpec
         (
             StatusKey key,
@@ -136,7 +155,7 @@ namespace inonego.Xeri.Game
             float? duration,
             StatusStacking stacking,
             StatusSourcing sourcing,
-            StatusOverflow overflow = StatusOverflow.Reject
+            StatusOverflow? overflow = null
         )
         {
             this.key         = key;
@@ -145,7 +164,7 @@ namespace inonego.Xeri.Game
             this.duration    = duration ?? 0f;
             this.stacking    = stacking;
             this.sourcing    = sourcing;
-            this.overflow    = overflow;
+            this.overflow    = overflow ?? (stacking == StatusStacking.SharedRenew ? StatusOverflow.Renew : StatusOverflow.Reject);
 
             Validate();
         }
@@ -191,12 +210,17 @@ namespace inonego.Xeri.Game
 
             // 적용마다 검사하므로 박싱하는 Enum.IsDefined 대신 값을 직접 비교한다.
             var isStackingDefined = stacking is StatusStacking.Independent or StatusStacking.SharedRenew or StatusStacking.SharedKeep;
-            var isSourcingDefined = sourcing is StatusSourcing.PerOrigin or StatusSourcing.Shared;
-            var isOverflowDefined = overflow is StatusOverflow.Reject or StatusOverflow.ReplaceEarliest;
+            var isSourcingDefined = sourcing is StatusSourcing.PerOrigin or StatusSourcing.PerKey;
+            var isOverflowDefined = overflow is StatusOverflow.Reject or StatusOverflow.ReplaceEarliest or StatusOverflow.Renew;
 
             if (!isStackingDefined || !isSourcingDefined || !isOverflowDefined)
             {
                 throw new ArgumentException("정의되지 않은 Status 규칙 값입니다.");
+            }
+
+            if (overflow == StatusOverflow.Renew && stacking != StatusStacking.SharedRenew)
+            {
+                throw new ArgumentException("Renew는 SharedRenew에서만 쓸 수 있습니다.");
             }
         }
 
@@ -230,7 +254,7 @@ namespace inonego.Xeri.Game
                 (!hasDuration || duration.Equals(other.duration)) &&
                 stacking == other.stacking &&
                 sourcing == other.sourcing &&
-                (stacking != StatusStacking.Independent || overflow == other.overflow);
+                EffectiveOverflow == other.EffectiveOverflow;
         }
 
         // ------------------------------------------------------------
@@ -247,8 +271,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public override int GetHashCode() => HashCode.Combine
         (
-            key, maxStacks, hasDuration, hasDuration ? duration : 0f, stacking, sourcing,
-            stacking == StatusStacking.Independent ? overflow : StatusOverflow.Reject
+            key, maxStacks, hasDuration, hasDuration ? duration : 0f, stacking, sourcing, EffectiveOverflow
         );
 
     #endregion

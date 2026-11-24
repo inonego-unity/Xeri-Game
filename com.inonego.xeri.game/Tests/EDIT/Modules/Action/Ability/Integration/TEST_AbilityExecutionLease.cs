@@ -127,7 +127,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             // Cooldown은 Host 시작이 성공한 뒤 전이에서 시작한다.
             void StartCooldown()
             {
-                Assert.IsTrue(ability.State.Control.TryBeginCooldown(2f));
+                Assert.IsTrue(ability.State.TryBeginCooldown(2f));
             }
 
             var selector = new AbilityUseSelector<TestSpec, object, string>
@@ -158,7 +158,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var behavior = new MotionBehavior(trace, fail);
             var session = Session(behavior);
             var ability = new AbilityInstance<TestSpec>(new TestSpec(), new AbilityState(new AbilityKey("A")));
-            ability.State.Control.ConfigureCharge(2, 10f);
+            ability.State.ConfigureCharge(2, 10f);
             var layer = new AbilityBindingLayer<TestSpec>(0);
             layer.Set(new AbilityEntryKey("Skill"), ability);
             var bindings = new AbilityBindings<TestSpec>();
@@ -215,7 +215,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var clock = new FakeAbilityNetwork<int>(0.25);
             var roster = new AbilityFixtureRoster(1, 2);
             var ability = new AbilityInstance<TestSpec>(new TestSpec(), new AbilityState(new AbilityKey("A")));
-            ability.State.Control.ConfigureCharge(2, 10f);
+            ability.State.ConfigureCharge(2, 10f);
             var layer = new AbilityBindingLayer<TestSpec>(0);
             layer.Set(new AbilityEntryKey("Skill"), ability);
             var bindings = new AbilityBindings<TestSpec>();

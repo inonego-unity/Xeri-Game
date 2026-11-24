@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeCost.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 Ability Charge 비용을 현재 수량으로 검사하고 사용 확정 시 직접 소비한다.
@@ -61,7 +61,7 @@ namespace inonego.Xeri.Game
         {
             return context.Ability?.State?.Charge?.Current >= Amount
                 ? AbilityActivationCheck.Allow()
-                : AbilityActivationCheck.Reject("Ability Charge가 부족합니다.");
+                : AbilityActivationCheck.Reject("Ability Charge가 부족합니다.", AbilityActivationCodes.ChargeShortage);
         }
 
         // ------------------------------------------------------------

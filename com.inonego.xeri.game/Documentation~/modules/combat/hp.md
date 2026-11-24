@@ -80,7 +80,8 @@ Xeri Core는 Dead 상태를 자동으로 Registry Despawn에 연결하지 않습
 ## 책임 범위
 
 HP는 값·상태·Heal/Damage 이벤트만 소유합니다.
-방어력, 피해 타입, 무적 시간, 공격 판정, Entity 제거 정책은 상위 gameplay/runtime composition이 소유합니다.
+보호막, 방어력, 피해 타입, 무적 시간, 공격 판정, Entity 제거 정책은 상위 gameplay/runtime composition이 소유합니다.
+피해를 줄이는 규칙(보호막 흡수 등)은 호출하는 쪽의 피해 파이프라인이 먼저 계산하고, 최종 피해만 `ApplyDamage`에 넘깁니다. HP에는 흡수 계층이 없습니다.
 
 ## 관련 문서
 
