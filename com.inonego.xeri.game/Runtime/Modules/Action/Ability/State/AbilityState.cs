@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityState.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-25
 
 # 설명
 Owner별 Ability 지속 상태, Cooldown, Charge와 Values를 독립 관리한다.
@@ -38,7 +38,7 @@ namespace inonego.Xeri.Game
     /// </summary>
     // ================================================================================
     [Serializable]
-    public class AbilityState : ISerializationCallbackReceiver, IDeepCloneable<AbilityState>
+    public class AbilityState : ISerializationCallbackReceiver, IDeepCloneable<AbilityState>, IRevisioned
     {
 
     #region 필드
@@ -129,10 +129,10 @@ namespace inonego.Xeri.Game
         /// <br/> Advance의 시간 진행은 변경 번호를 바꾸지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        public ulong Revision => revision;
+        public Revision Revision => revision;
 
         [NonSerialized]
-        private ulong revision = 0;
+        private Revision revision = Revision.None;
 
     #endregion
 
@@ -572,7 +572,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void MarkChanged()
         {
-            revision++;
+            revision = revision.Inc();
         }
 
         // ----------------------------------------------------------------------

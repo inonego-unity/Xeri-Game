@@ -282,10 +282,10 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(1, charge.Current);
             Assert.AreEqual(4f, recharge.Duration, 0.0001f);
             Assert.AreEqual(0.5f, recharge.ElapsedTime, 0.0001f);
-            Assert.AreEqual(revision + 1, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
 
             Assert.IsFalse(state.ResizeCharge(4, 4f));
-            Assert.AreEqual(revision + 1, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
 
             // 용량이 현재 수량 이하로 줄면 가득 찬 상태가 되어 충전이 멈춘다.
             Assert.IsTrue(state.ResizeCharge(1, 4f));
@@ -342,12 +342,12 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.IsTrue(state.ReduceRecharge(0.5f));
             Assert.AreEqual(1, state.Charge.Current);
             Assert.AreEqual(1.5f, state.Charge.Recharge.RemainingTime, 0.0001f);
-            Assert.AreEqual(revision + 1, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
 
             Assert.IsTrue(state.ReduceRecharge(10f));
             Assert.AreEqual(2, state.Charge.Current);
             Assert.AreEqual(2f, state.Charge.Recharge.RemainingTime, 0.0001f);
-            Assert.AreEqual(revision + 2, state.Revision);
+            Assert.AreEqual(revision.Inc().Inc(), state.Revision);
             Assert.AreEqual(0, notified);
 
             // 줄일 것이 없으면 바뀌지 않는다.
@@ -412,7 +412,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             Assert.AreEqual(2, state.Charge.Current);
             Assert.IsTrue(state.Charge.Recharge.IsRunning);
-            Assert.AreEqual(revision + 1, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
 
             receipt.Refund();
 
@@ -420,7 +420,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(3, state.Charge.Current);
             Assert.IsFalse(state.Charge.Recharge.IsRunning);
             Assert.AreSame(recharge, state.Charge.Recharge);
-            Assert.AreEqual(revision + 2, state.Revision);
+            Assert.AreEqual(revision.Inc().Inc(), state.Revision);
         }
 
         // --------------------------------------------------------------------------------
@@ -511,7 +511,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             var empty = new AbilityState(new AbilityKey("None"));
             Assert.Throws<InvalidOperationException>(() => empty.PayCharge(1));
-            Assert.AreEqual(0UL, empty.Revision);
+            Assert.AreEqual(Revision.None, empty.Revision);
         }
 
     #endregion

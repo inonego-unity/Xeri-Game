@@ -16,7 +16,7 @@ public sealed class SampleEntity : EntityBase
 }
 ```
 
-`EntityBase`는 Key, `SpawnState`, `RegistrationRevision`, 수명 훅을 가집니다. HP·Group 등이 필요하다면 구체 Entity가 별도 capability를 구현합니다.
+`EntityBase`는 Key, `SpawnState`, `RegistrationGeneration`, 수명 훅을 가집니다. HP·Group 등이 필요하다면 구체 Entity가 별도 capability를 구현합니다.
 
 ## 2. Registry의 획득·반환 정책
 

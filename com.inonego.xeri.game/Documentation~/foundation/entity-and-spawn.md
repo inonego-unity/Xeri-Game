@@ -6,11 +6,11 @@ Entity 영역은 **논리 객체의 식별과 Registry 등록 수명**을 관리
 
 | 요소 | 관리 책임 |
 |---|---|
-| `EntityBase` / `IEntity` | Key, `SpawnState`, 등록 Revision 및 Entity 수명 훅 |
+| `EntityBase` / `IEntity` | Key, `SpawnState`, 등록 수명 번호 `RegistrationGeneration` 및 Entity 수명 훅 |
 | `EntitySpawnRegistryBase<TEntity>` | Entity Key 검증, 외부 Key 등록 및 현재 수명 조회 |
 | `EntitySpawnRegistry<TEntity>` | `Acquire()` 기반 로컬 Spawn |
 | `SpawnRegistryBase<TKey,T>` | 일반 등록·해제 transaction, Binding, 이벤트, 복원 연결 |
-| `EntityHandle` | 객체 참조·Key·등록 Revision을 묶은 비소유 로컬 Handle |
+| `EntityHandle` | 객체 참조·Key·등록 수명 번호를 묶은 비소유 로컬 Handle |
 | `ISpawnRegistryBinding<TKey,T>` | Registry 등록 수명에 필수 자원을 동기화하는 연결 |
 
 ## EntityBase: 논리 객체의 정체성과 수명
@@ -19,7 +19,7 @@ Entity 영역은 **논리 객체의 식별과 Registry 등록 수명**을 관리
 
 Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른 Registry에서는 같은 Key를 사용할 수 있습니다. Key 값 `0`도 정상 발급될 수 있으므로 Entity 없음의 표시로 사용하지 않습니다.
 
-`RegistrationRevision`은 Entity가 등록되어 `Spawned`가 될 때마다 증가하는 **비직렬화 수명 번호**입니다. 등록이 실패한 뒤 롤백되더라도 증가한 Revision은 재사용하지 않습니다. 이 번호는 로컬 메모리용이므로 원격 Wire ID나 영속 ID로 쓰지 않습니다. Entity Key도 해당 Registry 안에서만 유효한 식별자입니다.
+`RegistrationGeneration`은 Entity가 등록되어 `Spawned`가 될 때마다 증가하는 **비직렬화 수명 번호**(Core `Revision` 타입, 등록된 적 없으면 `None`)입니다. 등록이 실패한 뒤 롤백되더라도 증가한 번호는 재사용하지 않습니다. Entity는 이 번호를 `IRevisioned`의 주된 축으로 내보냅니다. 이 번호는 로컬 메모리용이므로 원격 Wire ID나 영속 ID로 쓰지 않습니다. Entity Key도 해당 Registry 안에서만 유효한 식별자입니다.
 
 원격 요청과 Network Object 매핑은 그 Registry의 Entity Key를 기준으로 구성합니다. Host가 `NetworkId → Entity Key` 대응표를 소유하고, 요청을 처리할 때 `Find(key)`로 현재 Entity를 조회합니다. 권한 Registry가 Key를 다시 발급하지 않으면 Key가 그 Registry 수명 안에서 대상을 식별하므로 별도의 Generation이 필요하지 않습니다. 기본 `IncreKeyGenerator`는 단조 증가하며 한 번 쓴 값을 재사용하지 않습니다. 해제된 외부 Key를 다시 쓰는 정책을 택한 Host만 재사용을 구별하는 값을 자신의 대응표에 포함합니다.
 
@@ -42,9 +42,9 @@ Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른
 
 ## EntityHandle: 현재 등록 수명 조회
 
-`new EntityHandle(entity)`는 등록된 Entity 참조, Key, Revision을 보관합니다. `IsValid()`는 현재 Entity 값들이 Handle 생성 시점과 일치하는지 확인합니다. `EntitySpawnRegistryBase<TEntity>.TryResolve(handle, out entity)`는 여기에 **정확히 그 Entity 인스턴스가 현재 Registry에 등록되어 있는지**까지 확인합니다.
+`new EntityHandle(entity)`는 등록된 Entity 참조, Key, 등록 수명 번호(`RevisionMark`)를 보관합니다. `IsValid()`는 현재 Entity 값들이 Handle 생성 시점과 일치하는지 확인합니다. `EntitySpawnRegistryBase<TEntity>.TryResolve(handle, out entity)`는 여기에 **정확히 그 Entity 인스턴스가 현재 Registry에 등록되어 있는지**까지 확인합니다.
 
-같은 인스턴스와 Key를 다시 등록해도 이전 Revision을 가진 Handle은 유효하지 않습니다. `Find(key)`는 Key만 조회하므로 오래 보관한 타깃·지연 명령에는 등록 수명 검증이 필요합니다. `EntityHandle`은 로컬 메모리용이며 Save나 RPC 식별자로 사용하지 않습니다.
+같은 인스턴스와 Key를 다시 등록해도 이전 등록 수명 번호를 가진 Handle은 유효하지 않습니다. `Find(key)`는 Key만 조회하므로 오래 보관한 타깃·지연 명령에는 등록 수명 검증이 필요합니다. `EntityHandle`은 로컬 메모리용이며 Save나 RPC 식별자로 사용하지 않습니다.
 
 ## SpawnRegistry와 Binding: transaction
 
@@ -56,7 +56,7 @@ Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른
 객체·Key 준비 및 등록 상태 검증
 → 게임 Spawn: Entity.OnSpawning → Registry.OnSpawning
 → 공통 Registry.OnRegistering
-→ membership 추가, Spawned 진입 및 RegistrationRevision 증가
+→ membership 추가, Spawned 진입 및 RegistrationGeneration 증가
 → 필수 Binding.OnRegistered (등록 순서)
 → 게임 Spawn: Entity.OnSpawned
 → 등록 확정
@@ -107,7 +107,7 @@ Actor 객체·Entity 관계의 0..N 관리, Factory의 Pool 반환, Provider의 
 
 | 대상 | 식별·수명 |
 |---|---|
-| Entity | Registry Key와 RegistrationRevision, Spawn/Unregister |
+| Entity | Registry Key와 RegistrationGeneration, Spawn/Unregister |
 | Actor | Scene 객체 수명과 Entity reference 연결 |
 | WorldObject | 별도의 문자열 ID와 Store의 지속 데이터 연결 |
 | State Machine | Owner의 현재 행동 상태 전이 |

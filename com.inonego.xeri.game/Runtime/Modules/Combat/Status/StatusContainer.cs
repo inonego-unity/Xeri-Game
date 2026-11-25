@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StatusContainer.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-25
 
 # 설명
 대상 하나에 적용된 Status의 스택·만료·소비·제거와 변경 알림을 소유한다.
@@ -38,7 +38,7 @@ namespace inonego.Xeri.Game
     // ================================================================================
     [Serializable]
     public sealed class StatusContainer<TOrigin> :
-        ISerializationCallbackReceiver, IDeepCloneable<StatusContainer<TOrigin>>
+        ISerializationCallbackReceiver, IDeepCloneable<StatusContainer<TOrigin>>, IRevisioned
     where TOrigin : IEquatable<TOrigin>
     {
 
@@ -172,7 +172,15 @@ namespace inonego.Xeri.Game
 
             int IReadOnlyStatus<TOrigin>.Stacks => stacks.Count;
 
-            ITimerProgress IReadOnlyStatus<TOrigin>.GetStackTimer(int index) => IsShared ? SharedTimer : stacks[index].Timer;
+            ITimerProgress IReadOnlyStatus<TOrigin>.GetStackTimer(int index)
+            {
+                if ((uint)index >= (uint)stacks.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                }
+
+                return IsShared ? SharedTimer : stacks[index].Timer;
+            }
         }
 
         // 만료·소비 후보 스택과 정렬 값.
@@ -231,10 +239,10 @@ namespace inonego.Xeri.Game
         /// <br/> Advance의 시간 진행과 만료는 변경 번호를 바꾸지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        public ulong Revision => revision;
+        public Revision Revision => revision;
 
         [NonSerialized]
-        private ulong revision = 0;
+        private Revision revision = Revision.None;
 
     #endregion
 
@@ -282,7 +290,7 @@ namespace inonego.Xeri.Game
             entries.CloneFrom(source.entries);
 
             nextSequence = source.nextSequence;
-            revision++;
+            revision = revision.Inc();
         }
 
     #endregion
@@ -350,7 +358,7 @@ namespace inonego.Xeri.Game
                     return result;
                 }
 
-                revision++;
+                revision = revision.Inc();
                 Raise(changes);
 
                 return result;
@@ -606,7 +614,7 @@ namespace inonego.Xeri.Game
                     }
                 }
 
-                revision++;
+                revision = revision.Inc();
                 Raise(changes);
 
                 return consumed;
@@ -694,7 +702,7 @@ namespace inonego.Xeri.Game
                 }
 
                 entries.Clear();
-                revision++;
+                revision = revision.Inc();
                 Raise(changes);
             }
             finally
@@ -729,7 +737,7 @@ namespace inonego.Xeri.Game
                     return false;
                 }
 
-                revision++;
+                revision = revision.Inc();
                 Raise(changes);
 
                 return true;
@@ -916,7 +924,7 @@ namespace inonego.Xeri.Game
         public void OnAfterDeserialize()
         {
             entries ??= new();
-            revision++;
+            revision = revision.Inc();
         }
 
     #endregion

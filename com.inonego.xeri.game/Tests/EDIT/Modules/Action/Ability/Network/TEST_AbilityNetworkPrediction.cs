@@ -348,7 +348,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(2, kit.State.Charge.Current);
             Assert.IsFalse(kit.State.IsCooldownReady);
             var predicted = kit.State.Revision;
-            Assert.Greater(predicted, baseline);
+            Assert.IsTrue(predicted > baseline);
 
             PredictedUse next = null;
             void VerifyRestored()
@@ -360,7 +360,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 Assert.AreEqual(3, kit.State.Charge.Current);
                 Assert.IsTrue(kit.State.IsCooldownReady);
                 Assert.AreEqual(0f, Remaining(kit.State));
-                Assert.Greater(kit.State.Revision, predicted);
+                Assert.IsTrue(kit.State.Revision > predicted);
                 Assert.IsTrue(first.Session.HasEnded);
                 Assert.AreEqual(ExecutionEndReason.Cancelled, first.Session.EndReason);
                 Assert.IsTrue(first.Motion.IsDisposed);

@@ -43,7 +43,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
 
     #region 헬퍼
 
-        private static readonly MotionActorKey actor = new(81, 1, 1);
+        private static readonly MotionActorKey actor = new(81, 1, Revision.FromUInt64(1));
 
         private static readonly MotionIntent[] walk =
         {
@@ -134,7 +134,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
                 // 값 형식이므로 이후 Correction이 보관한 Sample을 바꾸지 않는다.
                 motor.ApplyCurrentState(new MotorState2D(new Vector2(4f, 5f), 0f, Vector2.zero, 0f));
                 Assert.That(sample.CurrentState.LinearVelocity, Is.EqualTo(new Vector2(2f, 3f)));
-                Assert.That(sample.DiscontinuityVersion, Is.Zero);
+                Assert.That(sample.DiscontinuityRevision, Is.EqualTo(Revision.None));
             }
             finally
             {
@@ -166,7 +166,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
             Assert.That(original.Confirmation, Is.EqualTo(MovementSampleConfirmation.Unconfirmed));
             Assert.That(confirmed.Confirmation, Is.EqualTo(MovementSampleConfirmation.Confirmed));
             Assert.That(confirmed.Tick.Index, Is.Zero);
-            Assert.That(confirmed.Frame.StepVersion, Is.EqualTo(original.Frame.StepVersion));
+            Assert.That(confirmed.Frame.StepGeneration, Is.EqualTo(original.Frame.StepGeneration));
             Assert.Throws<ArgumentOutOfRangeException>
             (
                 () => original.WithConfirmation((MovementSampleConfirmation)9)
@@ -185,7 +185,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
         [Test]
         public void TEST_MovementFrameSample_Actor출처검증()
         {
-            var otherActor = new MotionActorKey(81, 2, 1);
+            var otherActor = new MotionActorKey(81, 2, Revision.FromUInt64(1));
             var model = new MotionModel(actor, MotionModel.TopDown2DUp);
             var otherModel = new MotionModel(otherActor, MotionModel.TopDown2DUp);
             var motor = new Motor<MotorState2D>(actor, new StateReadCallbackBackend());
@@ -226,7 +226,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
             var replayed = StepAndObserve(model, motor);
 
             Assert.That(replayed.Tick.Index, Is.EqualTo(obsolete.Tick.Index));
-            Assert.That(replayed.StepVersion, Is.GreaterThan(obsolete.StepVersion));
+            Assert.IsTrue(replayed.StepGeneration > obsolete.StepGeneration);
             Assert.Throws<InvalidOperationException>
             (
                 () => MovementFrameSample<MotorState2D>.Capture
@@ -337,7 +337,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
                     model, motor, frame, false, MovementSampleConfirmation.Unconfirmed
                 )
             );
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
             Assert.That(motor.ObservedPhysicsStep, Is.Zero);
         }
 
@@ -385,7 +385,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
                 var motor = new Motor<MotorState2D>(actor, new RigidbodyMotorBackend2D(body));
                 var navigation = new NavigationController<Vector2>(actor);
                 navigation.SetGoal(new Vector2(10f, 0f));
-                var plan = navigation.BeginPlan(Vector2.zero, 7);
+                var plan = navigation.BeginPlan(Vector2.zero, Revision.FromUInt64(7));
                 var planWaypoints = new[]
                 {
                     new Vector2(10f, 0f)
@@ -402,7 +402,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
 
                 // 다음 Tick 결과와 Planner 응답이 대기하는 동안 Host가 세 모듈을 각각 교정한다.
                 var obsolete = StepAndObserve(model, motor);
-                var pendingPlan = navigation.BeginPlan(Vector2.zero, 7);
+                var pendingPlan = navigation.BeginPlan(Vector2.zero, Revision.FromUInt64(7));
 
                 model.Restore(snapshot);
                 motor.ApplyCurrentState(new MotorState2D(new Vector2(4f, 5f), 0f, new Vector2(9f, 0f), 0f));
@@ -447,7 +447,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
 
                 Assert.That(sample.CurrentState.Position, Is.EqualTo(new Vector2(4f, 5f)));
                 Assert.That(sample.CurrentState.LinearVelocity, Is.EqualTo(new Vector2(9f, 0f)));
-                Assert.That(sample.DiscontinuityVersion, Is.GreaterThan(original.DiscontinuityVersion));
+                Assert.IsTrue(sample.DiscontinuityRevision > original.DiscontinuityRevision);
                 Assert.That(sample.State.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.CurrentStateApply));
                 Assert.That(original.CurrentState.LinearVelocity, Is.EqualTo(new Vector2(2f, 3f)));
             }
@@ -471,7 +471,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
         {
             var model = new MotionModel(actor, MotionModel.TopDown2DUp);
             var motor = new Motor<MotorState2D>(actor, new StateReadCallbackBackend());
-            var dash = new MotionSourceKey("Dash", 1);
+            var dash = new MotionSourceKey("Dash", Revision.FromUInt64(1));
 
             model.StepLocal(0.02d, new MotionStepInput(walk));
             var dashInputs = new[]
@@ -517,7 +517,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Movement
             );
             var remote = MovementState.Create
             (
-                new MotionActorKey(82, 1, 1), 12, Vector3.up, velocity, rotation, false, 3, 10,
+                new MotionActorKey(82, 1, Revision.FromUInt64(1)), 12, Vector3.up, velocity, rotation, false, 3, 10,
                 MotorDiscontinuityKind.None
             );
 

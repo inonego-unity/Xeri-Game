@@ -279,7 +279,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(slash, target.States[0].Key);
             Assert.AreSame(targetDash, target.States[1]);
             Assert.AreEqual(5f, targetDash.Cooldown.Duration, 1e-4f);
-            Assert.Greater(targetDash.Revision, revision);
+            Assert.IsTrue(targetDash.Revision > revision);
             Assert.IsFalse(target.TryGet(guard, out _));
             Assert.IsTrue(target.TryGet(slash, out var added));
             Assert.AreNotSame(source.States[0], added);

@@ -123,7 +123,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
     {
         internal readonly AbilityKey Key;
         internal readonly AbilityState State;
-        internal readonly ulong Revision;
+        internal readonly Revision Revision;
         internal readonly long Tick;
 
         internal AuthoritySnapshot(AbilityState source, long tick)
@@ -144,7 +144,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
     internal sealed class AuthorityStatusSnapshot
     {
         internal readonly StatusContainer<int> State;
-        internal readonly ulong Revision;
+        internal readonly Revision Revision;
         internal readonly long Tick;
 
         internal AuthorityStatusSnapshot(StatusContainer<int> source, long tick)

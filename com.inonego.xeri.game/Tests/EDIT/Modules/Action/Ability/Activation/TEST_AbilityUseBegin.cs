@@ -338,7 +338,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(before, UnityEngine.JsonUtility.ToJson(state));
             Assert.AreEqual(3, state.Charge.Current);
             Assert.IsFalse(state.Charge.Recharge.IsRunning);
-            Assert.Greater(state.Revision, revision);
+            Assert.IsTrue(state.Revision > revision);
         }
 
         // ----------------------------------------------------------------------

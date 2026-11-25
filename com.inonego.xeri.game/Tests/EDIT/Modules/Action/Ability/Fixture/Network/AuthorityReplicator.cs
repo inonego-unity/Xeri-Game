@@ -57,8 +57,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
     #region 공개 범위와 전송 기록
 
-        internal readonly Dictionary<(int Owner, AbilityKey Key), (int Epoch, ulong Revision)> LastSent = new();
-        internal readonly Dictionary<int, (int Epoch, ulong Revision)> StatusLastSent = new();
+        internal readonly Dictionary<(int Owner, AbilityKey Key), (int Epoch, RevisionMark Mark)> LastSent = new();
+        internal readonly Dictionary<int, (int Epoch, RevisionMark Mark)> StatusLastSent = new();
         private readonly HashSet<(int Owner, AbilityKey Key)> hidden = new();
 
         // ------------------------------------------------------------
@@ -399,7 +399,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
                 if (!send)
                 {
-                    observer.LastSent[(owner, state.Key)] = (network.Server.Epoch, state.Revision);
+                    observer.LastSent[(owner, state.Key)] = (network.Server.Epoch, RevisionMark.Capture(state));
                     continue;
                 }
 
@@ -418,7 +418,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 if (!send)
                 {
-                    observer.StatusLastSent[owner] = (network.Server.Epoch, statuses.Revision);
+                    observer.StatusLastSent[owner] = (network.Server.Epoch, RevisionMark.Capture(statuses));
                 }
                 else
                 {
@@ -703,7 +703,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         {
             return observer.StatusLastSent.TryGetValue(owner, out var sent)
                 && sent.Epoch == network.Server.Epoch
-                && sent.Revision == statuses.Revision;
+                && sent.Mark.IsCapturedFrom(statuses)
+                && sent.Mark.IsCurrent;
         }
 
         // --------------------------------------------------------------------------------
@@ -720,12 +721,12 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 var snapshot = new AuthorityStatusSnapshot(statuses, network.Tick);
                 var epoch = network.Server.Epoch;
-                var revision = statuses.Revision;
+                var mark = RevisionMark.Capture(statuses);
                 observer.Deliver(owner, AuthorityPacket.ForStatus(owner, snapshot), clientDelay());
 
                 if (observer.Visible.Contains(owner) && findStatuses(owner) != null)
                 {
-                    observer.StatusLastSent[owner] = (epoch, revision);
+                    observer.StatusLastSent[owner] = (epoch, mark);
                 }
             }
             finally
@@ -743,7 +744,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         {
             return observer.LastSent.TryGetValue((owner, state.Key), out var sent)
                 && sent.Epoch == network.Server.Epoch
-                && sent.Revision == state.Revision;
+                && sent.Mark.IsCapturedFrom(state)
+                && sent.Mark.IsCurrent;
         }
 
         // --------------------------------------------------------------------------------
@@ -761,14 +763,14 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 var snapshot = new AuthoritySnapshot(state, network.Tick);
                 var epoch = network.Server.Epoch;
-                var revision = state.Revision;
+                var mark = RevisionMark.Capture(state);
                 observer.Deliver(owner, AuthorityPacket.ForSnapshot(owner, snapshot), clientDelay());
 
                 // 전송 콜백이 예외 없이 끝난 뒤에만 보낸 Epoch와 Revision으로 기록한다.
                 // 콜백이 Owner를 제거했거나 가시 목록에서 뺐다면 기록을 되살리지 않는다.
                 if (observer.Visible.Contains(owner) && findStates(owner) != null)
                 {
-                    observer.LastSent[(owner, state.Key)] = (epoch, revision);
+                    observer.LastSent[(owner, state.Key)] = (epoch, mark);
                 }
             }
             finally

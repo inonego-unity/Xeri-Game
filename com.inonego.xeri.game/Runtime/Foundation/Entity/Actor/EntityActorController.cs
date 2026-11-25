@@ -427,22 +427,22 @@ namespace inonego.Xeri.Game
         // --------------------------------------------------------------------------------
         private void ReleaseActors(IEnumerable<TEntityActor> source, DespawnReason reason)
         {
-            // 원본은 반환 중 바뀌는 View이므로 참조와 등록 수명 식별자를 먼저 고정한다.
-            var targets = new List<(TEntityActor actor, long serial)>();
+            // 원본은 반환 중 바뀌는 View이므로 참조와 등록 수명 번호를 먼저 고정한다.
+            var targets = new List<(TEntityActor actor, Revision generation)>();
 
             foreach (var actor in source)
             {
-                targets.Add((actor, registry.GetRegistrationSerial(actor)));
+                targets.Add((actor, registry.GetRegistrationGeneration(actor)));
             }
 
             var failures = new ExceptionBuffer();
 
-            foreach (var (actor, serial) in targets)
+            foreach (var (actor, generation) in targets)
             {
                 try
                 {
                     // 중첩 호출이 이미 반환했거나 새 수명으로 다시 등록된 Actor는 건너뛴다.
-                    if (registry.GetRegistrationSerial(actor) != serial)
+                    if (registry.GetRegistrationGeneration(actor) != generation)
                     {
                         continue;
                     }

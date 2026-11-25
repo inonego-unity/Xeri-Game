@@ -44,7 +44,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
 
     #region 헬퍼
 
-        private static readonly MotionActorKey actor = new(71, 1, 1);
+        private static readonly MotionActorKey actor = new(71, 1, Revision.FromUInt64(1));
 
         private static int[] Points(params int[] values) => values;
 
@@ -84,10 +84,10 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             navigation.SetGoal(30);
             Assert.That(navigation.Status, Is.EqualTo(NavigationStatus.NeedsPlan));
             Assert.That(navigation.Goal, Is.EqualTo(30));
-            var request = navigation.BeginPlan(0, 12);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(12));
             Assert.That(request.Actor, Is.EqualTo(actor));
-            Assert.That(request.GoalRevision, Is.EqualTo(navigation.GoalRevision));
-            Assert.That(request.WorldRevision, Is.EqualTo(12));
+            Assert.That(request.GoalGeneration, Is.EqualTo(navigation.GoalGeneration));
+            Assert.That(request.WorldRevision, Is.EqualTo(Revision.FromUInt64(12)));
             Assert.That(navigation.HasPendingRequest, Is.True);
 
             var path = Points(10, 20, 30);
@@ -100,7 +100,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             Assert.That(navigation.HasPendingRequest, Is.False);
             Assert.That(navigation.TryGetGuidance(out var guidance), Is.True);
             Assert.That(guidance.Target, Is.EqualTo(10));
-            Assert.That(guidance.GoalRevision, Is.EqualTo(request.GoalRevision));
+            Assert.That(guidance.GoalGeneration, Is.EqualTo(request.GoalGeneration));
             Assert.That(guidance.Actor, Is.EqualTo(actor));
 
             Assert.That(navigation.AdvanceWaypoint(), Is.True);
@@ -129,8 +129,8 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(8);
-            var first = navigation.BeginPlan(0, 1);
-            var latest = navigation.BeginPlan(2, 1);
+            var first = navigation.BeginPlan(0, Revision.FromUInt64(1));
+            var latest = navigation.BeginPlan(2, Revision.FromUInt64(1));
             Assert.That(latest.RequestID, Is.GreaterThan(first.RequestID));
             Assert.That
             (
@@ -165,14 +165,14 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(10);
-            var first = navigation.BeginPlan(0, 1);
+            var first = navigation.BeginPlan(0, Revision.FromUInt64(1));
             navigation.SetGoal(20);
             Assert.That
             (
                 navigation.TryAcceptPath(first, Points(10)),
                 Is.EqualTo(NavigationPlanApplyStatus.Stale)
             );
-            var second = navigation.BeginPlan(0, 1);
+            var second = navigation.BeginPlan(0, Revision.FromUInt64(1));
             navigation.Cancel();
             Assert.That
             (
@@ -194,7 +194,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(80);
-            var pending = navigation.BeginPlan(0, 5);
+            var pending = navigation.BeginPlan(0, Revision.FromUInt64(5));
             navigation.Invalidate();
 
             Assert.That(navigation.Status, Is.EqualTo(NavigationStatus.NeedsPlan));
@@ -205,7 +205,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
                 navigation.TryAcceptPath(pending, Points(80)),
                 Is.EqualTo(NavigationPlanApplyStatus.Stale)
             );
-            var retry = navigation.BeginPlan(40, 6);
+            var retry = navigation.BeginPlan(40, Revision.FromUInt64(6));
             Assert.That(retry.Goal, Is.EqualTo(80));
             Assert.That
             (
@@ -225,17 +225,17 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(100);
 
-            var firstRequest = navigation.BeginPlan(0, 7);
+            var firstRequest = navigation.BeginPlan(0, Revision.FromUInt64(7));
             navigation.TryAcceptPath(firstRequest, Points(10, 100));
             Assert.That(navigation.TryGetGuidance(out var oldGuidance), Is.True);
             Assert.That(oldGuidance.Target, Is.EqualTo(10));
 
             // 목표는 같지만 현재 경로는 새 Planner 결과로 교체되었다.
-            var newRequest = navigation.BeginPlan(5, 7);
+            var newRequest = navigation.BeginPlan(5, Revision.FromUInt64(7));
             navigation.TryAcceptPath(newRequest, Points(20, 100));
             Assert.That(navigation.TryGetGuidance(out var currentGuidance), Is.True);
-            Assert.That(currentGuidance.GoalRevision, Is.EqualTo(oldGuidance.GoalRevision));
-            Assert.That(currentGuidance.PathID, Is.Not.EqualTo(oldGuidance.PathID));
+            Assert.That(currentGuidance.GoalGeneration, Is.EqualTo(oldGuidance.GoalGeneration));
+            Assert.That(currentGuidance.PathGeneration, Is.Not.EqualTo(oldGuidance.PathGeneration));
 
             Assert.That(navigation.TryAdvanceWaypoint(oldGuidance), Is.False);
             Assert.That(navigation.WaypointIndex, Is.Zero);
@@ -260,7 +260,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(3);
-            var request = navigation.BeginPlan(0, 1);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(1));
             Assert.That
             (
                 navigation.TryAcceptPath(request, Array.Empty<int>()),
@@ -289,7 +289,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(4);
-            var request = navigation.BeginPlan(0, 2);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(2));
             Assert.That
             (
                 navigation.TryRejectPath(request),
@@ -297,7 +297,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             );
             Assert.That(navigation.Status, Is.EqualTo(NavigationStatus.Failed));
             Assert.That(navigation.TryGetGuidance(out _), Is.False);
-            var retry = navigation.BeginPlan(1, 2);
+            var retry = navigation.BeginPlan(1, Revision.FromUInt64(2));
             Assert.That(retry.RequestID, Is.GreaterThan(request.RequestID));
             Assert.That
             (
@@ -320,28 +320,30 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(30);
-            var request = navigation.BeginPlan(0, 9);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(9));
             navigation.TryAcceptPath(request, Points(10, 30));
             Assert.That(navigation.TryGetGuidance(out var original), Is.True);
             var snapshot = navigation.Capture();
 
             Assert.That
             (
-                navigation.Restore(snapshot, 9),
+                navigation.Restore(snapshot, Revision.FromUInt64(9)),
                 Is.EqualTo(NavigationRestoreStatus.Restored)
             );
             Assert.That(navigation.TryGetGuidance(out var restored), Is.True);
-            Assert.That(restored.PathID, Is.Not.EqualTo(original.PathID));
+            Assert.That(restored.PathGeneration, Is.Not.EqualTo(original.PathGeneration));
             Assert.That(navigation.TryAdvanceWaypoint(original), Is.False);
             Assert.That(navigation.TryAdvanceWaypoint(restored), Is.True);
 
-            var other = new NavigationController<int>(new MotionActorKey(71, 2, 1));
+            var other = new NavigationController<int>(new MotionActorKey(71, 2, Revision.FromUInt64(1)));
             other.SetGoal(30);
-            other.BeginPlan(0, 9);
-            var otherRequest = other.BeginPlan(0, 9);
+
+            // 경로를 한 번 더 승인해 다른 Controller의 경로 세대를 복원된 경로와 같게 맞춘다.
+            other.TryAcceptPath(other.BeginPlan(0, Revision.FromUInt64(9)), Points(10, 30));
+            var otherRequest = other.BeginPlan(0, Revision.FromUInt64(9));
             other.TryAcceptPath(otherRequest, Points(10, 30));
             Assert.That(other.TryGetGuidance(out var otherGuidance), Is.True);
-            Assert.That(otherGuidance.PathID, Is.EqualTo(restored.PathID));
+            Assert.That(otherGuidance.PathGeneration, Is.EqualTo(restored.PathGeneration));
             Assert.That(other.TryAdvanceWaypoint(restored), Is.False);
             Assert.That(other.WaypointIndex, Is.Zero);
         }
@@ -356,7 +358,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(30);
-            var request = navigation.BeginPlan(0, 12);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(12));
             navigation.TryAcceptPath(request, Points(10, 20, 30));
             navigation.AdvanceWaypoint();
             var saved = navigation.Capture();
@@ -367,7 +369,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             Assert.That(saved.Waypoints[1], Is.EqualTo(20));
             Assert.That
             (
-                navigation.Restore(saved, 12),
+                navigation.Restore(saved, Revision.FromUInt64(12)),
                 Is.EqualTo(NavigationRestoreStatus.Restored)
             );
             Assert.That(navigation.Status, Is.EqualTo(NavigationStatus.Following));
@@ -386,22 +388,22 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(9);
-            var request = navigation.BeginPlan(0, 7);
+            var request = navigation.BeginPlan(0, Revision.FromUInt64(7));
             navigation.TryAcceptPath(request, Points(9));
             var snapshot = navigation.Capture();
             navigation.SetGoal(22);
-            var revision = navigation.GoalRevision;
+            var revision = navigation.GoalGeneration;
 
             Assert.That
             (
-                navigation.Restore(snapshot, 8),
+                navigation.Restore(snapshot, Revision.FromUInt64(8)),
                 Is.EqualTo(NavigationRestoreStatus.WorldMismatch)
             );
-            Assert.That(navigation.GoalRevision, Is.EqualTo(revision));
-            var other = new NavigationController<int>(new MotionActorKey(71, 2, 1));
+            Assert.That(navigation.GoalGeneration, Is.EqualTo(revision));
+            var other = new NavigationController<int>(new MotionActorKey(71, 2, Revision.FromUInt64(1)));
             Assert.That
             (
-                other.Restore(snapshot, 7),
+                other.Restore(snapshot, Revision.FromUInt64(7)),
                 Is.EqualTo(NavigationRestoreStatus.ActorMismatch)
             );
             Assert.That(other.Status, Is.EqualTo(NavigationStatus.Idle));
@@ -417,13 +419,13 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(55);
-            var old = navigation.BeginPlan(0, 3);
+            var old = navigation.BeginPlan(0, Revision.FromUInt64(3));
             var snapshot = navigation.Capture();
             navigation.Invalidate();
 
             Assert.That
             (
-                navigation.Restore(snapshot, 3),
+                navigation.Restore(snapshot, Revision.FromUInt64(3)),
                 Is.EqualTo(NavigationRestoreStatus.Restored)
             );
             Assert.That(navigation.Status, Is.EqualTo(NavigationStatus.NeedsPlan));
@@ -432,7 +434,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
                 navigation.TryAcceptPath(old, Points(55)),
                 Is.EqualTo(NavigationPlanApplyStatus.Stale)
             );
-            var retry = navigation.BeginPlan(1, 3);
+            var retry = navigation.BeginPlan(1, Revision.FromUInt64(3));
             Assert.That(retry.RequestID, Is.GreaterThan(old.RequestID));
             Assert.That
             (
@@ -443,30 +445,30 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 복원 뒤에도 이미 발급한 Goal Revision을 다시 쓰지 않습니다.
+        /// 복원 뒤에도 이미 발급한 Goal Generation을 다시 쓰지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_Navigation_복원후GoalRevision재사용금지()
+        public void TEST_Navigation_복원후GoalGeneration재사용금지()
         {
             var navigation = new NavigationController<int>(actor);
             navigation.SetGoal(30);
             var snapshot = navigation.Capture();
             navigation.SetGoal(40);
-            var replaced = navigation.GoalRevision;
+            var replaced = navigation.GoalGeneration;
 
             Assert.That
             (
-                navigation.Restore(snapshot, 0),
+                navigation.Restore(snapshot, Revision.FromUInt64(1)),
                 Is.EqualTo(NavigationRestoreStatus.Restored)
             );
             Assert.That(navigation.Goal, Is.EqualTo(30));
-            Assert.That(navigation.GoalRevision, Is.GreaterThan(replaced));
+            Assert.IsTrue(navigation.GoalGeneration > replaced);
 
             // 복원 뒤의 새 목표도 복원 전 목표의 Revision과 겹치지 않는다.
-            var restored = navigation.GoalRevision;
+            var restored = navigation.GoalGeneration;
             navigation.SetGoal(50);
-            Assert.That(navigation.GoalRevision, Is.GreaterThan(restored));
+            Assert.IsTrue(navigation.GoalGeneration > restored);
         }
 
     #endregion
@@ -484,7 +486,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
             var navigation = new NavigationController<int>(actor);
             var planner = new PlannerFixture();
             navigation.SetGoal(15);
-            var request = navigation.BeginPlan(7, 4);
+            var request = navigation.BeginPlan(7, Revision.FromUInt64(4));
             planner.Request(request);
             Assert.That(planner.LastRequest.Goal, Is.EqualTo(15));
             Assert.That(planner.LastRequest.Start, Is.EqualTo(7));
@@ -504,10 +506,10 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
         public void TEST_Navigation_요청값검증()
         {
             var navigation = new NavigationController<int>(actor);
-            Assert.Throws<InvalidOperationException>(() => navigation.BeginPlan(0, 0));
+            Assert.Throws<InvalidOperationException>(() => navigation.BeginPlan(0, Revision.FromUInt64(1)));
             navigation.SetGoal(5);
-            Assert.Throws<ArgumentOutOfRangeException>(() => navigation.BeginPlan(0, -1));
-            Assert.Throws<ArgumentNullException>(() => navigation.Restore(null, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => navigation.BeginPlan(0, Revision.None));
+            Assert.Throws<ArgumentNullException>(() => navigation.Restore(null, Revision.FromUInt64(1)));
         }
 
         // ----------------------------------------------------------------------
@@ -527,7 +529,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Navigation
                 var motor = new Motor<MotorState2D>(actor, new RigidbodyMotorBackend2D(body));
                 var navigation = new NavigationController<Vector2>(actor);
                 navigation.SetGoal(new Vector2(3f, 0f));
-                var request = navigation.BeginPlan(Vector2.zero, 0);
+                var request = navigation.BeginPlan(Vector2.zero, Revision.FromUInt64(1));
                 navigation.TryAcceptPath(request, Points(new Vector2(3f, 0f)));
                 Assert.That(navigation.TryGetGuidance(out var guidance), Is.True);
 

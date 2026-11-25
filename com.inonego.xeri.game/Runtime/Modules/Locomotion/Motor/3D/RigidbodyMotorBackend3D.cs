@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : RigidbodyMotorBackend3D.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Unity Rigidbody의 현재 상태·Tick 합성 결과 적용과 선택적인 충돌 Probe 관측을 제공한다.
@@ -154,8 +154,8 @@ namespace inonego.Xeri.Game.Motor
         /// Probe의 비활성화로 변경된 관측 세대입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long ContactObservationRevision =>
-            collisionProbe != null ? collisionProbe.ObservationRevision : 0;
+        public Revision ContactObservationRevision =>
+            collisionProbe != null ? collisionProbe.ObservationRevision : Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>

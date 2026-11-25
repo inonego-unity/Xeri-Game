@@ -54,7 +54,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 저장은 Revision을 바꾸지 않고 변경 번호는 저장하지 않는다. 복원은 변경 1회로 센다.
             Assert.AreEqual(revision, state.Revision);
-            Assert.AreEqual(1UL, restored.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), restored.Revision);
             Assert.AreEqual("SavedSkill", restored.Key.Value);
             Assert.IsTrue(restored.Cooldown.IsRunning);
             Assert.AreEqual(3.5f, restored.Cooldown.RemainingTime, 0.0001f);
@@ -75,7 +75,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 복원한 상태의 Values 변경도 Revision에 반영한다.
             restored.Values.SetI("Stack", 4);
-            Assert.AreEqual(2UL, restored.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), restored.Revision);
         }
 
         // ----------------------------------------------------------------------
@@ -127,7 +127,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var revision = state.Revision;
             values.SetI("Stack", 2);
 
-            Assert.AreEqual(revision + 1UL, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
         }
 
         // ----------------------------------------------------------------------
@@ -147,7 +147,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             Assert.Throws<InvalidOperationException>(() => values.SetI("Stack", 1));
 
-            Assert.AreEqual(revision + 1UL, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
         }
 
         // ----------------------------------------------------------------------
@@ -214,7 +214,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             Restore(source, target);
 
-            Assert.AreEqual(revision + 1, target.Revision);
+            Assert.AreEqual(revision.Inc(), target.Revision);
             Assert.AreEqual(4.6f, target.Cooldown.RemainingTime, 0.0001f);
             Assert.AreEqual(0, target.Charge.Current);
             Assert.AreEqual(7, target.Values.GetI("Stack"));
@@ -238,14 +238,14 @@ namespace inonego.Xeri.Game.TEST._Ability
             var restored = target.Revision;
 
             target.Values.SetI("Stack", 9);
-            Assert.AreEqual(restored + 1, target.Revision);
+            Assert.AreEqual(restored.Inc(), target.Revision);
             Assert.AreEqual(7, source.Values.GetI("Stack"));
 
             // 두 번째 복원도 구독을 중복하지 않고 한 번만 센다.
             Restore(source, target);
             restored = target.Revision;
             target.Values.SetI("Stack", 10);
-            Assert.AreEqual(restored + 1, target.Revision);
+            Assert.AreEqual(restored.Inc(), target.Revision);
         }
 
         // --------------------------------------------------------------------------------
@@ -344,7 +344,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             target.CloneFrom(source);
 
             Assert.AreEqual(0, notifications);
-            Assert.AreEqual(revision + 1, target.Revision);
+            Assert.AreEqual(revision.Inc(), target.Revision);
             Assert.AreSame(values, target.Values);
             Assert.AreSame(charge, target.Charge);
             Assert.AreSame(cooldown, target.Cooldown);
@@ -354,7 +354,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             target.Values.SetI("Stage", 4);
 
             Assert.AreEqual(1, notifications);
-            Assert.AreEqual(revision + 2, target.Revision);
+            Assert.AreEqual(revision.Inc().Inc(), target.Revision);
         }
 
         // ------------------------------------------------------------
@@ -409,7 +409,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             }
 
             Assert.IsNull(target.Charge);
-            Assert.AreEqual(0UL, target.Revision);
+            Assert.AreEqual(Revision.None, target.Revision);
         }
 
         // ------------------------------------------------------------
@@ -430,7 +430,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             target.CloneFrom(spaced);
 
-            Assert.AreEqual(1UL, target.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), target.Revision);
             Assert.AreEqual(1, target.Charge.Current);
             Assert.AreEqual(2, target.Values.GetI("Stage"));
         }

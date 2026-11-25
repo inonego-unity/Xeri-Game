@@ -451,11 +451,11 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
     #region Snapshot 적용
 
-        private readonly Dictionary<(int Owner, AbilityKey Key), ulong> appliedRevisions = new();
+        private readonly Dictionary<(int Owner, AbilityKey Key), Revision> appliedRevisions = new();
         private readonly Dictionary<(int Owner, AbilityKey Key), int> appliedCounts = new();
         private readonly Dictionary<int, AbilityStateSet> replicas = new();
         private readonly Dictionary<int, StatusContainer<int>> statusReplicas = new();
-        private readonly Dictionary<int, ulong> appliedStatusRevisions = new();
+        private readonly Dictionary<int, Revision> appliedStatusRevisions = new();
         internal int SnapshotsApplied;
         internal int StatusSnapshotsApplied;
 

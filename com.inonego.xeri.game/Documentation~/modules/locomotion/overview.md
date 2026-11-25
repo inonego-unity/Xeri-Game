@@ -41,7 +41,7 @@ Navigation  목표/경로/Guidance → 사용처 Producer가 기본 의도로 �
 | [Motion](motion.md) | 채널별 MValue 접기와 Free 채널 규칙, 입력 검증과 세대 규칙, 항목 상태 조회, Owned Snapshot. Model과 분리된 Track 평가·차단 법선 제거 도구 | 효과의 의미와 Order 배치, 효과 수명·감쇠·Track 재생 시간, 입력 생성 정책, 스탯 계산, Body 적용, 네트워크 중복 제거 |
 | [Motor](motor.md) | 합성 결과의 Tick당 1회 적용, 현재 상태 읽기·적용, 선택적 과거 복원, Contact 관측 수명, Correction과 불연속 | Physics World Step 실행, Authority 검증, 게임별 이동 정책 |
 | Motor Adapter | 기존 GroundChecker 결과를 Physics 관측 수명에 연결 | 발판 속도 계산·적용, Grounded 상태 머신 |
-| [Navigation](navigation.md) | 목표·경로·Guidance, 요청 ID·World Revision·Path ID, Owned Snapshot | Planner·NavMesh, Steering, Body 제어 |
+| [Navigation](navigation.md) | 목표·경로·Guidance, 요청 ID·World Revision·Path Generation, Owned Snapshot | Planner·NavMesh, Steering, Body 제어 |
 | [Movement](movement.md) | `MovementState` 순수 계산, Step Sample | Animator 연결, Recorder, Event 확정 |
 | 사용처(Host·Adapter) | Producer, Physics Step, Feedback 구성, Authority·Network·History·보간, Animator·Presentation 연결 | — |
 
@@ -64,7 +64,7 @@ Motion의 채널 합성은 Core `MValue`를 그대로 씁니다. 접기 규칙·
 
 ### Actor와 입력 항목 식별
 
-- `MotionActorKey(ScopeID, ActorID, Generation)`는 로컬 실행 인스턴스와 Actor 수명을 구분합니다. Network Object ID가 아닙니다. Foundation의 `EntityHandle`과 일부러 분리했는데, `EntityHandle`은 살아 있는 Entity 참조라 Snapshot, 다른 실행 Scope(서버·클라이언트), 직렬화 값으로 쓸 수 없기 때문입니다. Host가 Actor를 만들 때 Key를 정합니다(예: `ScopeID` ← 실행 인스턴스, `ActorID` ← Entity Key, `Generation` ← 등록 Revision).
+- `MotionActorKey(ScopeID, ActorID, Generation)`는 로컬 실행 인스턴스와 Actor 수명을 구분합니다. Network Object ID가 아닙니다. Foundation의 `EntityHandle`과 일부러 분리했는데, `EntityHandle`은 살아 있는 Entity 참조라 Snapshot, 다른 실행 Scope(서버·클라이언트), 직렬화 값으로 쓸 수 없기 때문입니다. Host가 Actor를 만들 때 Key를 정합니다(예: `ScopeID` ← 실행 인스턴스, `ActorID` ← Entity Key, `Generation` ← `RegistrationGeneration`). `Generation`은 Core `Revision` 값이며 `None`은 무효이므로 1부터 발급합니다.
 - `MotionSourceKey(Key, Generation)`는 Actor 안의 Modifier 항목 키입니다. 키는 사용처가 정한 문자열(예: `"Dash"`)이며 그대로 채널 `MValue`의 Modifier 키가 됩니다. 같은 키에 더 큰 Generation이 오면 이전 항목을 대신하고, 작은 Generation은 `StaleGeneration`, 같으면 값과 수명을 갱신합니다(`Updated`). 끝난 항목의 세대는 기억하지 않으므로 늦게 도착한 네트워크 입력의 중복 제거는 Adapter가 맡습니다.
 
 ### Tick
@@ -85,7 +85,7 @@ Motor의 관측·History·Correction 수명을 바꾸거나 그 수명에 의존
 ### Restore와 수명 값
 
 - **시뮬레이션 상태**는 Snapshot 시점으로 되돌립니다. 예: Motion의 `LastTick`·Modifier 항목·채널 `MValue`·Free 채널에 이미 반영한 지속 ADD·SUB, Navigation의 Goal·Path·Waypoint·World Revision, Motor Body.
-- **발급 토큰**은 되돌리지 않고 새로 발급합니다. 예: Motion `StepVersion`, Navigation `GoalRevision`·Request ID·Path ID, Motor `PhysicsObservationVersion`·`DiscontinuityVersion`. 복원 전에 만든 결과나 Guidance가 복원 후의 상태를 바꾸지 못하게 하기 위해서입니다.
+- **발급 토큰**은 되돌리지 않고 새로 발급합니다. 예: Motion `StepGeneration`, Navigation `GoalGeneration`·Request ID·Path Generation, Motor `PhysicsObservationGeneration`·`DiscontinuityRevision`. 복원 전에 만든 결과나 Guidance가 복원 후의 상태를 바꾸지 못하게 하기 위해서입니다. 이 번호들은 모두 Core `Revision` 타입이며 `None`은 "아직 발급하지 않음"입니다. Motor `PhysicsObservationGeneration`은 `None`이 관측 없음을 뜻하므로 1부터 발급합니다.
 - Motor `HistoryGeneration`은 `ApplyCurrentState`에서만 올라갑니다. `RestoreHistorical`은 같은 History 안의 이동입니다.
 - 각 Restore는 자기 Owned State만 다룹니다. 여러 모듈을 함께 되돌리는 Aggregate Restore는 Host가 맡습니다.
 

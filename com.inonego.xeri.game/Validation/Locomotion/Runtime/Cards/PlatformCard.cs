@@ -136,7 +136,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
         {
             var values = MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 7f, 0f));
 
-            Primary.Buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey("Jump", Primary.Model.LastTick + 2), 100, values));
+            Primary.Buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey("Jump", Revision.FromUInt64((ulong)(Primary.Model.LastTick + 2))), 100, values));
         }
 
     #endregion

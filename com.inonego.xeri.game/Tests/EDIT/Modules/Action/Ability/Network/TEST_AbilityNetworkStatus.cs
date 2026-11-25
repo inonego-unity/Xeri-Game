@@ -83,7 +83,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             host.Replication.Replicate();
             Assert.AreEqual(2, observer.CountStatus(1));
             var revision = serverKit.Statuses.Revision;
-            Assert.AreEqual(revision, observer.StatusLastSent[1].Revision);
+            Assert.IsTrue(observer.StatusLastSent[1].Mark.IsCurrent);
 
             // 시간 만료는 Revision을 바꾸지 않으므로 보내지 않는다.
             host.Advance(0.3f);
@@ -129,7 +129,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(1, kit.Statuses.CountStacks(burn));
             Assert.AreEqual(StatusRemaining(serverKit.Statuses), StatusRemaining(kit.Statuses), 1e-4f);
             Assert.AreEqual(0, changes);
-            Assert.Greater(kit.Statuses.Revision, revision);
+            Assert.IsTrue(kit.Statuses.Revision > revision);
         }
 
         // ----------------------------------------------------------------------

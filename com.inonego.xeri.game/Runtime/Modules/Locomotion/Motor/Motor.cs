@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : Motor.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Body의 Tick 합성 결과 적용·현재 상태 교정·선택적 과거 복원·Physics 관측 수명을 연결한다.
@@ -73,13 +73,13 @@ namespace inonego.Xeri.Game.Motor
         private readonly IMotorHistoricalBackend<TState> historical;
         private readonly IMotorContactLifecycle contactLifecycle;
         private readonly IMotorContactObservationRevision contactRevision;
-        private long historyGeneration = 1;
+        private Revision historyGeneration = Revision.None.Inc();
         private bool operationInProgress;
         private bool physicsStepStarted;
         private bool frameApplied;
         private bool contactsObserved;
         private bool contactStepSupported;
-        private long contactObservationRevision;
+        private Revision contactObservationRevision;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -106,19 +106,20 @@ namespace inonego.Xeri.Game.Motor
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 같은 Step Index 재사용 시에도 관측 수명을 구분합니다.
+        /// <br/> 같은 Step Index 재사용 시에도 관측 수명을 구분합니다.
+        /// <br/> None은 관측 없음 표식이라 첫 번호는 1입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long PhysicsObservationVersion => physicsObservationVersion;
-        private long physicsObservationVersion;
+        public Revision PhysicsObservationGeneration => physicsObservationGeneration;
+        private Revision physicsObservationGeneration = Revision.None.Inc();
 
         // ------------------------------------------------------------
         /// <summary>
         /// 마지막으로 발생한 상태 불연속의 누적 번호입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long DiscontinuityVersion => discontinuityVersion;
-        private long discontinuityVersion;
+        public Revision DiscontinuityRevision => discontinuityRevision;
+        private Revision discontinuityRevision = Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -142,7 +143,7 @@ namespace inonego.Xeri.Game.Motor
             IMotorBackend<TState> backend
         )
         {
-            if (actor.ScopeID <= 0 || actor.ActorID <= 0 || actor.Generation <= 0)
+            if (actor.ScopeID <= 0 || actor.ActorID <= 0 || actor.Generation.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(actor));
             }
@@ -210,7 +211,7 @@ namespace inonego.Xeri.Game.Motor
                 backend.ApplyCurrentState(state);
 
                 // Body가 바뀐 뒤에는 과거 Snapshot과 이전 관측을 다시 쓰지 못하게 먼저 확정한다.
-                historyGeneration = checked(historyGeneration + 1);
+                historyGeneration = historyGeneration.Inc();
                 ResetObservation();
                 MarkDiscontinuity(MotorDiscontinuityKind.CurrentStateApply);
                 ClearBackendContacts();
@@ -337,8 +338,8 @@ namespace inonego.Xeri.Game.Motor
             contactsObserved && !physicsStepStarted &&
             ReadContactObservationRevision() == contactObservationRevision;
 
-        private long ReadContactObservationRevision() =>
-            contactRevision != null ? contactRevision.ContactObservationRevision : 0;
+        private Revision ReadContactObservationRevision() =>
+            contactRevision != null ? contactRevision.ContactObservationRevision : Revision.None;
 
     #endregion
 
@@ -437,7 +438,7 @@ namespace inonego.Xeri.Game.Motor
             contactStepSupported = false;
             physicsStepStarted = false;
             observedPhysicsStep = -1;
-            physicsObservationVersion = checked(physicsObservationVersion + 1);
+            physicsObservationGeneration = physicsObservationGeneration.Inc();
         }
 
         private void ClearBackendContacts()
@@ -450,7 +451,7 @@ namespace inonego.Xeri.Game.Motor
 
         private void MarkDiscontinuity(MotorDiscontinuityKind kind)
         {
-            discontinuityVersion = checked(discontinuityVersion + 1);
+            discontinuityRevision = discontinuityRevision.Inc();
             LastDiscontinuity = kind;
         }
 

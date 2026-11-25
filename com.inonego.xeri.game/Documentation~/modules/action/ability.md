@@ -86,7 +86,7 @@ bool cooldownStarted = state.TryBeginCooldown(1.5f);
 - 복원(`CloneFrom`, 직렬화 복원)
 - 비용 환급
 
-시간 진행(Cooldown 종료·재충전 완료를 포함한 `Advance`)으로는 증가하지 않습니다. 복제와 현재성 검사는 `Revision`을 비교해 "시간 외의 변경이 있었는가"를 판별합니다. `Revision`은 직렬화하지 않는 State 인스턴스별 번호이므로 같은 인스턴스 안에서만 비교하며, 권한이 바뀐 뒤처럼 다른 State 인스턴스의 번호와는 비교하지 않습니다. `AbilityBindings.Revision`은 Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하며 같은 역할을 합니다.
+시간 진행(Cooldown 종료·재충전 완료를 포함한 `Advance`)으로는 증가하지 않습니다. 복제와 현재성 검사는 `Revision`을 비교해 "시간 외의 변경이 있었는가"를 판별합니다. `Revision`은 Core의 `Revision` 타입(0은 `None`, 발급은 1부터)이고 `AbilityState`·`AbilityBindings`·`StatusContainer`는 `IRevisioned`로 이 번호를 내보냅니다. 직렬화하지 않는 State 인스턴스별 번호이므로 같은 인스턴스 안에서만 비교하며, 권한이 바뀐 뒤처럼 다른 State 인스턴스의 번호와는 비교하지 않습니다. 캡처해 둔 선택이 아직 현재인지는 `RevisionMark`로 확인합니다. `AbilityBindings.Revision`은 Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하며 같은 역할을 합니다.
 
 ### 저장과 복원
 

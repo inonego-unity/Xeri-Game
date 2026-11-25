@@ -366,6 +366,37 @@ namespace inonego.Xeri.Game.TEST._Status
 
         // --------------------------------------------------------------------------------
         /// <summary>
+        /// <br/> GetStackTimer가 스택별 시간과 공유 시간 Status 모두에서
+        /// <br/> 범위 밖 인덱스를 ArgumentOutOfRangeException으로 거절하는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_GetStackTimer는범위밖인덱스를거절()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var shared = CreateSpec("Brand", 2, 5f, StatusStacking.SharedRenew);
+            var independent = CreateSpec("Echo", 2, 5f, StatusStacking.Independent);
+
+            container.Apply(shared, originA);
+            container.Apply(independent, originA);
+
+            Assert.IsTrue(container.TryGet(shared.Key, originA, out var sharedStatus));
+            Assert.IsTrue(container.TryGet(independent.Key, originA, out var independentStatus));
+
+            AssertRejectsOutOfRange(sharedStatus);
+            AssertRejectsOutOfRange(independentStatus);
+        }
+
+        // 유효하지 않은 인덱스(음수, 스택 수 이상)는 거절하고 유효한 인덱스는 시간을 돌려준다.
+        private static void AssertRejectsOutOfRange(IReadOnlyStatus<TestOrigin> status)
+        {
+            Assert.IsNotNull(status.GetStackTimer(0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => status.GetStackTimer(-1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => status.GetStackTimer(status.Stacks));
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
         /// <br/> Apply 결과가 처리 종류와 함께 늘어난 스택 수, 최대치 처리로 밀려난 스택 수,
         /// <br/> 거절 여부를 담는지 검증한다.
         /// </summary>
@@ -799,25 +830,25 @@ namespace inonego.Xeri.Game.TEST._Status
             var spec = CreateSpec("Mark", 1, 1f, StatusStacking.Independent);
 
             container.Clear();
-            Assert.AreEqual(0UL, container.Revision);
+            Assert.AreEqual(Revision.None, container.Revision);
 
             container.Apply(spec, originA);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             container.Apply(spec, originA);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             Assert.IsFalse(container.Remove(spec.Key, originB));
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             // 시간 만료는 시간에서 결정되므로 변경 번호를 바꾸지 않는다.
             container.Advance(1f);
             Assert.AreEqual(0, container.Statuses.Count);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             container.Apply(spec, originA);
             container.Consume(spec.Key, 1);
-            Assert.AreEqual(3UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), container.Revision);
         }
 
     #endregion
@@ -847,7 +878,7 @@ namespace inonego.Xeri.Game.TEST._Status
             target.CloneFrom(source);
 
             Assert.AreEqual(0, targetChanges.Count);
-            Assert.AreEqual(revision + 1, target.Revision);
+            Assert.AreEqual(revision.Inc(), target.Revision);
             Assert.AreEqual(3, target.CountStacks(spec.Key));
 
             var sourceChanges = Record(source);
@@ -916,7 +947,7 @@ namespace inonego.Xeri.Game.TEST._Status
 
             var restored = JsonUtility.FromJson<Holder>(JsonUtility.ToJson(holder)).Statuses;
 
-            Assert.Greater(restored.Revision, 0UL);
+            Assert.IsFalse(restored.Revision.IsNone);
             Assert.AreEqual(3, restored.Statuses.Count);
             Assert.AreEqual(mark, restored.Statuses[0].Spec);
             Assert.AreNotSame(mark, restored.Statuses[0].Spec);

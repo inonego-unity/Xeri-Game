@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityUseSelection.cs
-수정일 : 2026-11-23
+수정일 : 2026-11-25
 
 # 설명
 사용 출처(Origin)·사용(Use)·시작 대리자와, 규칙으로 사용 후보(Choice)를 고르는 Selector·Selection을 제공한다.
@@ -241,8 +241,8 @@ namespace inonego.Xeri.Game
             }
 
             var payload = ConvertPayload(context.Payload);
-            var bindingsRevision = bindings.Revision;
-            var stateRevision = context.Ability.State.Revision;
+            var bindingsMark = RevisionMark.Capture(bindings);
+            var stateMark = RevisionMark.Capture(context.Ability.State);
 
             foreach (var rule in rules)
             {
@@ -251,7 +251,7 @@ namespace inonego.Xeri.Game
                 {
                     selection = new AbilityUseSelection<TSpec, TExecution>
                     (
-                        bindings, context, choice, bindingsRevision, stateRevision
+                        bindings, context, choice, bindingsMark, stateMark
                     );
                     reason = string.Empty;
                     return true;
@@ -320,8 +320,8 @@ namespace inonego.Xeri.Game
         private readonly AbilityUseChoice<TSpec, TExecution> choice;
         private readonly AbilityBindings<TSpec> bindings;
         private readonly AbilityInstance<TSpec> instance;
-        private readonly ulong bindingsRevision;
-        private readonly ulong stateRevision;
+        private readonly RevisionMark bindingsMark;
+        private readonly RevisionMark stateMark;
         private bool attempted;
 
         // ------------------------------------------------------------
@@ -334,16 +334,16 @@ namespace inonego.Xeri.Game
             AbilityBindings<TSpec> bindings,
             in AbilityActivationContext<TSpec> context,
             AbilityUseChoice<TSpec, TExecution> choice,
-            ulong bindingsRevision,
-            ulong stateRevision
+            RevisionMark bindingsMark,
+            RevisionMark stateMark
         )
         {
             Context = context;
             this.choice = choice;
             this.bindings = bindings;
             instance = context.Ability;
-            this.bindingsRevision = bindingsRevision;
-            this.stateRevision = stateRevision;
+            this.bindingsMark = bindingsMark;
+            this.stateMark = stateMark;
         }
 
     #endregion
@@ -468,8 +468,8 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         private bool IsCurrent()
         {
-            return bindings.Revision == bindingsRevision
-                && instance.State.Revision == stateRevision
+            return bindingsMark.IsCurrent
+                && stateMark.IsCurrent
                 && (choice.IsCurrent == null || choice.IsCurrent());
         }
 

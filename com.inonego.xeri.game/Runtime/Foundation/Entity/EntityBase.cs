@@ -131,15 +131,22 @@ namespace inonego.Xeri.Game
         [NonSerialized]
         protected SpawnState spawnState = SpawnState.Despawned;
 
-        // ----------------------------------------------------------------------
+        // ------------------------------------------------------------
         /// <summary>
-        /// 동일 Entity 인스턴스의 등록 수명이 바뀔 때마다 증가하는 로컬 Revision.
+        /// 동일 Entity 인스턴스의 등록 수명이 바뀔 때마다 증가하는 로컬 번호.
         /// </summary>
-        // ----------------------------------------------------------------------
-        public ulong RegistrationRevision => registrationRevision;
+        // ------------------------------------------------------------
+        public Revision RegistrationGeneration => registrationGeneration;
 
         [NonSerialized]
-        private ulong registrationRevision = 0;
+        private Revision registrationGeneration = Revision.None;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 등록 수명 번호를 IRevisioned의 주된 축으로 내보낸다.
+        /// </summary>
+        // ------------------------------------------------------------
+        Revision IRevisioned.Revision => registrationGeneration;
 
     #endregion
 
@@ -172,7 +179,7 @@ namespace inonego.Xeri.Game
                 if (value == SpawnState.Spawned && spawnState != SpawnState.Spawned)
                 {
                     // Spawned 진입 시 새 수명을 발급한다. 이후 rollback돼도 되돌리지 않는다.
-                    registrationRevision = checked(registrationRevision + 1);
+                    registrationGeneration = registrationGeneration.Inc();
                 }
 
                 spawnState = value;

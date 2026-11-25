@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotorCollisionProbe3D.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Unity 3D 충돌 콜백으로 전달되는 실제 접촉 지점을 재사용 Buffer에 보관한다.
@@ -36,8 +36,8 @@ namespace inonego.Xeri.Game.Motor
 
         private readonly ContactPoint[] contacts = new ContactPoint[MAX_CONTACTS];
         private readonly ContactPoint[] incoming = new ContactPoint[MAX_CONTACTS];
-        internal long ObservationRevision => observationRevision;
-        private long observationRevision;
+        internal Revision ObservationRevision => observationRevision;
+        private Revision observationRevision = Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -84,7 +84,7 @@ namespace inonego.Xeri.Game.Motor
         private void OnDisable()
         {
             // 비활성 구간에는 관측하지 않았으므로 이전 Step의 표본을 무효화한다.
-            observationRevision = unchecked(observationRevision + 1);
+            observationRevision = observationRevision.Inc();
             Clear();
         }
 

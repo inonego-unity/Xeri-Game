@@ -70,7 +70,7 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
             var value = new Vector3(0f, 6f * Mathf.Exp(-decay * DELTA * tick), 0f);
             var knockback = MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Knockback", 1), 20, NumericFOperation.ADD, new MotionChannelValues(MotionChannel.Planar, value)
+                new MotionSourceKey("Knockback", Revision.FromUInt64(1)), 20, NumericFOperation.ADD, new MotionChannelValues(MotionChannel.Planar, value)
             );
             var commands = new MotionModifierCommand[others.Length + 1];
 
@@ -103,7 +103,7 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
                 body.gravityScale = 1f;
                 actorObject.AddComponent<CircleCollider2D>().radius = 0.5f;
 
-                var actor = new MotionActorKey(41, 1, 1);
+                var actor = new MotionActorKey(41, 1, Revision.FromUInt64(1));
                 var model = new MotionModel(actor, MotionModel.WorldUp);
                 var motor = new Motor<MotorState2D>(actor, new RigidbodyMotorBackend2D(body));
                 var walk = new[]
@@ -157,7 +157,7 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
                 body.gravityScale = 0f;
                 body.linearDamping = 0f;
 
-                var actor = new MotionActorKey(42, 1, 1);
+                var actor = new MotionActorKey(42, 1, Revision.FromUInt64(1));
                 var model = new MotionModel(actor, MotionModel.TopDown2DUp);
                 var motor = new Motor<MotorState2D>(actor, new RigidbodyMotorBackend2D(body));
                 var walkOnly = new[]
@@ -177,7 +177,7 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
                 Assert.That(knocked.y, Is.EqualTo(6f * Mathf.Exp(-decay * DELTA * 4f)).Within(0.02f));
 
                 // 넉백보다 앞 Order의 대시에는 넉백이 더해지고, 끝나면 걷기로 돌아온다.
-                var dashKey = new MotionSourceKey("Dash", 1);
+                var dashKey = new MotionSourceKey("Dash", Revision.FromUInt64(1));
                 var dash = MotionModifierCommand.Apply
                 (
                     dashKey, 10, NumericFOperation.SET, new MotionChannelValues(MotionChannel.Planar, new Vector3(9f, 0f, 0f))
@@ -252,7 +252,7 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
                 sphere.sharedMaterial = frictionless;
                 var probe = actorObject.AddComponent<MotorCollisionProbe3D>();
 
-                var actor = new MotionActorKey(43, 1, 1);
+                var actor = new MotionActorKey(43, 1, Revision.FromUInt64(1));
                 var model = new MotionModel(actor, Vector3.up);
                 var motor = new Motor<MotorState3D>(actor, new RigidbodyMotorBackend3D(body, probe));
                 var reader = new MotorContactReader<MotorState3D, ContactPoint>(motor);
@@ -263,13 +263,13 @@ namespace inonego.Xeri.Game.TEST.Movement._Scenario
                 };
                 var stun = MotionModifierCommand.Apply
                 (
-                    new MotionSourceKey("Stun", 1), 50, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.All, 0f)
+                    new MotionSourceKey("Stun", Revision.FromUInt64(1)), 50, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.All, 0f)
                 );
                 var knockback = new Vector3(5f, 0f, 2f);
 
                 MotionModifierCommand Push(Vector3 value) => MotionModifierCommand.Apply
                 (
-                    new MotionSourceKey("Knockback", 1), 60, NumericFOperation.ADD, new MotionChannelValues(MotionChannel.Planar, value)
+                    new MotionSourceKey("Knockback", Revision.FromUInt64(1)), 60, NumericFOperation.ADD, new MotionChannelValues(MotionChannel.Planar, value)
                 );
 
                 var feedback = MotionFeedback.None;

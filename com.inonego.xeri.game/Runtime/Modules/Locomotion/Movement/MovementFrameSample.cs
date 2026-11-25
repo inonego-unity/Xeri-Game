@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MovementFrameSample.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 한 Tick의 합성 결과·Body 현재 상태·이동 상태를 읽기 전용 Step Sample 값으로 묶는다.
@@ -87,7 +87,7 @@ namespace inonego.Xeri.Game.Movement
         /// 캡처 당시 Motor 불연속 번호입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long DiscontinuityVersion { get; }
+        public Revision DiscontinuityRevision { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -99,13 +99,13 @@ namespace inonego.Xeri.Game.Movement
         private MovementFrameSample
         (
             MovementSampleConfirmation confirmation, in MotionFrame frame,
-            in TState currentState, long discontinuityVersion, in MovementState state
+            in TState currentState, Revision discontinuityRevision, in MovementState state
         )
         {
             Confirmation = confirmation;
             Frame = frame;
             CurrentState = currentState;
-            DiscontinuityVersion = discontinuityVersion;
+            DiscontinuityRevision = discontinuityRevision;
             State = state;
         }
 
@@ -122,7 +122,7 @@ namespace inonego.Xeri.Game.Movement
         public MovementFrameSample<TState> WithConfirmation(MovementSampleConfirmation confirmation)
         {
             ValidateConfirmation(confirmation);
-            return new MovementFrameSample<TState>(confirmation, Frame, CurrentState, DiscontinuityVersion, State);
+            return new MovementFrameSample<TState>(confirmation, Frame, CurrentState, DiscontinuityRevision, State);
         }
 
         private static void ValidateConfirmation(MovementSampleConfirmation confirmation)
@@ -176,7 +176,7 @@ namespace inonego.Xeri.Game.Movement
 
                 // Model은 작업 구간 밖이므로 Body 조회가 끝난 뒤 Motion·Motor 수명을 한 번에 검증한다.
                 if (!frame.Actor.Equals(model.Actor) ||
-                    frame.Tick.Index != model.LastTick || frame.StepVersion != model.StepVersion)
+                    frame.Tick.Index != model.LastTick || frame.StepGeneration != model.StepGeneration)
                 {
                     throw new InvalidOperationException("Model의 마지막 Step 결과만 캡처할 수 있습니다.");
                 }
@@ -197,7 +197,7 @@ namespace inonego.Xeri.Game.Movement
                     motor.LastDiscontinuity
                 );
 
-                return new MovementFrameSample<TState>(confirmation, frame, state, motor.DiscontinuityVersion, movement);
+                return new MovementFrameSample<TState>(confirmation, frame, state, motor.DiscontinuityRevision, movement);
             }
             finally
             {

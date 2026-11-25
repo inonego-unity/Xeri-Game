@@ -63,7 +63,7 @@ statuses.Advance(deltaTime);                        // Ability State와 같은 T
 
 ## Revision·복제·저장
 
-- `Revision`은 적용·소비·제거 같은 이산 변경마다 오릅니다. 시간 만료는 시간에서 결정되므로 올리지 않습니다.
+- `Revision`(Core `Revision` 타입, `IRevisioned`)은 적용·소비·제거 같은 이산 변경마다 오릅니다. 시간 만료는 시간에서 결정되므로 올리지 않습니다.
 - `CloneFrom`은 컨테이너 인스턴스와 `OnChanged` 구독을 유지한 채 알림 없이 복제합니다. Status 항목은 새로 만들므로 복제 전에 읽어 둔 `IReadOnlyStatus`는 낡은 값이 됩니다. 항목 복제가 실패하면 컨테이너는 바뀌지 않습니다.
 - Unity 직렬화는 Spec 복사본, 출처, 남은 시간, 적용 순번을 보존하고 복원 뒤 `Revision`을 올립니다.
 

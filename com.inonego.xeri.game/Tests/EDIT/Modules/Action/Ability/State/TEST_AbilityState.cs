@@ -171,7 +171,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.IsTrue(state.IsCooldownReady);
             Assert.IsFalse(state.Cooldown.IsRunning);
             Assert.IsFalse(state.Cooldown.IsPaused);
-            Assert.AreEqual(revision + 1UL, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
         }
 
         // ------------------------------------------------------------
@@ -185,7 +185,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var state = new AbilityState(new AbilityKey("Skill"));
             Assert.IsFalse(state.PauseCooldown());
             Assert.IsFalse(state.ResumeCooldown());
-            Assert.AreEqual(0UL, state.Revision);
+            Assert.AreEqual(Revision.None, state.Revision);
 
             Assert.IsTrue(state.TryBeginCooldown(5f));
             state.Advance(1f);
@@ -347,51 +347,51 @@ namespace inonego.Xeri.Game.TEST._Ability
         public void TEST_AbilityState_실제변경마다Revision이한번씩증가()
         {
             var state = new AbilityState(new AbilityKey("Skill"));
-            Assert.AreEqual(0UL, state.Revision);
+            Assert.AreEqual(Revision.None, state.Revision);
 
             Assert.IsTrue(state.TryBeginCooldown(5f));
-            Assert.AreEqual(1UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), state.Revision);
             Assert.IsFalse(state.TryBeginCooldown(5f));
-            Assert.AreEqual(1UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), state.Revision);
 
             Assert.IsTrue(state.ReduceCooldown(1f));
-            Assert.AreEqual(2UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), state.Revision);
             Assert.IsFalse(state.ReduceCooldown(0f));
-            Assert.AreEqual(2UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), state.Revision);
 
             // float 정밀도보다 작은 감소량은 남은 시간을 바꾸지 않으므로 변경으로 세지 않는다.
             Assert.IsFalse(state.ReduceCooldown(1e-8f));
-            Assert.AreEqual(2UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), state.Revision);
 
             Assert.IsTrue(state.PauseCooldown());
-            Assert.AreEqual(3UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), state.Revision);
             Assert.IsFalse(state.PauseCooldown());
             Assert.IsTrue(state.ResumeCooldown());
-            Assert.AreEqual(4UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(4), state.Revision);
             Assert.IsFalse(state.ResumeCooldown());
 
             Assert.IsTrue(state.ResetCooldown());
-            Assert.AreEqual(5UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), state.Revision);
             Assert.IsFalse(state.ResetCooldown());
-            Assert.AreEqual(5UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), state.Revision);
 
             // 지속시간 0은 시작할 상태가 없으므로 성공해도 변경이 아니다.
             Assert.IsTrue(state.TryBeginCooldown(0f));
-            Assert.AreEqual(5UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), state.Revision);
 
             state.ConfigureCharge(2, 1f);
-            Assert.AreEqual(6UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(6), state.Revision);
             Assert.IsTrue(state.TryConsumeCharge(1));
-            Assert.AreEqual(7UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(7), state.Revision);
             Assert.IsFalse(state.TryConsumeCharge(2));
-            Assert.AreEqual(7UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(7), state.Revision);
             Assert.AreEqual(1, state.AddCharge(1));
-            Assert.AreEqual(8UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(8), state.Revision);
             Assert.AreEqual(0, state.AddCharge(1));
-            Assert.AreEqual(8UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(8), state.Revision);
 
             state.ConfigureCharge(3, 1f);
-            Assert.AreEqual(9UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(9), state.Revision);
         }
 
         // ------------------------------------------------------------
@@ -410,19 +410,19 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreSame(first, second);
 
             first.SetI("Stack", 1);
-            Assert.AreEqual(1UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), state.Revision);
             second.SetI("Stack", 1);
-            Assert.AreEqual(1UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), state.Revision);
             state.Values.SetS("Label", "saved");
-            Assert.AreEqual(2UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), state.Revision);
             Assert.IsTrue(state.Values.Remove("Stack"));
-            Assert.AreEqual(3UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), state.Revision);
             Assert.IsFalse(state.Values.Remove("Stack"));
-            Assert.AreEqual(3UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), state.Revision);
             state.Values.Clear();
-            Assert.AreEqual(4UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(4), state.Revision);
             state.Values.Clear();
-            Assert.AreEqual(4UL, state.Revision);
+            Assert.AreEqual(Revision.FromUInt64(4), state.Revision);
         }
 
         // ----------------------------------------------------------------------
@@ -452,7 +452,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(revision, state.Revision);
 
             Assert.IsTrue(state.TryConsumeCharge(1));
-            Assert.AreEqual(revision + 1, state.Revision);
+            Assert.AreEqual(revision.Inc(), state.Revision);
 
             // 같은 Tick의 소비와 복원은 결과 수량이 같아도 각각 이산 변경이다.
             state.Advance(0.2f);
@@ -463,7 +463,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.IsTrue(state.TryConsumeCharge(1));
             Assert.AreEqual(1, state.AddCharge(1));
 
-            Assert.AreEqual(revision + 2, state.Revision);
+            Assert.AreEqual(revision.Inc().Inc(), state.Revision);
             Assert.AreEqual(current, state.Charge.Current);
             Assert.AreEqual(remaining, state.Charge.Recharge.RemainingTime, 0.0001f);
         }

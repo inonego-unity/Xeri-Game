@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : IMotorContactBackend.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Backend가 제공하는 실제 접촉 읽기와 접촉 표본의 수명(Lifecycle, 관측 세대) 계약을 정의한다.
@@ -79,6 +79,6 @@ namespace inonego.Xeri.Game.Motor
         /// 현재 센서 관측 수명을 구분하는 단조 증가 값입니다.
         /// </summary>
         // ------------------------------------------------------------
-        long ContactObservationRevision { get; }
+        Revision ContactObservationRevision { get; }
     }
 }

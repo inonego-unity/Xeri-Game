@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotorGroundSupport.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 기존 IGroundChecker의 접지와 지면 지점 속도를 Motor Physics 관측 수명에 연결한다.
@@ -121,8 +121,8 @@ namespace inonego.Xeri.Game.Motor.Adapter
         private readonly IGroundChecker checker;
         private MotorSupportObservation observation;
         private GameObject observationCheckerObject;
-        private long observationVersion = -1;
-        private long invalidatedCheckerVersion = -1;
+        private Revision observationGeneration = Revision.None;
+        private Revision invalidatedCheckerGeneration = Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -197,30 +197,30 @@ namespace inonego.Xeri.Game.Motor.Adapter
         {
             if (motor.ObservedPhysicsStep != step)
             {
-                observationVersion = -1;
+                observationGeneration = Revision.None;
                 return false;
             }
 
-            var version = motor.PhysicsObservationVersion;
+            var version = motor.PhysicsObservationGeneration;
 
             // Owner가 달라진 관측 세대는 같은 객체로 돌아와도 재사용하지 않는다.
-            if (invalidatedCheckerVersion == version)
+            if (invalidatedCheckerGeneration == version)
             {
                 return false;
             }
 
-            if (observationVersion == version && observation.Step == step)
+            if (observationGeneration == version && observation.Step == step)
             {
                 if (!IsObservedCheckerCurrent())
                 {
-                    invalidatedCheckerVersion = version;
+                    invalidatedCheckerGeneration = version;
                     return false;
                 }
 
                 return observation.WorldPoint == worldPoint;
             }
 
-            observationVersion = -1;
+            observationGeneration = Revision.None;
             var checkerObject = ReadCheckerOwner();
             var hasChecker = checkerObject != null;
             var onGround = false;
@@ -240,7 +240,7 @@ namespace inonego.Xeri.Game.Motor.Adapter
             // Checker 실행 중 Owner가 파괴·교체됐다면 이 Physics 세대의 표본을 확정하지 않는다.
             if (!IsCheckerOwner(checkerObject))
             {
-                invalidatedCheckerVersion = version;
+                invalidatedCheckerGeneration = version;
                 return false;
             }
 
@@ -250,7 +250,7 @@ namespace inonego.Xeri.Game.Motor.Adapter
                 onGround, worldPoint, pointVelocity
             );
             observationCheckerObject = checkerObject;
-            observationVersion = version;
+            observationGeneration = version;
             return true;
         }
 
@@ -264,10 +264,10 @@ namespace inonego.Xeri.Game.Motor.Adapter
         {
             sample = default;
 
-            if (observationVersion < 0 ||
-                observationVersion != motor.PhysicsObservationVersion ||
+            if (observationGeneration.IsNone ||
+                observationGeneration != motor.PhysicsObservationGeneration ||
                 motor.ObservedPhysicsStep != observation.Step ||
-                invalidatedCheckerVersion == observationVersion)
+                invalidatedCheckerGeneration == observationGeneration)
             {
                 return false;
             }
@@ -279,7 +279,7 @@ namespace inonego.Xeri.Game.Motor.Adapter
             {
                 if (!IsObservedCheckerCurrent())
                 {
-                    invalidatedCheckerVersion = observationVersion;
+                    invalidatedCheckerGeneration = observationGeneration;
                     return false;
                 }
             }

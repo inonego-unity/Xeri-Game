@@ -140,7 +140,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
         {
             var values = MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, velocity);
 
-            Primary.Buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey(key, ++impulseGeneration), 100, values));
+            Primary.Buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey(key, Revision.FromUInt64((ulong)++impulseGeneration)), 100, values));
             pendingImpulse += velocity;
         }
 

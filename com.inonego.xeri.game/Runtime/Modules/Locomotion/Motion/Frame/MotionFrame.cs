@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotionFrame.cs
-수정일 : 2026-11-22
+수정일 : 2026-11-25
 
 # 설명
 Motion Model이 한 Tick에 합성한 결과(MotionFrame)와 채널 적용 방식(MotionChannelMode)을 정의한다.
@@ -58,7 +58,7 @@ namespace inonego.Xeri.Game.Motion
         /// 결과를 만든 Model의 실행 버전. 이전 결과를 구분한다.
         /// </summary>
         // ------------------------------------------------------------
-        public long StepVersion { get; }
+        public Revision StepGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -141,7 +141,7 @@ namespace inonego.Xeri.Game.Motion
         // ------------------------------------------------------------
         public MotionFrame
         (
-            MotionActorKey actor, MotionTick tick, long stepVersion, Vector3 up,
+            MotionActorKey actor, MotionTick tick, Revision stepGeneration, Vector3 up,
             MotionChannelMode planarMode, Vector3 planar,
             MotionChannelMode elevationMode, float elevation,
             MotionChannelMode rotationMode, Vector3 rotation,
@@ -150,7 +150,7 @@ namespace inonego.Xeri.Game.Motion
         {
             Actor = actor;
             Tick = tick;
-            StepVersion = stepVersion;
+            StepGeneration = stepGeneration;
             Up = up;
             PlanarMode = planarMode;
             Planar = planar;

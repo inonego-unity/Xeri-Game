@@ -99,10 +99,10 @@ namespace inonego.Xeri.Game.Validation.Locomotion
             MotionChannel channels = MotionChannel.Planar, float x = 1f
         ) => MotionModifierCommand.Apply
         (
-            new MotionSourceKey(key, generation), order, operation, MotionChannelValues.Linear(channels, new Vector3(x, 0f, 0f))
+            new MotionSourceKey(key, Revision.FromUInt64((ulong)generation)), order, operation, MotionChannelValues.Linear(channels, new Vector3(x, 0f, 0f))
         );
 
-        private static MotionSourceKey Key(string key, long generation) => new MotionSourceKey(key, generation);
+        private static MotionSourceKey Key(string key, long generation) => new MotionSourceKey(key, Revision.FromUInt64((ulong)generation));
 
         private void AddCase(string name, string expected, System.Func<List<Step>> build)
         {

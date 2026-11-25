@@ -51,7 +51,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
 
         private const double DELTA = 0.1d;
 
-        private static readonly MotionActorKey actor = new(1, 1, 1);
+        private static readonly MotionActorKey actor = new(1, 1, Revision.FromUInt64(1));
 
         private static readonly MotionIntent[] walk =
         {
@@ -84,7 +84,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             Assert.That((expected - actual).magnitude, Is.LessThan(tolerance), $"expected {expected} but was {actual}");
         }
 
-        private static MotionSourceKey Key(string key, long generation = 1) => new(key, generation);
+        private static MotionSourceKey Key(string key, long generation = 1) => new(key, Revision.FromUInt64((ulong)generation));
 
         private static MotionChannelValues Planar(Vector3 value) => new(MotionChannel.Planar, value);
 
@@ -698,14 +698,14 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             AssertVector(Vector3.right, model.Up);
 
             // 잘못된 Up은 상태를 바꾸기 전에 거절한다.
-            var version = model.StepVersion;
+            var version = model.StepGeneration;
 
             Assert.Throws<ArgumentOutOfRangeException>
             (
                 () => model.StepLocal(DELTA, new MotionStepInput(lift, up: new Vector3(float.NaN, 1f, 0f)))
             );
             AssertVector(Vector3.right, model.Up);
-            Assert.That(model.StepVersion, Is.EqualTo(version));
+            Assert.That(model.StepGeneration, Is.EqualTo(version));
 
             // 입력 버퍼도 Up을 넘기고 Clear하면 비운다.
             var buffer = new MotionInputBuffer();
@@ -1004,7 +1004,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
 
             model.Step(new MotionTick(5, DELTA), new MotionStepInput(walk));
 
-            var version = model.StepVersion;
+            var version = model.StepGeneration;
             var twoIntents = Of(walk[0], walk[0]);
 
             Assert.Throws<ArgumentOutOfRangeException>(() => model.Step(default, new MotionStepInput(walk)));
@@ -1017,7 +1017,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             Assert.Throws<ArgumentOutOfRangeException>(() => model.StepLocal(0d, new MotionStepInput(walk)));
 
             Assert.That(model.LastTick, Is.EqualTo(5));
-            Assert.That(model.StepVersion, Is.EqualTo(version));
+            Assert.That(model.StepGeneration, Is.EqualTo(version));
         }
 
         // ------------------------------------------------------------
@@ -1101,7 +1101,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             );
 
             var snapshot = model.Capture();
-            var version = model.StepVersion;
+            var version = model.StepGeneration;
             var inputs = Of
             (
                 Of(Add("Knockback", 9, new Vector3(0f, 0f, 4f))),
@@ -1119,7 +1119,14 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
             model.Restore(snapshot);
 
             Assert.That(model.LastTick, Is.EqualTo(snapshot.LastTick));
-            Assert.That(model.StepVersion, Is.GreaterThan(version + original.Length));
+            var stepped = version;
+
+            for (var count = 0; count < original.Length; count++)
+            {
+                stepped = stepped.Inc();
+            }
+
+            Assert.IsTrue(model.StepGeneration > stepped);
 
             for (var index = 0; index < original.Length; index++)
             {
@@ -1129,7 +1136,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
                 Assert.That(replayed.Planar, Is.EqualTo(original[index].Planar));
                 Assert.That(replayed.Impulse, Is.EqualTo(original[index].Impulse));
                 Assert.That(replayed.ActionID, Is.EqualTo(original[index].ActionID));
-                Assert.That(replayed.StepVersion, Is.Not.EqualTo(original[index].StepVersion));
+                Assert.That(replayed.StepGeneration, Is.Not.EqualTo(original[index].StepGeneration));
             }
 
             // 같은 용량 Snapshot은 재사용할 수 있다.
@@ -1211,7 +1218,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         public void TEST_MotionModel_다른ActorSnapshot복원거절()
         {
             var model = new MotionModel(actor, Vector3.up);
-            var other = new MotionModel(new MotionActorKey(2, 1, 1), Vector3.up);
+            var other = new MotionModel(new MotionActorKey(2, 1, Revision.FromUInt64(1)), Vector3.up);
             var small = new MotionModel(actor, Vector3.up, capacity: 4);
 
             Assert.Throws<ArgumentException>(() => model.Restore(other.Capture()));
@@ -1227,8 +1234,8 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         [Test]
         public void TEST_MotionModel_같은입력같은결과()
         {
-            var server = new MotionModel(new MotionActorKey(1, 7, 1), Vector3.up);
-            var client = new MotionModel(new MotionActorKey(2, 7, 1), Vector3.up);
+            var server = new MotionModel(new MotionActorKey(1, 7, Revision.FromUInt64(1)), Vector3.up);
+            var client = new MotionModel(new MotionActorKey(2, 7, Revision.FromUInt64(1)), Vector3.up);
             var knockback = new Vector3(0f, 3f, 2f);
 
             for (var index = 0; index < 5; index++)

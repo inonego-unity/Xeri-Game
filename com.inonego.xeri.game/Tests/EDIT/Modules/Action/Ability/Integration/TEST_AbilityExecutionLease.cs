@@ -174,7 +174,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 Assert.IsTrue(ability.State.IsCooldownReady);
                 Assert.AreEqual(2, ability.State.Charge.Current);
                 // Revision은 단조 증가하므로 소비와 환급이 각각 올린다.
-                Assert.Greater(ability.State.Revision, baseline);
+                Assert.IsTrue(ability.State.Revision > baseline);
             }
             else
             {
@@ -228,7 +228,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 var collider = target.AddComponent<BoxCollider>();
                 var journal = new AbilityFixtureResults<AbilityUseOrigin>();
                 var used = default(AbilityUse<string>);
-                var afterUse = 0UL;
+                var afterUse = Revision.None;
                 clock.Send(clock.Connect(1), clock.Server, 1, delayTicks: 1);
 
                 Assert.AreEqual(0, clock.Server.Received.Count);
@@ -240,7 +240,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 Assert.AreEqual(1, journal.Entries.Count);
                 Assert.AreEqual(used.Origin, journal.Entries[0].Origin);
                 Assert.AreEqual(1, ability.State.Values.GetI("Hits"));
-                Assert.AreEqual(afterUse + 1, ability.State.Revision);
+                Assert.AreEqual(afterUse.Inc(), ability.State.Revision);
                 Assert.AreEqual(1, ability.State.Charge.Current);
                 Assert.AreEqual(1, behavior.Released);
                 CollectionAssert.AreEqual
@@ -260,7 +260,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                     var selection = Select(bindings, ability);
                     var before = ability.State.Revision;
                     Assert.IsTrue(selection.TryActivate(Begin, out _, out used));
-                    Assert.Greater(ability.State.Revision, before);
+                    Assert.IsTrue(ability.State.Revision > before);
                     afterUse = ability.State.Revision;
                     Assert.IsFalse(ability.State.IsCooldownReady);
                 }

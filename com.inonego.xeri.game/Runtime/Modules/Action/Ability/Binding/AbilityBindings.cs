@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityBindings.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-25
 
 # 설명
 XOrdered의 우선순위·동순위 등록 순서로 부분 Binding Layer를 합성해 현재 Entry의 Ability를 해석한다.
@@ -146,7 +146,7 @@ namespace inonego.Xeri.Game
     /// <br/> Lease 해제 시 하위 Layer의 Binding이 다시 노출된다.
     /// </summary>
     // ======================================================================
-    public sealed class AbilityBindings<TSpec>
+    public sealed class AbilityBindings<TSpec> : IRevisioned
     where TSpec : class
     {
 
@@ -182,7 +182,7 @@ namespace inonego.Xeri.Game
         /// Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하는 변경 번호를 반환한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        public ulong Revision { get; private set; } = 0;
+        public Revision Revision { get; private set; } = Revision.None;
 
     #endregion
 
@@ -207,7 +207,7 @@ namespace inonego.Xeri.Game
 
             layer.Add(bindingLayer.Priority, bindingLayer);
             bindingLayer.OnChange += OnLayerChange;
-            Revision++;
+            Revision = Revision.Inc();
 
             return new Lease
             (
@@ -219,7 +219,7 @@ namespace inonego.Xeri.Game
                     }
 
                     bindingLayer.OnChange -= OnLayerChange;
-                    Revision++;
+                    Revision = Revision.Inc();
                 }
             );
         }
@@ -243,7 +243,7 @@ namespace inonego.Xeri.Game
 
         private void OnLayerChange()
         {
-            Revision++;
+            Revision = Revision.Inc();
         }
 
     #endregion

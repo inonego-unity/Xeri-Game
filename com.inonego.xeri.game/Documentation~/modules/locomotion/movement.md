@@ -59,7 +59,7 @@ Up을 Tick마다 바꾸는 게임은 Up도 복제 값에 넣어 그 Tick의 Up�
 `Capture`가 성공하려면 다음이 모두 맞아야 합니다.
 
 - Model, Motor, 합성 결과의 Actor가 같습니다.
-- 합성 결과가 Model의 **마지막 Step**(Tick Index와 `StepVersion`)입니다.
+- 합성 결과가 Model의 **마지막 Step**(Tick Index와 `StepGeneration`)입니다.
 - Motor의 Physics Step이 완료돼 있고, **`CompletePhysicsStep`에 넘긴 번호가 `frame.Tick.Index`와 같습니다.**
 
 어긋나면 `InvalidOperationException`이며 번호 불일치는 별도 메시지로 알려 줍니다. Model Restore 이전의 결과, 다른 Actor의 결과, Physics Step 완료 전, 교정 직후의 캡처가 모두 이에 해당합니다.

@@ -892,7 +892,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             host.Replication.Replicate();
 
             Assert.AreEqual(1, delivered);
-            Assert.AreEqual(serverKit.State.Revision, observer.LastSent[(1, serverKit.State.Key)].Revision);
+            Assert.IsTrue(observer.LastSent[(1, serverKit.State.Key)].Mark.IsCurrent);
         }
 
         // --------------------------------------------------------------------------------
@@ -1629,7 +1629,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var before = serverKit.State.Revision;
             serverKit.State.CloneFrom(local.State);
             Assert.AreEqual(revisionAtStop, local.State.Revision);
-            Assert.Greater(serverKit.State.Revision, before);
+            Assert.IsTrue(serverKit.State.Revision > before);
 
             // 경과 기준 Timer이므로 시각 변환 없이 남은 시간, Charge, 충전 진행, Values가 그대로 이어진다.
             Assert.AreEqual(1.5f, Remaining(serverKit.State), 1e-4f);
@@ -1726,7 +1726,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             client.JoinEpoch(1);
             var next = new AbilityState(kit.State.Key);
             next.Values.SetI("Stack", 100);
-            Assert.Less(next.Revision, previous.Revision);
+            Assert.IsTrue(next.Revision < previous.Revision);
 
             network.Send(network.Server, client.Endpoint, AuthorityPacket.ForSnapshot(1, new AuthoritySnapshot(next, network.Tick)));
             Step(network, host, client);

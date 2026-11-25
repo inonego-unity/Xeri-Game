@@ -1,15 +1,15 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : NavigationController.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
-Goal Revision·Planner 요청·Waypoint Guidance와 Owned State 수명을 관리한다.
+Goal Generation·Planner 요청·Waypoint Guidance와 Owned State 수명을 관리한다.
 진행 상태(NavigationStatus)와 요청·복원 판정 열거형을 함께 둔다.
 
 # 특이사항, 제약사항
 외부 Planner/Host가 시간·World Revision·경로 완료 및 Motor 적용을 소유한다.
 경로는 ReadOnlySpan으로 받아 수락 도중 외부 코드를 호출하지 않는다.
-Goal Revision·요청 ID·경로 ID는 단조 증가하는 수명 토큰이며 Restore에서도 되돌리지 않는다.
+Goal Generation·요청 ID·경로 ID는 단조 증가하는 수명 토큰이며 Restore에서도 되돌리지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -75,7 +75,8 @@ namespace inonego.Xeri.Game.Navigation
 
         private long nextRequestID;
         private long pendingRequestID;
-        private long pathID;
+        private Revision pathGeneration = Revision.None;
+        private Revision nextPathGeneration = Revision.None;
         private TPoint[] path = Array.Empty<TPoint>();
 
         // ------------------------------------------------------------
@@ -87,11 +88,11 @@ namespace inonego.Xeri.Game.Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 Goal의 수명 Revision이며 Restore에서도 줄어들지 않습니다.
+        /// 현재 Goal의 수명 Generation이며 Restore에서도 줄어들지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long GoalRevision => goalRevision;
-        private long goalRevision;
+        public Revision GoalGeneration => goalGeneration;
+        private Revision goalGeneration = Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -122,8 +123,8 @@ namespace inonego.Xeri.Game.Navigation
         /// 경로 요청에 사용한 World Revision입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long WorldRevision => worldRevision;
-        private long worldRevision = -1;
+        public Revision WorldRevision => worldRevision;
+        private Revision worldRevision = Revision.None;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -160,7 +161,7 @@ namespace inonego.Xeri.Game.Navigation
         // ------------------------------------------------------------
         public NavigationController(MotionActorKey actor)
         {
-            if (actor.ScopeID <= 0 || actor.ActorID <= 0 || actor.Generation <= 0)
+            if (actor.ScopeID <= 0 || actor.ActorID <= 0 || actor.Generation.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(actor));
             }
@@ -179,11 +180,11 @@ namespace inonego.Xeri.Game.Navigation
         // ------------------------------------------------------------
         public void SetGoal(in TPoint target)
         {
-            goalRevision = checked(goalRevision + 1);
+            goalGeneration = goalGeneration.Inc();
             hasGoal = true;
             goal = target;
             status = NavigationStatus.NeedsPlan;
-            worldRevision = -1;
+            worldRevision = Revision.None;
             ClearPath();
         }
 
@@ -194,11 +195,11 @@ namespace inonego.Xeri.Game.Navigation
         // ------------------------------------------------------------
         public void Cancel()
         {
-            goalRevision = checked(goalRevision + 1);
+            goalGeneration = goalGeneration.Inc();
             hasGoal = false;
             goal = default;
             status = NavigationStatus.Idle;
-            worldRevision = -1;
+            worldRevision = Revision.None;
             ClearPath();
         }
 
@@ -210,9 +211,9 @@ namespace inonego.Xeri.Game.Navigation
         // ------------------------------------------------------------
         public void Invalidate()
         {
-            goalRevision = checked(goalRevision + 1);
+            goalGeneration = goalGeneration.Inc();
             status = hasGoal ? NavigationStatus.NeedsPlan : NavigationStatus.Idle;
-            worldRevision = -1;
+            worldRevision = Revision.None;
             ClearPath();
         }
 
@@ -222,14 +223,14 @@ namespace inonego.Xeri.Game.Navigation
         /// <br/> 요청 ID는 해당 Controller에서 재사용하지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
-        public NavigationPlanRequest<TPoint> BeginPlan(in TPoint start, long currentWorldRevision)
+        public NavigationPlanRequest<TPoint> BeginPlan(in TPoint start, Revision currentWorldRevision)
         {
             if (!hasGoal)
             {
                 throw new InvalidOperationException("목표가 없는 Actor는 경로를 요청할 수 없습니다.");
             }
 
-            if (currentWorldRevision < 0)
+            if (currentWorldRevision.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(currentWorldRevision));
             }
@@ -242,7 +243,7 @@ namespace inonego.Xeri.Game.Navigation
 
             return new NavigationPlanRequest<TPoint>
             (
-                Actor, goalRevision, pendingRequestID,
+                Actor, goalGeneration, pendingRequestID,
                 worldRevision, start, goal
             );
         }
@@ -269,9 +270,8 @@ namespace inonego.Xeri.Game.Navigation
                 return NavigationPlanApplyStatus.InvalidPath;
             }
 
-            var acceptedPathID = pendingRequestID;
             SetPath(waypoints.ToArray());
-            pathID = acceptedPathID;
+            pathGeneration = IssuePathGeneration();
             status = NavigationStatus.Following;
             return NavigationPlanApplyStatus.Accepted;
         }
@@ -296,7 +296,7 @@ namespace inonego.Xeri.Game.Navigation
 
         private bool IsCurrentRequest(in NavigationPlanRequest<TPoint> request) =>
             hasGoal && status == NavigationStatus.Planning &&
-            request.Actor.Equals(Actor) && request.GoalRevision == goalRevision &&
+            request.Actor.Equals(Actor) && request.GoalGeneration == goalGeneration &&
             request.RequestID == pendingRequestID &&
             request.WorldRevision == worldRevision;
 
@@ -319,7 +319,7 @@ namespace inonego.Xeri.Game.Navigation
 
             guidance = new NavigationGuidance<TPoint>
             (
-                Actor, goalRevision, pathID, waypointIndex, path[waypointIndex]
+                Actor, goalGeneration, pathGeneration, waypointIndex, path[waypointIndex]
             );
             return true;
         }
@@ -357,8 +357,8 @@ namespace inonego.Xeri.Game.Navigation
         {
             if (status != NavigationStatus.Following ||
                 !guidance.Actor.Equals(Actor) ||
-                guidance.GoalRevision != goalRevision ||
-                guidance.PathID != pathID ||
+                guidance.GoalGeneration != goalGeneration ||
+                guidance.PathGeneration != pathGeneration ||
                 guidance.WaypointIndex != waypointIndex)
             {
                 return false;
@@ -383,7 +383,7 @@ namespace inonego.Xeri.Game.Navigation
 
             return new NavigationSnapshot<TPoint>
             (
-                Actor, goalRevision, worldRevision, status, hasGoal,
+                Actor, goalGeneration, worldRevision, status, hasGoal,
                 goal, owned, waypointIndex
             );
         }
@@ -391,13 +391,13 @@ namespace inonego.Xeri.Game.Navigation
         // ------------------------------------------------------------
         /// <summary>
         /// <br/> 같은 Actor·World의 Owned State만 복원합니다.
-        /// <br/> Goal Revision·경로 ID는 새로 발급합니다.
+        /// <br/> Goal Generation·경로 ID는 새로 발급합니다.
         /// </summary>
         // ------------------------------------------------------------
         public NavigationRestoreStatus Restore
         (
             NavigationSnapshot<TPoint> snapshot,
-            long currentWorldRevision
+            Revision currentWorldRevision
         )
         {
             if (snapshot == null)
@@ -405,7 +405,7 @@ namespace inonego.Xeri.Game.Navigation
                 throw new ArgumentNullException(nameof(snapshot));
             }
 
-            if (currentWorldRevision < 0)
+            if (currentWorldRevision.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(currentWorldRevision));
             }
@@ -415,7 +415,7 @@ namespace inonego.Xeri.Game.Navigation
                 return NavigationRestoreStatus.ActorMismatch;
             }
 
-            if (snapshot.WorldRevision >= 0 &&
+            if (!snapshot.WorldRevision.IsNone &&
                 snapshot.WorldRevision != currentWorldRevision)
             {
                 return NavigationRestoreStatus.WorldMismatch;
@@ -424,7 +424,7 @@ namespace inonego.Xeri.Game.Navigation
             // 수명 토큰은 되돌리지 않는다. 복원 전에 발급한 요청·Guidance와 같은 값이 다시 나오지 않도록 새로 발급한다.
             nextRequestID = checked(nextRequestID + 1);
             pendingRequestID = 0;
-            goalRevision = checked(goalRevision + 1);
+            goalGeneration = goalGeneration.Inc();
             worldRevision = snapshot.WorldRevision;
             hasGoal = snapshot.HasGoal;
             goal = snapshot.Goal;
@@ -436,8 +436,8 @@ namespace inonego.Xeri.Game.Navigation
             }
 
             SetPath(restored);
-            pathID = snapshot.Status == NavigationStatus.Following ||
-                snapshot.Status == NavigationStatus.Arrived ? nextRequestID : 0;
+            pathGeneration = snapshot.Status == NavigationStatus.Following ||
+                snapshot.Status == NavigationStatus.Arrived ? IssuePathGeneration() : Revision.None;
             waypointIndex = snapshot.WaypointIndex;
             status = snapshot.Status == NavigationStatus.Planning
                 ? NavigationStatus.NeedsPlan : snapshot.Status;
@@ -456,7 +456,13 @@ namespace inonego.Xeri.Game.Navigation
             readonlyPath = Array.AsReadOnly(owned);
             waypointIndex = 0;
             pendingRequestID = 0;
-            pathID = 0;
+            pathGeneration = Revision.None;
+        }
+
+        private Revision IssuePathGeneration()
+        {
+            nextPathGeneration = nextPathGeneration.Inc();
+            return nextPathGeneration;
         }
 
     #endregion

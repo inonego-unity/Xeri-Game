@@ -417,7 +417,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var revision = state.Revision;
             mutate(state);
 
-            Assert.Greater(state.Revision, revision);
+            Assert.IsTrue(state.Revision > revision);
             Assert.AreEqual(AbilityActivationFailure.InvalidState, selection.Evaluate().Failure);
             Assert.IsFalse
             (
