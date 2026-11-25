@@ -262,13 +262,15 @@ namespace inonego.Xeri.Game.Controller
                 StartCoyoteJumpTimer();
             }
 
+            // 접지 기록은 OnJump 구독자를 호출하기 전에 확정해 구독자 예외가 다음 Tick의 접지 전환을 되살리지 않게 한다.
+            wasGrounded = isGrounded;
+
             if (isTriggered)
             {
                 TryJump();
             }
 
             jumpBufferTimer.Tick(fixedDeltaTime);
-            wasGrounded = isGrounded;
         }
 
         // ------------------------------------------------------------

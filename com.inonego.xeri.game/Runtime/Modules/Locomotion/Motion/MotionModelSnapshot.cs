@@ -8,7 +8,7 @@ Motion Model의 Modifier 항목 메타데이터와 채널 MValue 상태를 보�
 # 특이사항, 제약사항
 항목 메타데이터는 값 구조체 배열, 채널 값은 Core MValue 복제(CloneFrom)로 보관한다.
 같은 Snapshot을 재사용하고 Modifier 구성이 같으면 Capture·Restore에 할당이 없다.
-기본 의도는 한 Tick 수명이라 Snapshot에 넣지 않는다. StepVersion 같은 발급 토큰도 넣지 않는다.
+기본 의도는 한 Tick 수명이라 Snapshot에 넣지 않는다. StepGeneration 같은 발급 토큰도 넣지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;

@@ -382,7 +382,7 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             if (registry.IsBound(actor))
             {
@@ -392,10 +392,7 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures = new List<Exception>
-                    {
-                        exception
-                    };
+                    failures.Add(exception);
                 }
             }
 
@@ -405,7 +402,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
@@ -415,18 +411,12 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
 
-            if (failures == null)
-            {
-                return true;
-            }
+            failures.ThrowWhenAny("Entity Actor terminal 반환 중 일부 정리가 실패했습니다.");
 
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("Entity Actor terminal 반환 중 일부 정리가 실패했습니다.", failures);
+            return true;
         }
 
         // --------------------------------------------------------------------------------
@@ -437,22 +427,22 @@ namespace inonego.Xeri.Game
         // --------------------------------------------------------------------------------
         private void ReleaseActors(IEnumerable<TEntityActor> source, DespawnReason reason)
         {
-            // 원본은 반환 중 바뀌는 View이므로 참조와 등록 수명 식별자를 먼저 고정한다.
-            var targets = new List<(TEntityActor actor, long serial)>();
+            // 원본은 반환 중 바뀌는 View이므로 참조와 등록 수명 번호를 먼저 고정한다.
+            var targets = new List<(TEntityActor actor, Revision generation)>();
 
             foreach (var actor in source)
             {
-                targets.Add((actor, registry.GetRegistrationSerial(actor)));
+                targets.Add((actor, registry.GetRegistrationGeneration(actor)));
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
-            foreach (var (actor, serial) in targets)
+            foreach (var (actor, generation) in targets)
             {
                 try
                 {
                     // 중첩 호출이 이미 반환했거나 새 수명으로 다시 등록된 Actor는 건너뛴다.
-                    if (registry.GetRegistrationSerial(actor) != serial)
+                    if (registry.GetRegistrationGeneration(actor) != generation)
                     {
                         continue;
                     }
@@ -461,19 +451,11 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
             }
 
-            if (failures == null)
-            {
-                return;
-            }
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("일부 Entity Actor 반환에 실패했습니다.", failures);
+            failures.ThrowWhenAny("일부 Entity Actor 반환에 실패했습니다.");
         }
 
         // ----------------------------------------------------------------------

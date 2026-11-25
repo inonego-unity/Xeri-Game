@@ -193,7 +193,7 @@ var frame = model.StepLocal(deltaTime, new MotionStepInput(modifiers: commands),
 - 채널 값은 Core `MValue.CloneFrom`으로 복사합니다. 같은 Snapshot을 재사용하고 Modifier 구성이 같으면 할당이 없습니다.
 - Snapshot 뒤 항목이 생기거나 끝났다면 Restore가 채널 Modifier 목록을 다시 만들며, 이때는 할당이 있습니다.
 - 항목이 시작될 때 Modifier를 새로 만들고 끝날 때(`End`, `Clear`, 충격 만료) 채널 목록에서 빼므로 시작과 종료에 할당이 있습니다. 같은 세대 값·연산 갱신, 유지 중인 항목의 Step, `TryGetModifier`는 할당이 없습니다.
-- 기본 의도는 한 Tick 수명이라 Snapshot에 넣지 않습니다. `StepVersion`은 Step과 Restore마다 오르는 발급 토큰이라 되돌리지 않습니다.
+- 기본 의도는 한 Tick 수명이라 Snapshot에 넣지 않습니다. `StepGeneration`은 Step과 Restore마다 오르는 발급 토큰이라 되돌리지 않습니다.
 - 사용처가 가진 시간과 값(Timer, Track 재생 시간, 감쇠 중인 값)은 Motion Snapshot에 들어가지 않습니다. 함께 되돌리려면 사용처가 자기 상태를 복제합니다(Core `Timer`·`Value` 계열의 `CloneFrom`).
 - 다른 Actor나 다른 용량의 Snapshot은 `ArgumentException`입니다.
 

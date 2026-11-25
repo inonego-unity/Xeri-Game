@@ -1,9 +1,9 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AuthorityMessages.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
-권한 사용 프로토콜(L1)의 테스트 전용 요청·결과·Snapshot·실행 관측·AOI 이탈·제거 통지·Owner 목록 메시지와 결과 분류를 제공한다.
+권한 사용 프로토콜(L1)의 테스트 전용 요청·결과·Snapshot·Status Snapshot·실행 관측·AOI 이탈·제거 통지·Owner 목록 메시지와 결과 분류를 제공한다.
 요청에는 보낸 연결을 적지 않는다. 연결 신원은 전송 계층이 메시지에 붙인다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -123,13 +123,34 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
     {
         internal readonly AbilityKey Key;
         internal readonly AbilityState State;
-        internal readonly ulong Revision;
+        internal readonly Revision Revision;
         internal readonly long Tick;
 
         internal AuthoritySnapshot(AbilityState source, long tick)
         {
             Key = source.Key;
             State = source.Clone();
+            Revision = source.Revision;
+            Tick = tick;
+        }
+    }
+
+    // ================================================================================
+    /// <summary>
+    /// <br/> 서버 Owner의 StatusContainer 복사본과 원본 Revision, 복사한 Tick을 보관한다.
+    /// <br/> Status는 Ability State가 아니므로 Owner(컨테이너) 하나가 전송 단위이다(§15).
+    /// </summary>
+    // ================================================================================
+    internal sealed class AuthorityStatusSnapshot
+    {
+        internal readonly StatusContainer<int> State;
+        internal readonly Revision Revision;
+        internal readonly long Tick;
+
+        internal AuthorityStatusSnapshot(StatusContainer<int> source, long tick)
+        {
+            State = new StatusContainer<int>();
+            State.CloneFrom(source);
             Revision = source.Revision;
             Tick = tick;
         }
@@ -182,6 +203,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         internal int Owner;
         internal bool HasSnapshot;
         internal AuthoritySnapshot Snapshot;
+        internal bool HasStatus;
+        internal AuthorityStatusSnapshot StatusSnapshot;
         internal bool Despawned;
         internal bool Left;
         internal AuthorityObservation Observation;
@@ -194,6 +217,12 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             new AuthorityPacket
         {
             Owner = owner, HasSnapshot = true, Snapshot = snapshot
+        };
+
+        internal static AuthorityPacket ForStatus(int owner, AuthorityStatusSnapshot snapshot) =>
+            new AuthorityPacket
+        {
+            Owner = owner, HasStatus = true, StatusSnapshot = snapshot
         };
 
         internal static AuthorityPacket ForStarted(int owner, AbilityUseOrigin origin, ulong executionID, long startTick) =>

@@ -28,7 +28,7 @@ namespace inonego.Xeri.Game
     /// </summary>
     // =======================================================================================
     [Serializable]
-    public abstract class LevelBase : ILevel, IReadOnlyLevel
+    public abstract class LevelBase : ILevel, IReadOnlyLevel, ISerializationCallbackReceiver
     {
 
     #region 필드
@@ -114,9 +114,38 @@ namespace inonego.Xeri.Game
         {
             LimitMax = FullMax;
 
-            // 이벤트 핸들러 중복 등록 방지
+            SubscribeBaseChange();
+        }
+
+        // 이벤트 핸들러 중복 등록을 막으며 내부 값 변경 중계를 구독한다.
+        private void SubscribeBaseChange()
+        {
             value.OnBaseChange -= OnBaseChangeHandler;
             value.OnBaseChange += OnBaseChangeHandler;
+        }
+
+    #endregion
+
+    #region 직렬화
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 직렬화 전에 할 일이 없다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public void OnBeforeSerialize()
+        {
+            // NONE
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 기본 생성자로 복원된 Level도 값 변경 알림을 중계하도록 구독을 다시 연결한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public void OnAfterDeserialize()
+        {
+            SubscribeBaseChange();
         }
 
     #endregion

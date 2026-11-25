@@ -47,7 +47,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 new TestSpec(),
                 new AbilityState(new AbilityKey("Burst"))
             );
-            ability.State.Control.ConfigureCharge(capacity, 1f);
+            ability.State.ConfigureCharge(capacity, 1f);
             return ability;
         }
 
@@ -194,7 +194,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var context = CreateContext(ability);
             var cost = new AbilityChargeCost<TestSpec>();
             Assert.IsTrue(cost.Evaluate(context).IsAllowed);
-            Assert.IsTrue(ability.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(ability.State.TryConsumeCharge(1));
 
             Assert.Throws<InvalidOperationException>(() => cost.Pay(context));
             Assert.AreEqual(0, ability.State.Charge.Current);

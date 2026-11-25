@@ -122,7 +122,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
 
             var frame = actor.LastFrame;
 
-            Line($"Tick {frame.Tick.Index}  StepVersion {frame.StepVersion}  적용 {(actor.LastApplied ? "성공" : Paint("실패", FailColor))}  Valid {frame.IsValid}");
+            Line($"Tick {frame.Tick.Index}  StepGeneration {frame.StepGeneration}  적용 {(actor.LastApplied ? "성공" : Paint("실패", FailColor))}  Valid {frame.IsValid}");
             Line($"Planar    {Mode(frame.PlanarMode)}  {V(frame.Planar)}");
             Line($"Elevation {Mode(frame.ElevationMode)}  {frame.Elevation:F2}");
             Line($"Rotation  {Mode(frame.RotationMode)}  {V(frame.Rotation)}");

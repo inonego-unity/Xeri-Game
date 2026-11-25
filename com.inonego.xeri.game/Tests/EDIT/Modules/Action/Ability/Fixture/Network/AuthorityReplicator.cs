@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AuthorityReplicator.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 권한 Host의 AOI 가시 목록, Ability 단위 Snapshot 변경분 복제와 실행 관측을 맡는 테스트 전용 Replicator를 제공한다.
@@ -9,6 +9,7 @@ Snapshot, 실행 시작·진행 중·종료, AOI 이탈, Owner 제거 통지는 
 그래서 AOI와 Epoch 규칙이 사건 종류와 무관하게 같은 경로에서 적용되고, 연결별로 보낸 순서대로 도착한다(관측 채널).
 한 Observer의 전달 실패는 다른 Observer 전달과 상태 정리를 막지 않으며 모아서 마지막에 전달한다.
 Snapshot은 (Owner, AbilityKey) 단위로 보내며 Observer가 숨긴 Ability는 보내지 않는다.
+Owner의 Status 컨테이너는 Ability State와 별개로 Owner 단위 Status Snapshot으로 Revision이 바뀐 Tick에만 보낸다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -56,7 +57,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
     #region 공개 범위와 전송 기록
 
-        internal readonly Dictionary<(int Owner, AbilityKey Key), (int Epoch, ulong Revision)> LastSent = new();
+        internal readonly Dictionary<(int Owner, AbilityKey Key), (int Epoch, RevisionMark Mark)> LastSent = new();
+        internal readonly Dictionary<int, (int Epoch, RevisionMark Mark)> StatusLastSent = new();
         private readonly HashSet<(int Owner, AbilityKey Key)> hidden = new();
 
         // ------------------------------------------------------------
@@ -81,6 +83,17 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 hidden.Remove((owner, key));
             }
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Owner의 Ability 전송 기록과 Status 전송 기록을 모두 지운다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal void ForgetAllSent(int owner)
+        {
+            ForgetSent(owner);
+            StatusLastSent.Remove(owner);
         }
 
         // ------------------------------------------------------------
@@ -110,6 +123,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
     #region 사건 기록
 
         internal readonly List<(int Owner, AuthoritySnapshot Snapshot)> Snapshots = new();
+        internal readonly List<(int Owner, AuthorityStatusSnapshot Snapshot)> StatusSnapshots = new();
         internal readonly List<(int Owner, AbilityUseOrigin Origin, ulong ExecutionID)> Started = new();
         internal readonly List<(int Owner, AbilityUseOrigin Origin, ulong ExecutionID, long StartTick)> InProgress = new();
         internal readonly List<(int Owner, ulong ExecutionID, ExecutionEndReason Reason)> Ended = new();
@@ -126,6 +140,11 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             if (packet.HasSnapshot)
             {
                 Snapshots.Add((owner, packet.Snapshot));
+            }
+
+            if (packet.HasStatus)
+            {
+                StatusSnapshots.Add((owner, packet.StatusSnapshot));
             }
 
             switch (packet.Observation)
@@ -175,6 +194,25 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
         // ------------------------------------------------------------
         /// <summary>
+        /// Owner에 대해 기록한 Status Snapshot 수를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal int CountStatus(int owner)
+        {
+            var count = 0;
+            foreach (var entry in StatusSnapshots)
+            {
+                if (entry.Owner == owner)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
         /// Owner의 한 Ability에 대해 기록한 Snapshot 수를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
@@ -209,27 +247,33 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
         private readonly FakeAbilityNetwork<AuthorityPacket> network;
         private readonly Func<int, IReadOnlyList<AbilityState>> findStates;
+        private readonly Func<int, StatusContainer<int>> findStatuses;
         private readonly Func<int> clientDelay;
         private readonly List<AuthorityObserver> observers = new();
         private readonly HashSet<(AuthorityObserver Observer, int Owner, AbilityKey Key)> sending = new();
+        private readonly HashSet<(AuthorityObserver Observer, int Owner)> sendingStatus = new();
         private readonly Dictionary<int, List<(AbilityUseOrigin Origin, ulong ExecutionID, long Tick)>> running = new();
 
         // --------------------------------------------------------------------------------
         /// <summary>
         /// <br/> Owner의 Ability State 목록 조회 콜백과 Client 전송 지연 콜백으로 생성한다.
         /// <br/> State 목록 조회 콜백은 등록되지 않은 Owner에 null을 반환한다.
+        /// <br/> Status 컨테이너 조회 콜백은 Status를 복제하지 않거나
+        /// <br/> 등록되지 않은 Owner에 null을 반환한다.
         /// </summary>
         // --------------------------------------------------------------------------------
         internal AuthorityReplicator
         (
             FakeAbilityNetwork<AuthorityPacket> network,
             Func<int, IReadOnlyList<AbilityState>> findStates,
-            Func<int> clientDelay
+            Func<int> clientDelay,
+            Func<int, StatusContainer<int>> findStatuses = null
         )
         {
             this.network = network;
             this.findStates = findStates;
             this.clientDelay = clientDelay;
+            this.findStatuses = findStatuses ?? (_ => null);
         }
 
     #endregion
@@ -281,6 +325,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
                 if (observer.Connection != connection) continue;
 
                 observer.LastSent.Clear();
+                observer.StatusLastSent.Clear();
                 foreach (var owner in new List<int>(observer.Visible))
                 {
                     try
@@ -354,7 +399,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
 
                 if (!send)
                 {
-                    observer.LastSent[(owner, state.Key)] = (network.Server.Epoch, state.Revision);
+                    observer.LastSent[(owner, state.Key)] = (network.Server.Epoch, RevisionMark.Capture(state));
                     continue;
                 }
 
@@ -365,6 +410,26 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
                 catch (Exception exception)
                 {
                     (failures ??= new List<Exception>()).Add(exception);
+                }
+            }
+
+            var statuses = findStatuses(owner);
+            if (statuses != null)
+            {
+                if (!send)
+                {
+                    observer.StatusLastSent[owner] = (network.Server.Epoch, RevisionMark.Capture(statuses));
+                }
+                else
+                {
+                    try
+                    {
+                        SendStatus(observer, owner, statuses);
+                    }
+                    catch (Exception exception)
+                    {
+                        (failures ??= new List<Exception>()).Add(exception);
+                    }
                 }
             }
 
@@ -436,7 +501,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         private static void Forget(AuthorityObserver observer, int owner)
         {
             observer.Visible.Remove(owner);
-            observer.ForgetSent(owner);
+            observer.ForgetAllSent(owner);
         }
 
         // --------------------------------------------------------------------------------
@@ -607,10 +672,67 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
                             (failures ??= new List<Exception>()).Add(exception);
                         }
                     }
+
+                    // Status는 이산 변경(Revision 증가)이 있을 때만 보낸다. 시간 만료는 보내지 않는다.
+                    var statuses = findStatuses(owner);
+                    if (!observer.Visible.Contains(owner) || statuses == null || IsStatusSent(observer, owner, statuses))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        SendStatus(observer, owner, statuses);
+                    }
+                    catch (Exception exception)
+                    {
+                        (failures ??= new List<Exception>()).Add(exception);
+                    }
                 }
             }
 
             AuthorityRig.Rethrow(failures);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 이 Observer에 현재 세대의 같은 Status Revision을 이미 보냈는지 반환한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private bool IsStatusSent(AuthorityObserver observer, int owner, StatusContainer<int> statuses)
+        {
+            return observer.StatusLastSent.TryGetValue(owner, out var sent)
+                && sent.Epoch == network.Server.Epoch
+                && sent.Mark.IsCapturedFrom(statuses)
+                && sent.Mark.IsCurrent;
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Status Snapshot을 보내고 전달이 끝난 뒤에만 보낸 Epoch·Revision을 기록한다.
+        /// <br/> 같은 Observer·Owner의 전송 중 콜백이 다시 보내려 하면 건너뛴다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        private void SendStatus(AuthorityObserver observer, int owner, StatusContainer<int> statuses)
+        {
+            if (!sendingStatus.Add((observer, owner))) return;
+
+            try
+            {
+                var snapshot = new AuthorityStatusSnapshot(statuses, network.Tick);
+                var epoch = network.Server.Epoch;
+                var mark = RevisionMark.Capture(statuses);
+                observer.Deliver(owner, AuthorityPacket.ForStatus(owner, snapshot), clientDelay());
+
+                if (observer.Visible.Contains(owner) && findStatuses(owner) != null)
+                {
+                    observer.StatusLastSent[owner] = (epoch, mark);
+                }
+            }
+            finally
+            {
+                sendingStatus.Remove((observer, owner));
+            }
         }
 
         // ------------------------------------------------------------
@@ -622,7 +744,8 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
         {
             return observer.LastSent.TryGetValue((owner, state.Key), out var sent)
                 && sent.Epoch == network.Server.Epoch
-                && sent.Revision == state.Revision;
+                && sent.Mark.IsCapturedFrom(state)
+                && sent.Mark.IsCurrent;
         }
 
         // --------------------------------------------------------------------------------
@@ -640,14 +763,14 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             {
                 var snapshot = new AuthoritySnapshot(state, network.Tick);
                 var epoch = network.Server.Epoch;
-                var revision = state.Revision;
+                var mark = RevisionMark.Capture(state);
                 observer.Deliver(owner, AuthorityPacket.ForSnapshot(owner, snapshot), clientDelay());
 
                 // 전송 콜백이 예외 없이 끝난 뒤에만 보낸 Epoch와 Revision으로 기록한다.
                 // 콜백이 Owner를 제거했거나 가시 목록에서 뺐다면 기록을 되살리지 않는다.
                 if (observer.Visible.Contains(owner) && findStates(owner) != null)
                 {
-                    observer.LastSent[(owner, state.Key)] = (epoch, revision);
+                    observer.LastSent[(owner, state.Key)] = (epoch, mark);
                 }
             }
             finally

@@ -41,7 +41,10 @@ namespace inonego.Xeri.Game
         /// 이 실행에 연결된 Behavior Spec 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ExecutionBehaviorSpec> Behaviors => behaviors;
+        public ReadOnlyListView<ExecutionBehaviorSpec> Behaviors => new
+        (
+            behaviors ?? Array.Empty<ExecutionBehaviorSpec>()
+        );
 
         [SerializeReference]
         private ExecutionBehaviorSpec[] behaviors = Array.Empty<ExecutionBehaviorSpec>();

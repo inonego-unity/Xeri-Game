@@ -306,7 +306,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var context = CreateContext();
             var state = context.Ability.State;
-            state.Control.ConfigureCharge(3, 1f);
+            state.ConfigureCharge(3, 1f);
             var costs = new List<IAbilityActivationCost<TestSpec>>();
             for (var index = 0; index < costCount; index++)
             {
@@ -338,7 +338,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(before, UnityEngine.JsonUtility.ToJson(state));
             Assert.AreEqual(3, state.Charge.Current);
             Assert.IsFalse(state.Charge.Recharge.IsRunning);
-            Assert.Greater(state.Revision, revision);
+            Assert.IsTrue(state.Revision > revision);
         }
 
         // ----------------------------------------------------------------------
@@ -352,7 +352,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var context = CreateContext();
             var state = context.Ability.State;
-            state.Control.ConfigureCharge(1, 1f);
+            state.ConfigureCharge(1, 1f);
             var costs = new List<IAbilityActivationCost<TestSpec>>
             {
                 new AbilityChargeCost<TestSpec>(),
@@ -381,7 +381,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var context = CreateContext();
             var state = context.Ability.State;
-            state.Control.ConfigureCharge(3, 1f);
+            state.ConfigureCharge(3, 1f);
             var costs = new List<IAbilityActivationCost<TestSpec>>
             {
                 new AbilityChargeCost<TestSpec>(),
@@ -392,7 +392,7 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             AbilityBegin<string> begin = (in AbilityUse<string> use) =>
             {
-                state.Control.RestoreCharge(1);
+                state.AddCharge(1);
                 if (beginThrows)
                 {
                     throw new InvalidOperationException("시작 실패");

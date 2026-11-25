@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotorSnapshot.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Motor의 과거 Owned State와 복원 범위를 보관하는 값을 정의한다.
@@ -50,7 +50,7 @@ namespace inonego.Xeri.Game.Motor
         /// 현재 상태 적용 시 갱신되는 History 수명입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long HistoryGeneration { get; }
+        public Revision HistoryGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -66,7 +66,7 @@ namespace inonego.Xeri.Game.Motor
         internal MotorSnapshot
         (
             MotionActorKey actor, long step,
-            long historyGeneration, in TState state
+            Revision historyGeneration, in TState state
         )
         {
             Actor = actor;

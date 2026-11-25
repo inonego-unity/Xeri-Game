@@ -1,12 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : NavigationGuidance.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 다음 Waypoint를 소비자에게 알리는 Guidance를 정의한다.
 
 # 특이사항, 제약사항
-이동 속도·Direction·Body 쓰기는 포함하지 않는다. Actor·Goal Revision·PathID·Waypoint Index로 지연 통지를 구별한다.
+이동 속도·Direction·Body 쓰기는 포함하지 않는다. Actor·Goal Generation·PathGeneration·Waypoint Index로 지연 통지를 구별한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -37,17 +37,17 @@ namespace inonego.Xeri.Game.Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Guidance의 목표 Revision입니다.
+        /// Guidance의 목표 Generation입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long GoalRevision { get; }
+        public Revision GoalGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
         /// 같은 Goal 내 재계획·Restore도 구별하는 경로 ID입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long PathID { get; }
+        public Revision PathGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -65,13 +65,13 @@ namespace inonego.Xeri.Game.Navigation
 
         internal NavigationGuidance
         (
-            MotionActorKey actor, long goalRevision, long pathID,
+            MotionActorKey actor, Revision goalGeneration, Revision pathGeneration,
             int index, in TPoint target
         )
         {
             Actor = actor;
-            GoalRevision = goalRevision;
-            PathID = pathID;
+            GoalGeneration = goalGeneration;
+            PathGeneration = pathGeneration;
             WaypointIndex = index;
             Target = target;
         }

@@ -101,7 +101,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
     #region 값
 
         // 현재 세대를 포함한 Modifier 키.
-        public MotionSourceKey Source => new MotionSourceKey(Key, Math.Max(1L, generation));
+        public MotionSourceKey Source => new MotionSourceKey(Key, Revision.FromUInt64((ulong)Math.Max(1L, generation)));
 
         // Planar 채널에 들어가는 피연산자(감쇠 반영).
         public Vector3 PlanarOperand => UseUniform ? new Vector3(Uniform, Uniform, Uniform) : Linear * Scale;

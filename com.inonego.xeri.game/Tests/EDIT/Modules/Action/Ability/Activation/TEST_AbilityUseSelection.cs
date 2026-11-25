@@ -374,7 +374,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var policy = new AbilityActivationPolicy<TestSpec>();
             var selector = CreateSelector(policy, null);
             var context = CreateContext();
-            Assert.IsTrue(context.Ability.State.Control.TryBeginCooldown(1f));
+            Assert.IsTrue(context.Ability.State.TryBeginCooldown(1f));
 
             Assert.IsTrue(Select(selector, context, out var selection, out _));
             context.Ability.State.Advance(2f);
@@ -417,7 +417,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var revision = state.Revision;
             mutate(state);
 
-            Assert.Greater(state.Revision, revision);
+            Assert.IsTrue(state.Revision > revision);
             Assert.AreEqual(AbilityActivationFailure.InvalidState, selection.Evaluate().Failure);
             Assert.IsFalse
             (
@@ -445,7 +445,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         private static IEnumerable<TestCaseData> StateMutationCases()
         {
             Action<AbilityState> none = _ => { };
-            Action<AbilityState> beginCooldown = state => state.Control.TryBeginCooldown(5f);
+            Action<AbilityState> beginCooldown = state => state.TryBeginCooldown(5f);
 
             yield return new TestCaseData
             (
@@ -456,57 +456,57 @@ namespace inonego.Xeri.Game.TEST._Ability
             yield return new TestCaseData
             (
                 none,
-                (Action<AbilityState>)(state => state.Control.TryBeginCooldown(1f))
+                (Action<AbilityState>)(state => state.TryBeginCooldown(1f))
             ).SetName("Cooldown시작");
 
             yield return new TestCaseData
             (
                 beginCooldown,
-                (Action<AbilityState>)(state => state.Control.PauseCooldown())
+                (Action<AbilityState>)(state => state.PauseCooldown())
             ).SetName("Cooldown일시정지");
 
             yield return new TestCaseData
             (
                 (Action<AbilityState>)(state =>
                 {
-                    state.Control.TryBeginCooldown(5f);
-                    state.Control.PauseCooldown();
+                    state.TryBeginCooldown(5f);
+                    state.PauseCooldown();
                 }),
-                (Action<AbilityState>)(state => state.Control.ResumeCooldown())
+                (Action<AbilityState>)(state => state.ResumeCooldown())
             ).SetName("Cooldown재개");
 
             yield return new TestCaseData
             (
                 beginCooldown,
-                (Action<AbilityState>)(state => state.Control.ResetCooldown())
+                (Action<AbilityState>)(state => state.ResetCooldown())
             ).SetName("Cooldown초기화");
 
             yield return new TestCaseData
             (
                 beginCooldown,
-                (Action<AbilityState>)(state => state.Control.ReduceCooldown(1f))
+                (Action<AbilityState>)(state => state.ReduceCooldown(1f))
             ).SetName("Cooldown감소");
 
             yield return new TestCaseData
             (
-                (Action<AbilityState>)(state => state.Control.ConfigureCharge(2, 1f)),
-                (Action<AbilityState>)(state => state.Control.ConfigureCharge(3, 1f))
+                (Action<AbilityState>)(state => state.ConfigureCharge(2, 1f)),
+                (Action<AbilityState>)(state => state.ConfigureCharge(3, 1f))
             ).SetName("Charge재구성");
 
             yield return new TestCaseData
             (
-                (Action<AbilityState>)(state => state.Control.ConfigureCharge(2, 1f)),
-                (Action<AbilityState>)(state => state.Control.TryConsumeCharge(1))
+                (Action<AbilityState>)(state => state.ConfigureCharge(2, 1f)),
+                (Action<AbilityState>)(state => state.TryConsumeCharge(1))
             ).SetName("Charge소비");
 
             yield return new TestCaseData
             (
                 (Action<AbilityState>)(state =>
                 {
-                    state.Control.ConfigureCharge(2, 1f);
-                    state.Control.TryConsumeCharge(1);
+                    state.ConfigureCharge(2, 1f);
+                    state.TryConsumeCharge(1);
                 }),
-                (Action<AbilityState>)(state => state.Control.RestoreCharge(1))
+                (Action<AbilityState>)(state => state.AddCharge(1))
             ).SetName("Charge복원");
 
             yield return new TestCaseData
@@ -661,7 +661,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         {
             var context = CreateContext();
             var state = context.Ability.State;
-            state.Control.ConfigureCharge(3, 10f);
+            state.ConfigureCharge(3, 10f);
             var finisherPaid = 0;
             var normal = new AbilityActivationPolicy<TestSpec>
             (

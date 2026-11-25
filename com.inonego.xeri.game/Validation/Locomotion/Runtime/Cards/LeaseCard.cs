@@ -147,7 +147,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
 
         private void Acquire()
         {
-            ladderKey = new MotionSourceKey("Ladder", ++ladderGeneration);
+            ladderKey = new MotionSourceKey("Ladder", Revision.FromUInt64((ulong)++ladderGeneration));
 
             var values = MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 2f, 0f));
 

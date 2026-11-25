@@ -31,7 +31,7 @@ namespace inonego.Xeri.Game
         /// Graph가 소유한 Zone 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<Zone> Zones => zones;
+        public ReadOnlyListView<Zone> Zones => new(zones);
 
         [SerializeField]
         private Zone[] zones = Array.Empty<Zone>();
@@ -41,7 +41,7 @@ namespace inonego.Xeri.Game
         /// Graph가 소유한 Zone Link 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ZoneLink> ZoneLinks => zoneLinks;
+        public ReadOnlyListView<ZoneLink> ZoneLinks => new(zoneLinks);
 
         [SerializeField]
         private ZoneLink[] zoneLinks = Array.Empty<ZoneLink>();

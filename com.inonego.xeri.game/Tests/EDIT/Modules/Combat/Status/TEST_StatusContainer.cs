@@ -1,12 +1,12 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_StatusContainer.cs
-수정일 : 2026-11-20
+수정일 : 2026-11-23
 
 # 설명
 StatusContainer의 적용 규칙, 스택별 만료 순서, 소비·제거, 변경 알림, Revision과 복제·직렬화 계약을 검증한다.
 
 # 테스트 구성
- A: Stacking·Sourcing·Overflow 적용 규칙과 인자 검사
+ A: Stacking·Sourcing·Overflow 적용 규칙, 적용별 지속 시간과 인자 검사
  T: 시간 진행과 만료 알림
  C: 소비와 제거
  P: Revision, 복제, Unity 직렬화
@@ -94,7 +94,7 @@ namespace inonego.Xeri.Game.TEST._Status
             float? duration,
             StatusStacking stacking,
             StatusSourcing sourcing = StatusSourcing.PerOrigin,
-            StatusOverflow overflow = StatusOverflow.Reject
+            StatusOverflow? overflow = null
         )
         {
             return new StatusSpec(new StatusKey(key), maxStacks, duration, stacking, sourcing, overflow);
@@ -153,13 +153,13 @@ namespace inonego.Xeri.Game.TEST._Status
             var spec = CreateSpec("Hisui", 3, 5f, StatusStacking.Independent);
             var key = spec.Key;
 
-            Assert.AreEqual(StatusApplyResult.Added, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originA).Outcome);
 
             container.Advance(1f);
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA));
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA));
-            Assert.AreEqual(StatusApplyResult.Rejected, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Rejected, container.Apply(spec, originA).Outcome);
             Assert.AreEqual(3, container.CountStacks(key));
 
             // 처음 스택만 먼저 끝난다.
@@ -198,7 +198,7 @@ namespace inonego.Xeri.Game.TEST._Status
 
             changes.Clear();
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
             Assert.AreEqual(2, changes.Count);
             AssertChange(changes[0], StatusChangeKind.StacksRemoved, "Echo", -1, 1, StatusRemoveReason.Overflowed);
             AssertChange(changes[1], StatusChangeKind.Stacked, "Echo", 1, 2);
@@ -210,7 +210,7 @@ namespace inonego.Xeri.Game.TEST._Status
             // 한 번에 최대치보다 많이 넣으면 최대 스택 수만큼만 새로 넣고 기존 스택을 모두 밀어낸다.
             changes.Clear();
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA, 5));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA, new StatusApply(5)).Outcome);
             Assert.AreEqual(2, changes.Count);
             AssertChange(changes[0], StatusChangeKind.StacksRemoved, "Echo", -2, 0, StatusRemoveReason.Overflowed);
             AssertChange(changes[1], StatusChangeKind.Stacked, "Echo", 2, 2);
@@ -229,12 +229,12 @@ namespace inonego.Xeri.Game.TEST._Status
         {
             var container = new StatusContainer<TestOrigin>();
             var changes = Record(container);
-            var spec = CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew, StatusSourcing.Shared);
+            var spec = CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew, StatusSourcing.PerKey);
 
             container.Apply(spec, originA);
             container.Advance(3f);
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originB));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originB).Outcome);
             Assert.IsTrue(container.TryGet(spec.Key, originB, out var status));
             Assert.AreEqual(5f, status.GetStackTimer(0).RemainingTime, 0.0001f);
             Assert.AreEqual(5f, status.GetStackTimer(1).RemainingTime, 0.0001f);
@@ -242,7 +242,7 @@ namespace inonego.Xeri.Game.TEST._Status
             container.Advance(1f);
             changes.Clear();
 
-            Assert.AreEqual(StatusApplyResult.Renewed, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Renewed, container.Apply(spec, originA).Outcome);
             Assert.AreEqual(1, container.Statuses.Count);
             Assert.AreEqual(originA, container.Statuses[0].Origin);
             Assert.AreEqual(5f, container.Statuses[0].GetStackTimer(0).RemainingTime, 0.0001f);
@@ -265,8 +265,8 @@ namespace inonego.Xeri.Game.TEST._Status
             container.Apply(spec, originA);
             container.Advance(2f);
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA, 2));
-            Assert.AreEqual(StatusApplyResult.Rejected, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA, new StatusApply(2)).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Rejected, container.Apply(spec, originA).Outcome);
 
             Assert.IsTrue(container.TryGet(spec.Key, originA, out var status));
             Assert.AreEqual(3f, status.GetStackTimer(2).RemainingTime, 0.0001f);
@@ -293,9 +293,9 @@ namespace inonego.Xeri.Game.TEST._Status
             var container = new StatusContainer<TestOrigin>();
             var spec = CreateSpec("Wound", 2, 5f, StatusStacking.Independent);
 
-            Assert.AreEqual(StatusApplyResult.Added, container.Apply(spec, originA));
-            Assert.AreEqual(StatusApplyResult.Added, container.Apply(spec, originB));
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originA));
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originA).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originB).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
 
             Assert.AreEqual(2, container.Statuses.Count);
             Assert.AreEqual(3, container.CountStacks(spec.Key));
@@ -303,14 +303,142 @@ namespace inonego.Xeri.Game.TEST._Status
             Assert.AreEqual(1, container.CountStacks(spec.Key, originB));
 
             // 남은 자리보다 많이 넣으면 최대치까지만 더한다.
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(spec, originB, 5));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originB, new StatusApply(5)).Outcome);
             Assert.AreEqual(2, container.CountStacks(spec.Key, originB));
         }
 
         // ----------------------------------------------------------------------
         /// <summary>
+        /// <br/> SharedRenew에서 Overflow를 Reject로 지정하면 자리가 있을 때는
+        /// <br/> 스택을 더하며 모든 스택을 다시 시작하고,
+        /// <br/> 가득 찼을 때는 거절하며 시간·Revision·알림을 바꾸지 않는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_SharedRenew의Reject는가득차면시간도갱신하지않음()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var spec = CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew, overflow: StatusOverflow.Reject);
+
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originA).Outcome);
+            container.Advance(2f);
+
+            // 자리가 있으면 스택을 더하고 모든 스택을 다시 시작한다.
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
+            Assert.IsTrue(container.TryGet(spec.Key, originA, out var status));
+            Assert.AreEqual(2, status.Stacks);
+            Assert.AreEqual(5f, status.GetStackTimer(0).RemainingTime, 1e-4f);
+            Assert.AreEqual(5f, status.GetStackTimer(1).RemainingTime, 1e-4f);
+
+            container.Advance(2f);
+            var revision = container.Revision;
+            var changes = Record(container);
+
+            // 가득 찼으면 거절하고 남은 시간·Revision·알림이 그대로다.
+            Assert.AreEqual(StatusApplyOutcome.Rejected, container.Apply(spec, originA).Outcome);
+            Assert.AreEqual(3f, status.GetStackTimer(0).RemainingTime, 1e-4f);
+            Assert.AreEqual(revision, container.Revision);
+            Assert.AreEqual(0, changes.Count);
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Overflow 기본값이 스택 규칙을 따르고, Renew는 SharedRenew에서만 유효하며,
+        /// <br/> 같은 Key에 Overflow가 다른 SharedRenew를 적용하면 규칙 충돌로 거절되는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_Overflow기본값은규칙을따르고Renew는SharedRenew에서만유효()
+        {
+            Assert.AreEqual(StatusOverflow.Renew, CreateSpec("A", 2, 5f, StatusStacking.SharedRenew).Overflow);
+            Assert.AreEqual(StatusOverflow.Reject, CreateSpec("B", 2, 5f, StatusStacking.Independent).Overflow);
+            Assert.AreEqual(StatusOverflow.Reject, CreateSpec("C", 2, 5f, StatusStacking.SharedKeep).Overflow);
+
+            Assert.Throws<ArgumentException>(() => CreateSpec("D", 2, 5f, StatusStacking.Independent, overflow: StatusOverflow.Renew));
+            Assert.Throws<ArgumentException>(() => CreateSpec("E", 2, 5f, StatusStacking.SharedKeep, overflow: StatusOverflow.Renew));
+
+            var container = new StatusContainer<TestOrigin>();
+            container.Apply(CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew), originA);
+
+            var rejecting = CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew, overflow: StatusOverflow.Reject);
+            Assert.Throws<ArgumentException>(() => container.Apply(rejecting, originA));
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> GetStackTimer가 스택별 시간과 공유 시간 Status 모두에서
+        /// <br/> 범위 밖 인덱스를 ArgumentOutOfRangeException으로 거절하는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_GetStackTimer는범위밖인덱스를거절()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var shared = CreateSpec("Brand", 2, 5f, StatusStacking.SharedRenew);
+            var independent = CreateSpec("Echo", 2, 5f, StatusStacking.Independent);
+
+            container.Apply(shared, originA);
+            container.Apply(independent, originA);
+
+            Assert.IsTrue(container.TryGet(shared.Key, originA, out var sharedStatus));
+            Assert.IsTrue(container.TryGet(independent.Key, originA, out var independentStatus));
+
+            AssertRejectsOutOfRange(sharedStatus);
+            AssertRejectsOutOfRange(independentStatus);
+        }
+
+        // 유효하지 않은 인덱스(음수, 스택 수 이상)는 거절하고 유효한 인덱스는 시간을 돌려준다.
+        private static void AssertRejectsOutOfRange(IReadOnlyStatus<TestOrigin> status)
+        {
+            Assert.IsNotNull(status.GetStackTimer(0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => status.GetStackTimer(-1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => status.GetStackTimer(status.Stacks));
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Apply 결과가 처리 종류와 함께 늘어난 스택 수, 최대치 처리로 밀려난 스택 수,
+        /// <br/> 거절 여부를 담는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_Apply결과는늘어난스택과밀려난스택수를담음()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var replacing = CreateSpec("Echo", 3, 5f, StatusStacking.Independent, overflow: StatusOverflow.ReplaceEarliest);
+
+            var added = container.Apply(replacing, originA, new StatusApply(2));
+            Assert.AreEqual(StatusApplyOutcome.Added, added.Outcome);
+            Assert.AreEqual(2, added.StacksAdded);
+            Assert.AreEqual(0, added.StacksReplaced);
+
+            // 최대치를 넘는 만큼 가장 먼저 끝날 스택을 밀어낸다.
+            var replaced = container.Apply(replacing, originA, new StatusApply(2));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, replaced.Outcome);
+            Assert.AreEqual(2, replaced.StacksAdded);
+            Assert.AreEqual(1, replaced.StacksReplaced);
+
+            var rejecting = CreateSpec("Mark", 1, 5f, StatusStacking.Independent);
+            container.Apply(rejecting, originA);
+
+            var rejected = container.Apply(rejecting, originA);
+            Assert.IsTrue(rejected.IsRejected);
+            Assert.AreEqual(0, rejected.StacksAdded);
+            Assert.AreEqual(0, rejected.StacksReplaced);
+
+            // 시간만 갱신한 적용은 늘어난 스택이 없다.
+            var renewing = CreateSpec("Brand", 1, 5f, StatusStacking.SharedRenew);
+            container.Apply(renewing, originA);
+
+            var renewed = container.Apply(renewing, originA);
+            Assert.AreEqual(StatusApplyOutcome.Renewed, renewed.Outcome);
+            Assert.AreEqual(0, renewed.StacksAdded);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
         /// <br/> Spec 동등성이 동작에 쓰이지 않는 값(지속 시간이 없을 때의 Duration,
-        /// <br/> Independent가 아닐 때의 Overflow)을 비교하지 않는지 검증한다.
+        /// <br/> 스택 규칙에서 쓰이지 않는 Overflow 값)을 비교하지 않는지 검증한다.
         /// </summary>
         // ----------------------------------------------------------------------
         [Test]
@@ -329,7 +457,7 @@ namespace inonego.Xeri.Game.TEST._Status
             // 쓰이지 않는 값만 다른 Spec은 같은 Key에 그대로 적용된다.
             container.Apply(renew, originA);
 
-            Assert.AreEqual(StatusApplyResult.Stacked, container.Apply(renewWithOverflow, originA));
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(renewWithOverflow, originA).Outcome);
         }
 
         // ------------------------------------------------------------
@@ -349,7 +477,7 @@ namespace inonego.Xeri.Game.TEST._Status
 
             Assert.Throws<ArgumentException>(() => container.Apply(conflicting, originB));
             Assert.Throws<ArgumentNullException>(() => container.Apply(null, originA));
-            Assert.Throws<ArgumentOutOfRangeException>(() => container.Apply(spec, originA, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => container.Apply(spec, originA, new StatusApply(0)));
             Assert.Throws<ArgumentOutOfRangeException>(() => container.Consume(spec.Key, 0));
             Assert.Throws<ArgumentOutOfRangeException>(() => container.Advance(float.NaN));
 
@@ -358,6 +486,108 @@ namespace inonego.Xeri.Game.TEST._Status
 
             Assert.Throws<ArgumentException>(() => CreateSpec("Mark", 0, 5f, StatusStacking.Independent));
             Assert.Throws<ArgumentException>(() => CreateSpec("Mark", 1, 0f, StatusStacking.Independent));
+        }
+
+    #endregion
+
+    #region A-3: 적용별 지속 시간
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// Independent에서 지정 지속 시간이 이번 적용의 새 스택에만 쓰이는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_지정지속시간은Independent새스택에만적용()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var changes = Record(container);
+            var spec = CreateSpec("Bleed", 3, 5f, StatusStacking.Independent);
+
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originA, new StatusApply(duration: 2f)).Outcome);
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA).Outcome);
+
+            Assert.IsTrue(container.TryGet(spec.Key, originA, out var status));
+            Assert.AreEqual(5f, status.Spec.Duration);
+            Assert.AreEqual(2f, status.GetStackTimer(0).Duration, 0.0001f);
+            Assert.AreEqual(5f, status.GetStackTimer(1).Duration, 0.0001f);
+
+            changes.Clear();
+            container.Advance(2f);
+
+            Assert.AreEqual(1, container.CountStacks(spec.Key));
+            AssertChange(changes[0], StatusChangeKind.StacksRemoved, "Bleed", -1, 1, StatusRemoveReason.Expired);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> SharedRenew가 최근 적용의 지정 지속 시간으로 모든 스택을 다시 시작하고
+        /// <br/> 더 짧은 지정값이면 남은 시간도 줄어드는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_SharedRenew는최근적용의지정지속시간으로재시작()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var spec = CreateSpec("Mark", 2, 5f, StatusStacking.SharedRenew, StatusSourcing.PerKey);
+
+            container.Apply(spec, originA);
+            container.Advance(1f);
+
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originB, new StatusApply(duration: 2f)).Outcome);
+            Assert.AreEqual(2f, container.Statuses[0].GetStackTimer(0).RemainingTime, 0.0001f);
+            Assert.AreEqual(2f, container.Statuses[0].GetStackTimer(1).RemainingTime, 0.0001f);
+
+            // 지정하지 않은 갱신은 다시 Spec 지속 시간을 쓴다.
+            Assert.AreEqual(StatusApplyOutcome.Renewed, container.Apply(spec, originA).Outcome);
+            Assert.AreEqual(5f, container.Statuses[0].GetStackTimer(0).RemainingTime, 0.0001f);
+            Assert.AreEqual(5f, container.Statuses[0].GetStackTimer(1).RemainingTime, 0.0001f);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// SharedKeep이 처음 적용에만 지정 지속 시간을 쓰는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_SharedKeep은첫적용에만지정지속시간사용()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var spec = CreateSpec("Buff", 3, 5f, StatusStacking.SharedKeep);
+
+            Assert.AreEqual(StatusApplyOutcome.Added, container.Apply(spec, originA, new StatusApply(duration: 2f)).Outcome);
+            container.Advance(0.5f);
+
+            // 더한 스택은 지정값과 관계없이 기존 스택과 같은 시점에 끝난다.
+            Assert.AreEqual(StatusApplyOutcome.Stacked, container.Apply(spec, originA, new StatusApply(duration: 10f)).Outcome);
+            Assert.IsTrue(container.TryGet(spec.Key, originA, out var status));
+            Assert.AreEqual(1.5f, status.GetStackTimer(0).RemainingTime, 0.0001f);
+            Assert.AreEqual(1.5f, status.GetStackTimer(1).RemainingTime, 0.0001f);
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 잘못된 지정 지속 시간이 상태 변경 전에 거절되는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_잘못된지정지속시간은상태변경전예외()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var timed = CreateSpec("Mark", 2, 5f, StatusStacking.Independent);
+            var untimed = CreateSpec("Brand", 1, null, StatusStacking.Independent);
+
+            container.Apply(timed, originA);
+            var revision = container.Revision;
+
+            Assert.Throws<ArgumentException>(() => container.Apply(untimed, originA, new StatusApply(duration: 3f)));
+            Assert.Throws<ArgumentOutOfRangeException>(() => container.Apply(timed, originA, new StatusApply(duration: 0f)));
+            Assert.Throws<ArgumentOutOfRangeException>(() => container.Apply(timed, originA, new StatusApply(duration: float.NaN)));
+            Assert.Throws<ArgumentOutOfRangeException>(() => container.Apply(timed, originA, new StatusApply(duration: float.PositiveInfinity)));
+
+            Assert.AreEqual(revision, container.Revision);
+            Assert.AreEqual(1, container.CountStacks(timed.Key));
+            Assert.AreEqual(0, container.CountStacks(untimed.Key));
         }
 
     #endregion
@@ -487,6 +717,29 @@ namespace inonego.Xeri.Game.TEST._Status
             Assert.AreEqual(1, container.CountStacks(spec.Key));
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 구독자 예외 하나가 원래 스택 추적을 유지한 채 전달되는지 검증한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_구독자예외하나는원래스택추적유지()
+        {
+            var container = new StatusContainer<TestOrigin>();
+            var spec = CreateSpec("Mark", 1, 5f, StatusStacking.Independent);
+
+            container.OnChanged += ThrowFromObserver;
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => container.Apply(spec, originA));
+
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromObserver)));
+        }
+
+        private static void ThrowFromObserver(StatusContainer<TestOrigin> sender, StatusChange<TestOrigin> change)
+        {
+            throw new InvalidOperationException("observer");
+        }
+
     #endregion
 
     #region C-1: 소비와 제거
@@ -542,7 +795,7 @@ namespace inonego.Xeri.Game.TEST._Status
             var mark = CreateSpec("Mark", 3, 5f, StatusStacking.Independent);
             var slow = CreateSpec("Slow", 1, 5f, StatusStacking.Independent);
 
-            container.Apply(mark, originA, 2);
+            container.Apply(mark, originA, new StatusApply(2));
             container.Apply(mark, originB);
             container.Apply(slow, originA);
 
@@ -577,25 +830,25 @@ namespace inonego.Xeri.Game.TEST._Status
             var spec = CreateSpec("Mark", 1, 1f, StatusStacking.Independent);
 
             container.Clear();
-            Assert.AreEqual(0UL, container.Revision);
+            Assert.AreEqual(Revision.None, container.Revision);
 
             container.Apply(spec, originA);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             container.Apply(spec, originA);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             Assert.IsFalse(container.Remove(spec.Key, originB));
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             // 시간 만료는 시간에서 결정되므로 변경 번호를 바꾸지 않는다.
             container.Advance(1f);
             Assert.AreEqual(0, container.Statuses.Count);
-            Assert.AreEqual(1UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), container.Revision);
 
             container.Apply(spec, originA);
             container.Consume(spec.Key, 1);
-            Assert.AreEqual(3UL, container.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), container.Revision);
         }
 
     #endregion
@@ -625,7 +878,7 @@ namespace inonego.Xeri.Game.TEST._Status
             target.CloneFrom(source);
 
             Assert.AreEqual(0, targetChanges.Count);
-            Assert.AreEqual(revision + 1, target.Revision);
+            Assert.AreEqual(revision.Inc(), target.Revision);
             Assert.AreEqual(3, target.CountStacks(spec.Key));
 
             var sourceChanges = Record(source);
@@ -641,6 +894,40 @@ namespace inonego.Xeri.Game.TEST._Status
 
         // ----------------------------------------------------------------------
         /// <summary>
+        /// <br/> CloneFrom이 기존 Status를 source 구성으로 바꾸고
+        /// <br/> 복제본을 source와 독립으로 만드는지 검증한다.
+        /// <br/> 복제 전에 읽어 둔 Status 항목은 새로 만든 항목과 다른 인스턴스다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_StatusContainer_CloneFrom은기존Status를교체하고복제본은source와독립()
+        {
+            var mark = CreateSpec("Mark", 3, 3f, StatusStacking.Independent);
+            var brand = CreateSpec("Brand", 1, null, StatusStacking.SharedKeep, StatusSourcing.PerKey);
+
+            var source = new StatusContainer<TestOrigin>();
+            source.Apply(mark, originA);
+
+            var target = new StatusContainer<TestOrigin>();
+            target.Apply(brand, originB);
+            var stale = target.Statuses[0];
+
+            target.CloneFrom(source);
+
+            Assert.AreEqual(1, target.Statuses.Count);
+            Assert.AreEqual(mark.Key, target.Statuses[0].Spec.Key);
+            Assert.AreEqual(0, target.CountStacks(brand.Key));
+            Assert.AreNotSame(stale, target.Statuses[0]);
+
+            // 복제본을 바꿔도 source는 그대로다.
+            target.Remove(mark.Key);
+
+            Assert.AreEqual(0, target.Statuses.Count);
+            Assert.AreEqual(1, source.CountStacks(mark.Key));
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
         /// <br/> Unity 직렬화 왕복이 Spec 복사본·출처·남은 시간·적용 순번을 보존하고
         /// <br/> 복원 뒤 Revision을 올리는지 검증한다.
         /// </summary>
@@ -651,7 +938,7 @@ namespace inonego.Xeri.Game.TEST._Status
             var holder = new Holder();
             var source = holder.Statuses;
             var mark = CreateSpec("Mark", 3, 3f, StatusStacking.Independent);
-            var brand = CreateSpec("Brand", 1, null, StatusStacking.SharedKeep, StatusSourcing.Shared);
+            var brand = CreateSpec("Brand", 1, null, StatusStacking.SharedKeep, StatusSourcing.PerKey);
 
             source.Apply(mark, originA);
             source.Advance(1f);
@@ -660,7 +947,7 @@ namespace inonego.Xeri.Game.TEST._Status
 
             var restored = JsonUtility.FromJson<Holder>(JsonUtility.ToJson(holder)).Statuses;
 
-            Assert.Greater(restored.Revision, 0UL);
+            Assert.IsFalse(restored.Revision.IsNone);
             Assert.AreEqual(3, restored.Statuses.Count);
             Assert.AreEqual(mark, restored.Statuses[0].Spec);
             Assert.AreNotSame(mark, restored.Statuses[0].Spec);
@@ -701,8 +988,8 @@ namespace inonego.Xeri.Game.TEST._Status
             var hit = CreateSpec("Hit", 5, 1f, StatusStacking.Independent);
             var leaked = new List<object>();
 
-            container.Apply(renew, originA, 2);
-            container.Apply(keep, originA, 5);
+            container.Apply(renew, originA, new StatusApply(2));
+            container.Apply(keep, originA, new StatusApply(5));
 
             // 남은 시간이 0.5, 0.75, 1인 독립 스택을 만든다.
             container.Apply(hit, originA);

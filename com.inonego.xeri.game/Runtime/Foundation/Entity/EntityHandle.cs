@@ -1,9 +1,9 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : EntityHandle.cs
-수정일 : 2026-11-13
+수정일 : 2026-11-25
 
 # 설명
-Spawned Entity의 객체 참조·Key·등록 Revision을 함께 보존하는 비소유 Runtime Handle.
+Spawned Entity의 객체 참조·Key·등록 수명 번호를 함께 보존하는 비소유 Runtime Handle.
 같은 객체와 Key가 다시 등록되어도 이전 등록 수명을 가리키는 Handle은 무효로 남는다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -35,12 +35,8 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public ulong Key { get; }
 
-        // ------------------------------------------------------------
-        /// <summary>
-        /// Handle 생성 시점의 등록 Revision.
-        /// </summary>
-        // ------------------------------------------------------------
-        public ulong RegistrationRevision { get; }
+        // 생성 시점의 Entity와 등록 수명 번호. 같은 객체가 재등록되면 현재가 아니다.
+        private readonly RevisionMark registration;
 
     #endregion
 
@@ -62,7 +58,7 @@ namespace inonego.Xeri.Game
             (
                 !entity.HasKey ||
                 entity.SpawnState != SpawnState.Spawned ||
-                entity.RegistrationRevision == 0
+                entity.RegistrationGeneration.IsNone
             )
             {
                 throw new InvalidOperationException
@@ -73,7 +69,7 @@ namespace inonego.Xeri.Game
 
             Entity = entity;
             Key = entity.Key;
-            RegistrationRevision = entity.RegistrationRevision;
+            registration = RevisionMark.Capture(entity);
         }
 
     #endregion
@@ -98,7 +94,7 @@ namespace inonego.Xeri.Game
                 entity == null ||
                 !entity.HasKey ||
                 entity.SpawnState != SpawnState.Spawned ||
-                entity.RegistrationRevision == 0
+                entity.RegistrationGeneration.IsNone
             )
             {
                 return false;
@@ -123,7 +119,7 @@ namespace inonego.Xeri.Game
                 Entity != null &&
                 Entity.HasKey &&
                 Entity.Key == Key &&
-                Entity.RegistrationRevision == RegistrationRevision &&
+                registration.IsCurrent &&
                 Entity.SpawnState == SpawnState.Spawned;
         }
 

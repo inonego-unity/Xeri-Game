@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : INavigationPlanner.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 외부 Planner가 소비하는 계약과 그 경로 요청 값(NavigationPlanRequest)을 정의한다.
@@ -52,10 +52,10 @@ namespace inonego.Xeri.Game.Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 요청 당시 목표 Revision입니다.
+        /// 요청 당시 목표 Generation입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long GoalRevision { get; }
+        public Revision GoalGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -66,10 +66,11 @@ namespace inonego.Xeri.Game.Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 외부 Host가 제공한 World Revision입니다.
+        /// <br/> 외부 Host가 제공한 World Revision입니다.
+        /// <br/> Host는 1부터 발급하며 None은 허용하지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long WorldRevision { get; }
+        public Revision WorldRevision { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -87,12 +88,12 @@ namespace inonego.Xeri.Game.Navigation
 
         internal NavigationPlanRequest
         (
-            MotionActorKey actor, long goalRevision, long requestID,
-            long worldRevision, in TPoint start, in TPoint goal
+            MotionActorKey actor, Revision goalGeneration, long requestID,
+            Revision worldRevision, in TPoint start, in TPoint goal
         )
         {
             Actor = actor;
-            GoalRevision = goalRevision;
+            GoalGeneration = goalGeneration;
             RequestID = requestID;
             WorldRevision = worldRevision;
             Start = start;

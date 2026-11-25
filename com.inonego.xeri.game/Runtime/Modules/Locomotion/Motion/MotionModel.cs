@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotionModel.cs
-수정일 : 2026-11-22
+수정일 : 2026-11-25
 
 # 설명
 Actor 하나의 기본 의도(Base)와 Modifier 항목을 채널별 Core MValue(Planar·Elevation·Rotation)로 접어
@@ -89,8 +89,8 @@ namespace inonego.Xeri.Game.Motion
         /// <br/> Restore로 되돌리지 않아 이전 결과를 구분한다.
         /// </summary>
         // ------------------------------------------------------------
-        public long StepVersion => stepVersion;
-        private long stepVersion;
+        public Revision StepGeneration => stepGeneration;
+        private Revision stepGeneration = Revision.None;
 
         // 채널 값. Base는 기본 의도, Modifier는 항목이다.
         private readonly MValue<Vector3> planar = new();
@@ -745,11 +745,11 @@ namespace inonego.Xeri.Game.Motion
             ResolveAction(out var actionID, out var actionStartTick);
 
             lastTick = tick.Index;
-            stepVersion = checked(stepVersion + 1);
+            stepGeneration = stepGeneration.Inc();
 
             return new MotionFrame
             (
-                Actor, tick, stepVersion, Up,
+                Actor, tick, stepGeneration, Up,
                 planarMode, planarMode == MotionChannelMode.Set ? ProjectPlanar(planar.Modified) : Vector3.zero,
                 elevationMode, elevationMode == MotionChannelMode.Set ? elevation.Modified : 0f,
                 rotationMode, rotationMode == MotionChannelMode.Set ? rotation.Modified : Vector3.zero,
@@ -910,7 +910,7 @@ namespace inonego.Xeri.Game.Motion
         // ------------------------------------------------------------
         /// <summary>
         /// <br/> 같은 Actor의 Snapshot으로 상태를 되돌린다.
-        /// <br/> StepVersion은 되돌리지 않고 새로 발급한다.
+        /// <br/> StepGeneration은 되돌리지 않고 새로 발급한다.
         /// </summary>
         // ------------------------------------------------------------
         public void Restore(MotionModelSnapshot snapshot)
@@ -942,7 +942,7 @@ namespace inonego.Xeri.Game.Motion
 
             ResolveModifiers();
 
-            stepVersion = checked(stepVersion + 1);
+            stepGeneration = stepGeneration.Inc();
         }
 
     #endregion

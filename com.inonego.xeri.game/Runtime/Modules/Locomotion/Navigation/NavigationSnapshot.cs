@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : NavigationSnapshot.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 Goal과 Path만 포함하는 독립 Owned Snapshot을 정의한다.
@@ -37,17 +37,17 @@ namespace inonego.Xeri.Game.Navigation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 캡처 당시 목표 Revision이며 복원 때 다시 쓰지 않습니다.
+        /// 캡처 당시 목표 Generation이며 복원 때 다시 쓰지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long GoalRevision { get; }
+        public Revision GoalGeneration { get; }
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 캡처 당시 World Revision이며 없으면 -1입니다.
+        /// 캡처 당시 World Revision이며 없으면 None입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long WorldRevision { get; }
+        public Revision WorldRevision { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -86,13 +86,13 @@ namespace inonego.Xeri.Game.Navigation
 
         internal NavigationSnapshot
         (
-            MotionActorKey actor, long revision, long worldRevision,
+            MotionActorKey actor, Revision goalGeneration, Revision worldRevision,
             NavigationStatus status, bool hasGoal, in TPoint goal,
             TPoint[] waypoints, int index
         )
         {
             Actor = actor;
-            GoalRevision = revision;
+            GoalGeneration = goalGeneration;
             WorldRevision = worldRevision;
             Status = status;
             HasGoal = hasGoal;

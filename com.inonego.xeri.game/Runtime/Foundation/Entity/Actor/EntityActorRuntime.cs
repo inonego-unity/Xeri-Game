@@ -266,7 +266,7 @@ namespace inonego.Xeri.Game
 
             try
             {
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
                 actorController.TryGetEntity(actor, out var entity);
 
                 try
@@ -275,10 +275,7 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures = new List<Exception>
-                    {
-                        exception
-                    };
+                    failures.Add(exception);
                 }
 
                 try
@@ -287,22 +284,12 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception exception)
                 {
-                    failures ??= new List<Exception>();
                     failures.Add(exception);
                 }
 
-                if (failures == null)
-                {
-                    return true;
-                }
+                failures.ThrowWhenAny("Presentation과 Entity Actor 반환 중 오류가 발생했습니다.");
 
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException
-                    (
-                        "Presentation과 Entity Actor 반환 중 오류가 발생했습니다.",
-                        failures
-                    );
+                return true;
             }
             finally
             {

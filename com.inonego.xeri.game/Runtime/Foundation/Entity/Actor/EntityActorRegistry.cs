@@ -64,17 +64,7 @@ namespace inonego.Xeri.Game
         /// 현재 Registry가 수명을 추적하는 모든 Actor.
         /// </summary>
         // ------------------------------------------------------------
-        public ReadOnlySetView<TEntityActor> Actors
-        {
-            get
-            {
-                actorsView ??= new ReadOnlySetView<TEntityActor>(actors);
-                return actorsView;
-            }
-        }
-
-        [NonSerialized]
-        private ReadOnlySetView<TEntityActor> actorsView = null;
+        public ReadOnlySetView<TEntityActor> Actors => new(actors);
 
         // 하나의 Registry는 하나의 Controller만 소유한다.
         [NonSerialized]
@@ -86,15 +76,15 @@ namespace inonego.Xeri.Game
             ReferenceEqualityComparer<TEntityActor>.Instance
         );
 
-        // 같은 인스턴스가 풀에서 재사용돼도 등록 수명을 구분하는 단조 증가 식별자.
+        // 같은 인스턴스가 풀에서 재사용돼도 등록 수명을 구분하는 단조 증가 번호.
         [NonSerialized]
-        private readonly Dictionary<TEntityActor, long> registrationSerials = new
+        private readonly Dictionary<TEntityActor, Revision> registrationGenerations = new
         (
             ReferenceEqualityComparer<TEntityActor>.Instance
         );
 
         [NonSerialized]
-        private long lastRegistrationSerial = 0;
+        private Revision lastRegistrationGeneration = Revision.None;
 
         [NonSerialized]
         private readonly Dictionary<TEntity, ActorGroup> actorsByEntity = new
@@ -193,7 +183,8 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("동일 Entity Actor를 중복 등록할 수 없습니다.");
             }
 
-            registrationSerials[actor] = ++lastRegistrationSerial;
+            lastRegistrationGeneration = lastRegistrationGeneration.Inc();
+            registrationGenerations[actor] = lastRegistrationGeneration;
         }
 
         // ------------------------------------------------------------
@@ -213,7 +204,7 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("Bound Actor는 Detach한 뒤 Registry에서 제거해야 합니다.");
             }
 
-            registrationSerials.Remove(actor);
+            registrationGenerations.Remove(actor);
             return actors.Remove(actor);
         }
 
@@ -369,12 +360,13 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 등록 수명의 식별자를 반환한다. 등록되어 있지 않으면 0이다.
+        /// 현재 등록 수명 번호를 반환한다. 등록되어 있지 않으면 None이다.
         /// </summary>
         // ------------------------------------------------------------
-        internal long GetRegistrationSerial(TEntityActor actor)
+        internal Revision GetRegistrationGeneration(TEntityActor actor)
         {
-            return actor != null && registrationSerials.TryGetValue(actor, out var serial) ? serial : 0;
+            return actor != null && registrationGenerations.TryGetValue(actor, out var generation)
+                ? generation : Revision.None;
         }
 
         // ------------------------------------------------------------

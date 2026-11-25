@@ -149,7 +149,7 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
                 if (context.Payload.CooldownReduction > 0f)
                 {
-                    context.Recipient.Control.ReduceCooldown
+                    context.Recipient.ReduceCooldown
                     (
                         context.Payload.CooldownReduction
                     );
@@ -157,7 +157,7 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
 
                 if (context.Payload.ChargeRestore > 0)
                 {
-                    context.Recipient.Control.RestoreCharge
+                    context.Recipient.AddCharge
                     (
                         context.Payload.ChargeRestore
                     );
@@ -270,12 +270,12 @@ namespace inonego.Xeri.Game.TEST._GameplayOperation
         /// </summary>
         // ----------------------------------------------------------------------
         [Test]
-        public void TEST_GameplayOperation_AbilityStateControl로CooldownCharge변경()
+        public void TEST_GameplayOperation_AbilityState로CooldownCharge변경()
         {
             var state = new AbilityState(new AbilityKey("Feedback"));
-            state.Control.ConfigureCharge(3, 1f);
-            state.Control.TryConsumeCharge(2);
-            state.Control.TryBeginCooldown(5f);
+            state.ConfigureCharge(3, 1f);
+            state.TryConsumeCharge(2);
+            state.TryBeginCooldown(5f);
             var context = new GameplayOperationContext
             <
                 AbilityState,

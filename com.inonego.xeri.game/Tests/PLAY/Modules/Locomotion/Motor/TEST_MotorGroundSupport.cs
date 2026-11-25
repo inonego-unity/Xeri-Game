@@ -90,7 +90,7 @@ namespace inonego.Xeri.Game.TEST.Motor._GroundSupport
                 };
                 checker.Init(player);
 
-                var actor = new MotionActorKey(112, 1, 1);
+                var actor = new MotionActorKey(112, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState2D>
                 (
                     actor, new RigidbodyMotorBackend2D(playerBody)
@@ -203,7 +203,7 @@ namespace inonego.Xeri.Game.TEST.Motor._GroundSupport
                 };
                 checker.Init(player);
 
-                var actor = new MotionActorKey(111, 1, 1);
+                var actor = new MotionActorKey(111, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState3D>
                 (
                     actor, new RigidbodyMotorBackend3D(playerBody)
@@ -329,7 +329,7 @@ namespace inonego.Xeri.Game.TEST.Motor._GroundSupport
 
                 var motor = new Motor<MotorState2D>
                 (
-                    new MotionActorKey(113, 1, 1),
+                    new MotionActorKey(113, 1, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend2D(playerBody)
                 );
                 var support = new MotorGroundSupport<MotorState2D>

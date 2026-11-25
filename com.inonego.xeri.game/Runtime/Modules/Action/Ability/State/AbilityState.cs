@@ -1,22 +1,23 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityState.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-25
 
 # 설명
 Owner별 Ability 지속 상태, Cooldown, Charge와 Values를 독립 관리한다.
 Cooldown·Charge Timer는 내부 저장소로만 쓰고 값 읽기(ITimerProgress)만 공개하며, 시간 진행 중에는 외부 코드를 호출하지 않는다.
 Cooldown 종료·Charge 충전 알림은 진행이 끝난 뒤 보낸다.
-외부 변경은 AbilityStateControl에서 수행하고 active Execution 상태는 보관하지 않는다.
+Cooldown 규칙은 AbilityCooldownState, Charge 규칙은 AbilityChargeState가 소유하고 이 타입은 Key·Revision·알림·Values를 맡는다.
+Cooldown·Charge 변경은 이 타입의 공개 메서드로 수행하며 잘못된 인자는 예외로, 상태 규칙에 맞지 않는 요청은 false나 0으로 알린다.
+active Execution 상태는 보관하지 않는다.
 실제로 바뀐 이산 변경마다 Revision을 한 번 올리며 시간 진행(Advance)은 Revision을 바꾸지 않는다.
-Unity 직렬화로 복원하면 Revision을 올리고 복원된 Values를 즉시 관찰한다. 같은 Key 데이터만, 사용 중이 아닐 때만 복원한다.
+구성하지 않은 Charge는 직렬화 왕복 뒤에도 구성하지 않은 채로 복원한다. Unity 직렬화로 복원하면 Revision을 올리고 복원된 Values를 즉시 관찰한다. 같은 Key 데이터만, 사용 중이 아닐 때만 복원한다.
 CloneFrom은 인스턴스와 구독을 유지한 채 변경 알림 없이 복제하고 Key 불일치·사용 중 복제를 거부한다.
+복제 중 Cooldown·Values·Charge 단계가 실패해도 나머지를 끝까지 진행하고 Revision을 올린 뒤 실패를 전달한다(실패한 단계는 이전 상태일 수 있다).
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime;
-using System.Runtime.ExceptionServices;
 
 using UnityEngine;
 
@@ -37,10 +38,10 @@ namespace inonego.Xeri.Game
     /// </summary>
     // ================================================================================
     [Serializable]
-    public class AbilityState : ISerializationCallbackReceiver, IDeepCloneable<AbilityState>
+    public class AbilityState : ISerializationCallbackReceiver, IDeepCloneable<AbilityState>, IRevisioned
     {
 
-    #region 지속 상태
+    #region 필드
 
         // ------------------------------------------------------------
         /// <summary>
@@ -65,15 +66,10 @@ namespace inonego.Xeri.Game
         /// 현재 쿨다운 타이머를 읽기 전용으로 제공한다.
         /// </summary>
         // ------------------------------------------------------------
-        public ITimerProgress Cooldown => cooldown;
+        public ITimerProgress Cooldown => cooldown.Progress;
 
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 직렬화되는 Cooldown Timer를 보관한다.
-        /// </summary>
-        // ------------------------------------------------------------
         [SerializeField]
-        protected Timer cooldown = new();
+        private AbilityCooldownState cooldown = new();
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -106,12 +102,23 @@ namespace inonego.Xeri.Game
         [SerializeField]
         private AbilityChargeState charge = null;
 
+        // Unity가 null인 클래스 필드를 기본 객체로 저장하므로 구성 여부를 따로 저장해 복원 때 null로 되돌린다.
+        [SerializeField]
+        private bool hasCharge = false;
+
         // ----------------------------------------------------------------------
         /// <summary>
         /// Cooldown이 시작 가능한 상태인지 반환한다. 실제 사용 승인은 Policy가 판단한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        public bool IsCooldownReady => !cooldown.IsRunning && !cooldown.IsPaused;
+        public bool IsCooldownReady => cooldown.IsReady;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 사용 구간 안인지 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool IsInUse => isInUse;
 
         [NonSerialized]
         private bool isInUse = false;
@@ -122,27 +129,10 @@ namespace inonego.Xeri.Game
         /// <br/> Advance의 시간 진행은 변경 번호를 바꾸지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        public ulong Revision => revision;
+        public Revision Revision => revision;
 
         [NonSerialized]
-        private ulong revision = 0;
-
-        [NonSerialized]
-        private AbilityStateControl control = null;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// Ability 지속 상태의 변경을 제한하는 제어 API를 제공한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public AbilityStateControl Control
-        {
-            get
-            {
-                control ??= new AbilityStateControl(this);
-                return control;
-            }
-        }
+        private Revision revision = Revision.None;
 
     #endregion
 
@@ -209,6 +199,8 @@ namespace inonego.Xeri.Game
         /// <br/> source의 Cooldown·Values·Charge를 변경 알림 없이 복제한다.
         /// <br/> 복제 뒤 Revision을 1 올리며 인스턴스와 구독은 유지한다.
         /// <br/> 같은 Key의 상태만, 사용 중이 아닐 때만 복제한다.
+        /// <br/> Cooldown·Values·Charge 중 하나가 실패해도 나머지를 진행하고
+        /// <br/> Revision을 올린 뒤 실패를 전달한다.
         /// </summary>
         // ----------------------------------------------------------------------
         public void CloneFrom(AbilityState source)
@@ -234,26 +226,52 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("사용 중인 AbilityState는 복제로 덮어쓸 수 없습니다.");
             }
 
-            cooldown.CloneFrom(source.cooldown);
+            // 단계 하나가 실패해도 나머지를 진행해야 이미 바뀐 상태가 Revision에 반영된다.
+            var failures = new ExceptionBuffer();
 
-            ObserveValues();
-            values.CloneFrom(source.values);
+            try
+            {
+                cooldown.CloneFrom(source.cooldown);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                ObserveValues();
+                values.CloneFrom(source.values);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
 
             // 구성된 Charge는 인스턴스를 유지해 읽기 전용 참조와 Timer 구독이 끊기지 않게 한다.
-            if (source.charge == null)
+            try
             {
-                charge = null;
+                if (source.charge == null)
+                {
+                    charge = null;
+                }
+                else if (charge == null)
+                {
+                    charge = source.charge.Clone();
+                }
+                else
+                {
+                    charge.CloneFrom(source.charge);
+                }
             }
-            else if (charge == null)
+            catch (Exception exception)
             {
-                charge = source.charge.Clone();
-            }
-            else
-            {
-                charge.CloneFrom(source.charge);
+                failures.Add(exception);
             }
 
             MarkChanged();
+
+            failures.ThrowWhenAny("AbilityState 복제 중 여러 구성이 실패했습니다.");
         }
 
     #endregion
@@ -304,9 +322,7 @@ namespace inonego.Xeri.Game
 
             var clampedDeltaTime = Mathf.Max(0f, deltaTime);
 
-            var wasCooling = cooldown.IsRunning;
-            cooldown.Tick(clampedDeltaTime);
-            var cooldownEnded = wasCooling && !cooldown.IsRunning && !cooldown.IsPaused;
+            var cooldownEnded = cooldown.Advance(clampedDeltaTime);
             var recharged = charge?.Advance(clampedDeltaTime) ?? 0;
 
             // 진행이 모두 끝난 뒤에 알린다.
@@ -321,7 +337,7 @@ namespace inonego.Xeri.Game
         // ----------------------------------------------------------------------
         private void RaiseAdvanced(bool cooldownEnded, int recharged)
         {
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             if (cooldownEnded && OnCooldownEnded != null)
             {
@@ -333,7 +349,7 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        (failures ??= new List<Exception>()).Add(exception);
+                        failures.Add(exception);
                     }
                 }
             }
@@ -348,106 +364,36 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        (failures ??= new List<Exception>()).Add(exception);
+                        failures.Add(exception);
                     }
                 }
             }
 
-            if (failures?.Count == 1)
-            {
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
-            }
-
-            if (failures?.Count > 1)
-            {
-                throw new AggregateException("Ability 상태 알림 중 복수의 오류가 발생했습니다.", failures);
-            }
+            failures.ThrowWhenAny("Ability 상태 알림 중 복수의 오류가 발생했습니다.");
         }
 
     #endregion
 
-    #region 쿨다운 상태
+    #region 쿨다운 변경
 
-        // ----------------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/> Cooldown이 시작 가능한 경우에만 지속시간을 설정한다.
-        /// <br/> 지속시간 0은 시작할 것이 없으므로 아무것도 바꾸지 않고 true를 반환한다.
+        /// <br/> 유효한 지속시간을 확인하고 Cooldown을 시작한다. 진행 중이거나 일시정지된 Cooldown이
+        /// <br/> 있으면 시작하지 않고 false를 반환한다. 지속시간 0은 시작할 Cooldown이 없으므로
+        /// <br/> 항상 true를 반환하며 진행 중인 Cooldown과 Revision에 영향을 주지 않는다.
+        /// <br/> NaN·무한대·음수 지속시간은 ArgumentOutOfRangeException을 던진다.
         /// </summary>
-        // ----------------------------------------------------------------------
-        internal bool TryBeginCooldown(float duration)
+        // --------------------------------------------------------------------------------
+        public bool TryBeginCooldown(float duration)
         {
+            AbilityCooldownState.ValidateDuration(duration);
+
             if (duration <= 0f)
             {
                 return true;
             }
 
-            if (cooldown.IsRunning || cooldown.IsPaused)
-            {
-                return false;
-            }
-
-            MarkChanged();
-            cooldown.Start(duration);
-            return true;
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 진행 중인 Cooldown을 종료하고 실제 변경 여부를 반환한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        internal bool ResetCooldown()
-        {
-            if (!cooldown.IsRunning && !cooldown.IsPaused)
-            {
-                return false;
-            }
-
-            MarkChanged();
-            cooldown.Stop();
-            return true;
-        }
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// Cooldown 잔여시간을 감소시키고 소진되면 종료한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        internal bool ReduceCooldown(float amount)
-        {
-            if
-            (
-                amount <= 0f ||
-                (!cooldown.IsRunning && !cooldown.IsPaused)
-            )
-            {
-                return false;
-            }
-
-            var remaining = cooldown.RemainingTime;
-            if (amount < remaining)
-            {
-                cooldown.RemainingTime = remaining - amount;
-
-                // Timer는 float 정밀도로 남은 시간을 반영하므로 대입한 뒤의 실제 값으로 판정한다.
-                var reduced = cooldown.RemainingTime;
-                if (reduced == remaining)
-                {
-                    return false;
-                }
-
-                MarkChanged();
-                if (reduced <= 0f)
-                {
-                    cooldown.Stop();
-                }
-
-                return true;
-            }
-
-            MarkChanged();
-            cooldown.Stop();
-            return true;
+            return MarkChangedIf(cooldown.TryBegin(duration));
         }
 
         // ------------------------------------------------------------
@@ -455,49 +401,50 @@ namespace inonego.Xeri.Game
         /// 진행 중인 Cooldown을 일시정지하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal bool PauseCooldown()
-        {
-            if (!cooldown.IsRunning)
-            {
-                return false;
-            }
-
-            MarkChanged();
-            cooldown.Pause();
-            return true;
-        }
+        public bool PauseCooldown() => MarkChangedIf(cooldown.Pause());
 
         // ------------------------------------------------------------
         /// <summary>
         /// 일시정지된 Cooldown을 재개하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal bool ResumeCooldown()
+        public bool ResumeCooldown() => MarkChangedIf(cooldown.Resume());
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> Cooldown의 남은 시간을 지정량만큼 줄이고 소진 시 종료한다.
+        /// <br/> 실제로 바뀌었는지 반환한다.
+        /// <br/> NaN·무한대·음수는 ArgumentOutOfRangeException을 던진다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public bool ReduceCooldown(float amount)
         {
-            if (!cooldown.IsPaused)
-            {
-                return false;
-            }
+            AbilityCooldownState.ValidateReduction(amount);
 
-            MarkChanged();
-            cooldown.Resume();
-            return true;
+            return MarkChangedIf(cooldown.Reduce(amount));
         }
-
-    #endregion
-
-    #region 충전 자원
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Charge 상태를 생성 또는 재설정하고 소유 상태에 연결한다.
+        /// 진행 중인 Cooldown을 종료하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal AbilityChargeState ConfigureCharge
+        public bool ResetCooldown() => MarkChangedIf(cooldown.Reset());
+
+    #endregion
+
+    #region 충전 변경
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Charge 용량과 충전 주기를 구성하고 읽기 전용 상태를 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public IReadOnlyAbilityChargeState ConfigureCharge
         (
             int capacity,
             float rechargeDuration,
-            bool startFull
+            bool startFull = true
         )
         {
             // 검증은 상태를 바꾸기 전에 끝나므로 예외면 아무것도 바뀌지 않는다.
@@ -514,37 +461,71 @@ namespace inonego.Xeri.Game
             return charge;
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 설정된 Charge에서 지정 수량을 소비할 수 있는지 확인한다.
+        /// <br/> 현재 수량과 충전 경과 시간을 유지한 채 용량과 충전 주기를 바꾼다.
+        /// <br/> 용량이 줄면 현재 수량을 용량으로 줄이고 늘어도 수량을 지급하지 않는다.
+        /// <br/> 새 충전 주기가 이미 지난 경과 시간 이하면 그 주기를 완료한다.
+        /// <br/> 이때 충전 알림은 보내지 않는다. 실제로 바뀌었는지 반환한다.
+        /// <br/> Charge를 구성하지 않았으면 false를 반환한다.
+        /// <br/> 처음부터 다시 구성하려면 ConfigureCharge를 쓴다.
         /// </summary>
-        // ------------------------------------------------------------
-        internal bool TryConsumeCharge(int amount)
+        // ----------------------------------------------------------------------
+        public bool ResizeCharge(int capacity, float rechargeDuration)
         {
-            if (charge == null || !charge.TryConsume(amount))
-            {
-                return false;
-            }
+            AbilityChargeState.ValidateConfiguration(capacity, rechargeDuration);
 
-            MarkChanged();
-            return true;
+            return charge != null && MarkChangedIf(charge.Resize(capacity, rechargeDuration));
         }
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 현재 Capacity를 초과하지 않도록 Charge를 복원한다.
+        /// <br/> 설정된 Charge에서 지정 수량을 소비할 수 있으면 소비하고 true를 반환한다.
+        /// <br/> Charge를 구성하지 않았거나 수량이 모자라면 false를 반환한다.
+        /// <br/> 0 이하 수량은 ArgumentOutOfRangeException을 던진다.
         /// </summary>
-        // ------------------------------------------------------------
-        internal int RestoreCharge(int amount)
+        // ----------------------------------------------------------------------
+        public bool TryConsumeCharge(int amount)
         {
-            var restored = charge?.Restore(amount) ?? 0;
-            if (restored > 0)
-            {
-                MarkChanged();
-            }
+            AbilityChargeState.ValidateAmount(amount);
 
-            return restored;
+            return charge != null && MarkChangedIf(charge.TryConsume(amount));
         }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 최대 용량을 넘지 않는 범위에서 Charge 수량을 더하고 실제 증가량을 반환한다.
+        /// <br/> Charge를 구성하지 않았거나 이미 가득 찼으면 0을 반환한다.
+        /// <br/> 0 이하 수량은 ArgumentOutOfRangeException을 던진다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public int AddCharge(int amount)
+        {
+            AbilityChargeState.ValidateAmount(amount);
+
+            var added = charge?.Add(amount) ?? 0;
+            MarkChangedIf(added > 0);
+
+            return added;
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 진행 중인 충전 주기의 남은 시간을 줄이고 변경 여부를 반환한다.
+        /// <br/> 남은 시간 이상이면 그 주기를 완료하되 충전 알림은 보내지 않는다.
+        /// <br/> 초과분은 다음 주기로 넘기지 않는다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public bool ReduceRecharge(float amount)
+        {
+            AbilityChargeState.ValidateReduction(amount);
+
+            return charge != null && MarkChangedIf(charge.ReduceRecharge(amount));
+        }
+
+    #endregion
+
+    #region 충전 비용 지불
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -591,7 +572,22 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void MarkChanged()
         {
-            revision++;
+            revision = revision.Inc();
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 부품이 실제로 바뀌었다고 알린 경우에만 Revision을 올리고 그 값을 그대로 반환한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private bool MarkChangedIf(bool changed)
+        {
+            if (changed)
+            {
+                MarkChanged();
+            }
+
+            return changed;
         }
 
         // ----------------------------------------------------------------------
@@ -627,22 +623,29 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Unity 직렬화 전에 호출되며 처리할 내용이 없다.
+        /// Unity 직렬화 전에 Charge를 구성했는지 기록한다.
         /// </summary>
         // ------------------------------------------------------------
         public void OnBeforeSerialize()
         {
-            // NONE
+            hasCharge = charge != null;
         }
 
         // ----------------------------------------------------------------------
         /// <summary>
         /// <br/> 복원이 끝나면 Revision을 한 번 올려 복원 이전 선택을 무효화한다.
         /// <br/> 복원된 Values를 즉시 관찰해 먼저 보관한 참조의 변경도 반영한다.
+        /// <br/> 구성하지 않은 Charge는 구성하지 않은 상태(null)로 복원한다.
         /// </summary>
         // ----------------------------------------------------------------------
         public void OnAfterDeserialize()
         {
+            // 구성하지 않은 Charge는 Unity가 만든 기본 객체를 버리고 구성하지 않은 상태로 되돌린다.
+            if (!hasCharge)
+            {
+                charge = null;
+            }
+
             ObserveValues();
             MarkChanged();
         }

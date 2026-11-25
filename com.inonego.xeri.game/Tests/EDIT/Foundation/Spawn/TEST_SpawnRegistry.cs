@@ -945,6 +945,36 @@ namespace inonego.Xeri.Game.TEST._Spawn
             registry.Despawn(obj, DespawnReason.Removed);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 완료 알림 구독자 예외가 하나면 원래 예외를 스택 추적과 함께 다시 전달한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_SpawnRegistry_완료알림실패하나는_원래스택추적유지()
+        {
+            var obj = new TestObject();
+            obj.SetKey(0UL);
+            var registry = new TestRegistry
+            {
+                NextObject = obj,
+            };
+
+            registry.OnSpawned += ThrowFromSpawnedObserver;
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
+
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromSpawnedObserver)));
+
+            registry.OnSpawned -= ThrowFromSpawnedObserver;
+            registry.Despawn(obj, DespawnReason.Removed);
+        }
+
+        private static void ThrowFromSpawnedObserver(ulong key, TestObject spawnable)
+        {
+            throw new InvalidOperationException("observer failure");
+        }
+
         // ------------------------------------------------------------
         /// <summary>
         /// 완료 이벤트 오류를 모두 전달하고 Spawn 등록 상태를 유지한다.

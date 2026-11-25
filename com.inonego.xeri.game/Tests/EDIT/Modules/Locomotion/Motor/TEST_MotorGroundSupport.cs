@@ -40,7 +40,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
     #region 헬퍼
 
-        private static readonly MotionActorKey actor = new(1, 1, 1);
+        private static readonly MotionActorKey actor = new(1, 1, Revision.FromUInt64(1));
 
         private sealed class CheckFixture : IGroundChecker
         {
@@ -794,7 +794,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
                 Assert.That(corrected, Is.True);
                 Assert.That(support.TryRead(out _), Is.False);
                 Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(5));
-                Assert.That(motor.DiscontinuityVersion, Is.Zero);
+                Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
 
                 checker.OnCheck = null;
                 checker.OnOwnerRead = null;
@@ -851,7 +851,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
                 );
                 Assert.That(support.TryRead(out _), Is.False);
                 Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(4));
-                Assert.That(motor.DiscontinuityVersion, Is.Zero);
+                Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
             }
             finally
             {

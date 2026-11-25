@@ -157,26 +157,26 @@ namespace inonego.Xeri.Game.TEST._Ability
             var attack = new AbilityEntryKey("Attack");
             var baseSkill = CreateInstance("BaseSkill");
             var formSkill = CreateInstance("FormSkill");
-            baseSkill.State.Control.TryBeginCooldown(5f);
-            formSkill.State.Control.ConfigureCharge(2, 1f);
+            baseSkill.State.TryBeginCooldown(5f);
+            formSkill.State.ConfigureCharge(2, 1f);
             var bindings = new AbilityBindings<TestSpec>();
             var baseLayer = new AbilityBindingLayer<TestSpec>(0);
             baseLayer.Set(entry, baseSkill);
-            Assert.AreEqual(0UL, bindings.Revision);
+            Assert.AreEqual(Revision.None, bindings.Revision);
 
             using var baseLease = bindings.AcquireLayer(baseLayer);
-            Assert.AreEqual(1UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(1), bindings.Revision);
 
             var formLayer = new AbilityBindingLayer<TestSpec>(100);
             formLayer.Set(entry, formSkill);
             var formLease = bindings.AcquireLayer(formLayer);
-            Assert.AreEqual(2UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(2), bindings.Revision);
             Assert.IsTrue(bindings.TryResolve(entry, out var overridden));
             Assert.AreSame(formSkill, overridden.Instance);
 
             // Form 중에도 두 상태는 서로의 시간과 변경 번호에 영향을 주지 않는다.
             var baseRevision = baseSkill.State.Revision;
-            formSkill.State.Control.TryConsumeCharge(1);
+            formSkill.State.TryConsumeCharge(1);
             baseSkill.State.Advance(1f);
             Assert.AreEqual(baseRevision, baseSkill.State.Revision);
             Assert.AreEqual(4f, baseSkill.State.Cooldown.RemainingTime, 0.0001f);
@@ -184,25 +184,25 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 등록된 Layer의 실제 Set·Remove만 Binding 변경 번호를 올린다.
             formLayer.Set(attack, formSkill);
-            Assert.AreEqual(3UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), bindings.Revision);
             formLayer.Set(attack, formSkill);
-            Assert.AreEqual(3UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(3), bindings.Revision);
             Assert.IsTrue(formLayer.Remove(attack));
-            Assert.AreEqual(4UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(4), bindings.Revision);
             Assert.IsFalse(formLayer.Remove(attack));
-            Assert.AreEqual(4UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(4), bindings.Revision);
 
             formLease.Release();
-            Assert.AreEqual(5UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), bindings.Revision);
             formLease.Release();
-            Assert.AreEqual(5UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), bindings.Revision);
             Assert.IsTrue(bindings.TryResolve(entry, out var restored));
             Assert.AreSame(baseSkill, restored.Instance);
             Assert.AreEqual(4f, restored.Instance.State.Cooldown.RemainingTime, 0.0001f);
 
             // 해제된 Layer의 변경은 더 이상 반영하지 않는다.
             formLayer.Set(attack, formSkill);
-            Assert.AreEqual(5UL, bindings.Revision);
+            Assert.AreEqual(Revision.FromUInt64(5), bindings.Revision);
         }
 
     #endregion
@@ -221,10 +221,10 @@ namespace inonego.Xeri.Game.TEST._Ability
             var original = CreateInstance("A");
             var replacement = CreateInstance("B");
             original.State.Values.SetI("Stack", 4);
-            original.State.Control.ConfigureCharge(2, 1f, startFull: false);
-            replacement.State.Control.ConfigureCharge(3, 2f, startFull: false);
-            Assert.IsTrue(original.State.Control.TryBeginCooldown(5f));
-            Assert.IsTrue(replacement.State.Control.TryBeginCooldown(9f));
+            original.State.ConfigureCharge(2, 1f, startFull: false);
+            replacement.State.ConfigureCharge(3, 2f, startFull: false);
+            Assert.IsTrue(original.State.TryBeginCooldown(5f));
+            Assert.IsTrue(replacement.State.TryBeginCooldown(9f));
 
             var baseLayer = new AbilityBindingLayer<TestSpec>(0);
             baseLayer.Set(entry, original);

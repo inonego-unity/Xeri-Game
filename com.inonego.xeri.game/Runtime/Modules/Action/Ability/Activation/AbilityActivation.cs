@@ -1,10 +1,11 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivation.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-23
 
 # 설명
 Ability 사용 시도의 실패 분류, 조건 검사 결과와 사용 결과를 표현한다.
 사용 요청의 Owner·Instigator·Binding 및 Payload를 보존하며 Payload는 형식을 정하지 않는 object로 전달한다.
+거부에는 사람이 읽는 Reason과 별개로 분기·현지화에 쓰는 안정적인 Code(문자열)를 선택적으로 붙인다. Code가 없으면 빈 문자열이다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -24,6 +25,58 @@ namespace inonego.Xeri.Game
         RequirementRejected = 3,
         CostRejected = 4,
         StartRejected = 5,
+    }
+
+    // ======================================================================
+    /// <summary>
+    /// <br/> 내장 Requirement·Cost와 사용 시도가 거부할 때 붙이는 Code 값.
+    /// <br/> 프로젝트의 Requirement·Cost는 자기 Code를 자유롭게 정하며
+    /// <br/> 이 값과 겹치지 않게 한다.
+    /// </summary>
+    // ======================================================================
+    public static class AbilityActivationCodes
+    {
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Cooldown이 진행 중이거나 일시정지 상태여서 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string CooldownActive = "Ability.CooldownActive";
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Charge가 비용보다 적어 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string ChargeShortage = "Ability.ChargeShortage";
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// Ability 사용 선택이 유효하지 않아 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string SelectionInvalid = "Ability.SelectionInvalid";
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 검사 중 Ability 사용 선택이 변경돼 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string SelectionChanged = "Ability.SelectionChanged";
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 이미 시도한 사용 선택이어서 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string SelectionAttempted = "Ability.SelectionAttempted";
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 실행 시작이 거부됐다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public const string StartRejected = "Ability.StartRejected";
     }
 
     // ============================================================
@@ -48,15 +101,23 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public string Reason { get; }
 
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 거부를 분기·현지화에 쓰는 안정적인 Code를 반환하며 허용 시와 Code가 없으면 빈 문자열이다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public string Code { get; }
+
         // ------------------------------------------------------------
         /// <summary>
         /// 요청 평가 결과를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        private AbilityActivationCheck(bool isAllowed, string reason)
+        private AbilityActivationCheck(bool isAllowed, string reason, string code)
         {
             IsAllowed = isAllowed;
             Reason = reason ?? string.Empty;
+            Code = code ?? string.Empty;
         }
 
         // ------------------------------------------------------------
@@ -64,14 +125,14 @@ namespace inonego.Xeri.Game
         /// 사용을 허용하는 평가 결과를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public static AbilityActivationCheck Allow() => new(true, string.Empty);
+        public static AbilityActivationCheck Allow() => new(true, string.Empty, string.Empty);
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 사유가 포함된 사용 거부 결과를 생성한다.
+        /// 사유와 선택적 Code가 포함된 사용 거부 결과를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public static AbilityActivationCheck Reject(string reason = null) => new(false, reason);
+        public static AbilityActivationCheck Reject(string reason = null, string code = null) => new(false, reason, code);
     }
 
     // ======================================================================
@@ -110,6 +171,13 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public string Reason { get; }
 
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 거부를 분기·현지화에 쓰는 안정적인 Code를 반환하며 성공 시와 Code가 없으면 빈 문자열이다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public string Code { get; }
+
         // ------------------------------------------------------------
         /// <summary>
         /// 성공 또는 실패 결과를 생성한다.
@@ -119,12 +187,14 @@ namespace inonego.Xeri.Game
         (
             AbilityActivationFailure failure,
             int policyIndex,
-            string reason
+            string reason,
+            string code
         )
         {
             Failure = failure;
             PolicyIndex = policyIndex;
             Reason = reason ?? string.Empty;
+            Code = code ?? string.Empty;
         }
 
         // ------------------------------------------------------------
@@ -132,7 +202,7 @@ namespace inonego.Xeri.Game
         /// 성공한 Activation 결과를 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public static AbilityActivationResult Success() => new(AbilityActivationFailure.None, -1, string.Empty);
+        public static AbilityActivationResult Success() => new(AbilityActivationFailure.None, -1, string.Empty, string.Empty);
 
         // ------------------------------------------------------------
         /// <summary>
@@ -143,7 +213,8 @@ namespace inonego.Xeri.Game
         (
             AbilityActivationFailure failure,
             int policyIndex = -1,
-            string reason = null
+            string reason = null,
+            string code = null
         )
         {
             if (failure == AbilityActivationFailure.None
@@ -152,7 +223,7 @@ namespace inonego.Xeri.Game
                 throw new ArgumentOutOfRangeException(nameof(failure));
             }
 
-            return new AbilityActivationResult(failure, policyIndex, reason);
+            return new AbilityActivationResult(failure, policyIndex, reason, code);
         }
     }
 

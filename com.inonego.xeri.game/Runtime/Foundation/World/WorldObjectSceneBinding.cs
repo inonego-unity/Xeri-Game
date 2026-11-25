@@ -261,7 +261,7 @@ namespace inonego.Xeri.Game
             }
 
             isBusy = true;
-            var errors = new List<Exception>();
+            var errors = new ExceptionBuffer();
             var pending = new List<Entry>();
 
             try
@@ -300,7 +300,7 @@ namespace inonego.Xeri.Game
 
             if (errors.Count != 0)
             {
-                throw new AggregateException("WorldObject Scene Binding 해제에 실패했습니다.", errors);
+                throw errors.CreateAggregateException("WorldObject Scene Binding 해제에 실패했습니다.");
             }
         }
 

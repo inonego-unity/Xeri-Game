@@ -54,6 +54,7 @@ ApplyDamage
 - `OnDamage`
 
 상태 전환과 값 변경 이벤트는 같은 변경에서 함께 발생할 수 있으므로 구독자는 각각 독립된 의미로 처리합니다.
+값 변경이 상태를 바꾸면 값을 먼저 확정하므로 `OnStateChange` 구독자도 갱신된 `Value`를 읽습니다. 이벤트는 `OnStateChange`, `OnValueChange` 순서로 발생합니다.
 ## Entity와 조합
 
 HP는 Entity Core의 필수 책임이 아닙니다.
@@ -79,7 +80,8 @@ Xeri Core는 Dead 상태를 자동으로 Registry Despawn에 연결하지 않습
 ## 책임 범위
 
 HP는 값·상태·Heal/Damage 이벤트만 소유합니다.
-방어력, 피해 타입, 무적 시간, 공격 판정, Entity 제거 정책은 상위 gameplay/runtime composition이 소유합니다.
+보호막, 방어력, 피해 타입, 무적 시간, 공격 판정, Entity 제거 정책은 상위 gameplay/runtime composition이 소유합니다.
+피해를 줄이는 규칙(보호막 흡수 등)은 호출하는 쪽의 피해 파이프라인이 먼저 계산하고, 최종 피해만 `ApplyDamage`에 넘깁니다. HP에는 흡수 계층이 없습니다.
 
 ## 관련 문서
 

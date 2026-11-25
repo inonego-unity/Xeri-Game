@@ -82,13 +82,13 @@ namespace inonego.Xeri.Game
             {
                 var failures = CleanupFailedCreate(actor, provider);
 
-                if (failures == null)
+                if (failures.Count == 0)
                 {
                     throw;
                 }
 
-                failures.Insert(0, spawnException);
-                throw new AggregateException("Entity Actor 생성과 rollback 중 오류가 발생했습니다.", failures);
+                failures.Prepend(spawnException);
+                throw failures.CreateAggregateException("Entity Actor 생성과 rollback 중 오류가 발생했습니다.");
             }
         }
 
@@ -107,7 +107,7 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("현재 Factory가 획득한 Entity Actor가 아닙니다.");
             }
 
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             try
             {
@@ -115,10 +115,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures = new List<Exception>
-                {
-                    exception
-                };
+                failures.Add(exception);
             }
 
             try
@@ -128,7 +125,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
             finally
@@ -136,11 +132,7 @@ namespace inonego.Xeri.Game
                 sourceProviders.Remove(actor);
             }
 
-            if (failures == null) return;
-
-            throw failures.Count == 1
-                ? failures[0]
-                : new AggregateException("Entity Actor 정리와 Provider 반환 중 오류가 발생했습니다.", failures);
+            failures.ThrowWhenAny("Entity Actor 정리와 Provider 반환 중 오류가 발생했습니다.");
         }
 
     #endregion
@@ -203,13 +195,13 @@ namespace inonego.Xeri.Game
         /// <br/> 반환된 목록에는 Spawn 원인을 제외한 rollback 오류만 담긴다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private List<Exception> CleanupFailedCreate
+        private ExceptionBuffer CleanupFailedCreate
         (
             TEntityActor actor,
             IGameObjectProvider provider
         )
         {
-            List<Exception> failures = null;
+            var failures = new ExceptionBuffer();
 
             try
             {
@@ -217,10 +209,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures = new List<Exception>
-                {
-                    exception
-                };
+                failures.Add(exception);
             }
 
             try
@@ -230,7 +219,6 @@ namespace inonego.Xeri.Game
             }
             catch (Exception exception)
             {
-                failures ??= new List<Exception>();
                 failures.Add(exception);
             }
             finally

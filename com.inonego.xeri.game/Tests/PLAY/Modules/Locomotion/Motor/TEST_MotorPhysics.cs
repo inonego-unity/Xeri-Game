@@ -84,7 +84,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 rigidbody.gravityScale = 2f;
                 actorObject.AddComponent<CircleCollider2D>().radius = 0.5f;
 
-                var actor = new MotionActorKey(31, 1, 1);
+                var actor = new MotionActorKey(31, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState2D>
                 (
                     actor, new RigidbodyMotorBackend2D(rigidbody)
@@ -215,7 +215,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 sphere.sharedMaterial = frictionless;
                 var sensor = actorObject.AddComponent<MotorCollisionProbe3D>();
 
-                var actor = new MotionActorKey(32, 1, 1);
+                var actor = new MotionActorKey(32, 1, Revision.FromUInt64(1));
                 var backend = new RigidbodyMotorBackend3D(rigidbody, sensor);
                 var motor = new Motor<MotorState3D>(actor, backend);
                 var contacts = new ContactPoint[32];
@@ -349,7 +349,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                     obstacles[index] = obstacle;
                 }
 
-                var actor = new MotionActorKey(33, 1, 1);
+                var actor = new MotionActorKey(33, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState3D>
                 (
                     actor, new RigidbodyMotorBackend3D(body, sensor)
@@ -432,7 +432,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 actorObject.AddComponent<SphereCollider>().radius = 0.5f;
                 var probe = actorObject.AddComponent<MotorCollisionProbe3D>();
 
-                var actor = new MotionActorKey(42, 1, 1);
+                var actor = new MotionActorKey(42, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState3D>
                 (
                     actor, new RigidbodyMotorBackend3D(body, probe)
@@ -527,7 +527,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
 
                 var motor = new Motor<MotorState2D>
                 (
-                    new MotionActorKey(31, 2, 1),
+                    new MotionActorKey(31, 2, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend2D(body)
                 );
                 var contacts = new ContactPoint2D[16];
@@ -596,7 +596,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 actorObject.AddComponent<SphereCollider>().radius = 0.5f;
                 var probe = actorObject.AddComponent<MotorCollisionProbe3D>();
 
-                var actor = new MotionActorKey(34, 1, 1);
+                var actor = new MotionActorKey(34, 1, Revision.FromUInt64(1));
                 var motor = new Motor<MotorState3D>
                 (
                     actor, new RigidbodyMotorBackend3D(body, probe)
@@ -676,12 +676,12 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
 
                 var first = new Motor<MotorState2D>
                 (
-                    new MotionActorKey(31, 3, 1),
+                    new MotionActorKey(31, 3, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend2D(firstBody)
                 );
                 var second = new Motor<MotorState2D>
                 (
-                    new MotionActorKey(31, 4, 1),
+                    new MotionActorKey(31, 4, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend2D(secondBody)
                 );
 
@@ -704,7 +704,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 Assert.That(firstCount, Is.GreaterThan(0));
                 Assert.That(secondCount, Is.GreaterThan(0));
 
-                var secondVersion = second.PhysicsObservationVersion;
+                var secondVersion = second.PhysicsObservationGeneration;
                 first.ApplyCurrentState
                 (
                     new MotorState2D
@@ -716,7 +716,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
 
                 firstStatus = firstReader.Read(firstContacts, out _);
                 Assert.That(firstStatus, Is.EqualTo(MotorContactReadStatus.NotObserved));
-                Assert.That(second.PhysicsObservationVersion, Is.EqualTo(secondVersion));
+                Assert.That(second.PhysicsObservationGeneration, Is.EqualTo(secondVersion));
                 Assert.That(second.ObservedPhysicsStep, Is.Zero);
                 secondStatus = secondReader.Read(secondContacts, out var preservedCount);
                 Assert.That(secondStatus, Is.EqualTo(MotorContactReadStatus.Ready));
@@ -802,12 +802,12 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
 
                 var first = new Motor<MotorState3D>
                 (
-                    new MotionActorKey(41, 1, 1),
+                    new MotionActorKey(41, 1, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend3D(firstBody, firstProbe)
                 );
                 var second = new Motor<MotorState3D>
                 (
-                    new MotionActorKey(41, 2, 1),
+                    new MotionActorKey(41, 2, Revision.FromUInt64(1)),
                     new RigidbodyMotorBackend3D(secondBody, secondProbe)
                 );
 
@@ -830,7 +830,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 Assert.That(firstCount, Is.GreaterThan(0));
                 Assert.That(secondCount, Is.GreaterThan(0));
 
-                var secondVersion = second.PhysicsObservationVersion;
+                var secondVersion = second.PhysicsObservationGeneration;
                 first.ApplyCurrentState
                 (
                     new MotorState3D
@@ -843,7 +843,7 @@ namespace inonego.Xeri.Game.TEST.Motor._Physics
                 firstStatus = firstReader.Read(firstContacts, out _);
                 Assert.That(firstStatus, Is.EqualTo(MotorContactReadStatus.NotObserved));
                 Assert.That(firstProbe.ContactCount, Is.Zero);
-                Assert.That(second.PhysicsObservationVersion, Is.EqualTo(secondVersion));
+                Assert.That(second.PhysicsObservationGeneration, Is.EqualTo(secondVersion));
                 Assert.That(second.ObservedPhysicsStep, Is.Zero);
                 secondStatus = secondReader.Read(secondContacts, out var preservedCount);
                 Assert.That(secondStatus, Is.EqualTo(MotorContactReadStatus.Ready));

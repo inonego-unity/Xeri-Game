@@ -4,7 +4,7 @@ Xeri Navigation은 Actor별 목표와 경로의 수명을 관리하고, 소비�
 
 ## 왜 필요한가
 
-경로 계산은 비동기이거나 여러 프레임에 걸치는 일이 많습니다. 그 사이 목표가 바뀌거나 교정으로 위치가 달라지면, 늦게 도착한 결과나 완료 통지가 현재 경로를 망칩니다. Navigation은 목표 Revision, 요청 ID, 경로 ID로 오래된 결과를 구별해 거절합니다.
+경로 계산은 비동기이거나 여러 프레임에 걸치는 일이 많습니다. 그 사이 목표가 바뀌거나 교정으로 위치가 달라지면, 늦게 도착한 결과나 완료 통지가 현재 경로를 망칩니다. Navigation은 목표 Generation, 요청 ID, 경로 ID로 오래된 결과를 구별해 거절합니다.
 
 ## 언제 사용하는가
 
@@ -22,7 +22,7 @@ using inonego.Xeri.Game.Navigation;
 var navigation = new NavigationController<Vector3>(actorKey);
 navigation.SetGoal(destination);
 
-// Host가 월드 버전과 현재 시작 위치를 제공합니다.
+// Host가 월드 Revision(1부터 발급하는 Core `Revision`, `None`은 거절)과 현재 시작 위치를 제공합니다.
 var request = navigation.BeginPlan(currentPosition, worldRevision);
 planner.Request(request);   // INavigationPlanner<Vector3>를 구현한 소비자
 
@@ -48,16 +48,16 @@ navigation.Invalidate();    // 목표는 유지하고 이전 경로와 지연 �
 | 타입 | 역할 |
 |---|---|
 | `NavigationController<TPoint>` | Actor별 `SetGoal`, `Cancel`, `Invalidate`, 경로 요청·승인·실패, Waypoint 진행, Owned Snapshot 복원 |
-| `NavigationPlanRequest<TPoint>` | Planner에 넘기는 요청: Actor, Goal Revision, 재사용되지 않는 Request ID, World Revision, Start와 Goal |
+| `NavigationPlanRequest<TPoint>` | Planner에 넘기는 요청: Actor, Goal Generation, 재사용되지 않는 Request ID, World Revision, Start와 Goal |
 | `INavigationPlanner<TPoint>` | 사용처 Planner가 `Request(in request)`로 요청을 소비하는 계약. 특정 NavMesh 구현을 강제하지 않습니다 |
-| `NavigationGuidance<TPoint>` | 다음 Waypoint와 Actor, Goal Revision, Path ID, Waypoint Index |
+| `NavigationGuidance<TPoint>` | 다음 Waypoint와 Actor, Goal Generation, Path Generation, Waypoint Index |
 | `NavigationSnapshot<TPoint>` | 독립 복사한 Goal, Path, 진행 상태 |
 
 `TPoint`는 `unmanaged` 형식이면 되므로 `Vector2`, `Vector3`, 격자 좌표를 같은 방식으로 씁니다.
 
 ## 경로 결과 처리
 
-`TryAcceptPath`는 현재 Actor, Goal Revision, Request ID, World Revision의 요청만 승인합니다.
+`TryAcceptPath`는 현재 Actor, Goal Generation, Request ID, World Revision의 요청만 승인합니다.
 
 - 오래된 결과는 `Stale`, 빈 경로는 `InvalidPath`입니다. 빈 경로를 받은 뒤에도 같은 요청으로 다시 제출할 수 있습니다.
 - 경로는 `ReadOnlySpan<TPoint>`로 받으며 수락 도중 외부 코드를 호출하지 않습니다. 배열을 그대로 넘길 수 있습니다.
@@ -66,7 +66,7 @@ navigation.Invalidate();    // 목표는 유지하고 이전 경로와 지연 �
 
 ## Waypoint 진행
 
-**지연 완료 통지에는 `TryAdvanceWaypoint(guidance)`를 사용합니다.** 현재 Actor, Goal Revision, Path ID, Waypoint Index가 모두 같을 때만 진행하므로, 이전 경로의 늦은 완료와 중복 완료를 거절합니다. 인자 없는 `AdvanceWaypoint()`는 같은 호출 흐름에서 즉시 도착을 판정할 때만 쓰세요. 비동기 완료 콜백에 쓰면 오래된 완료를 통과시킬 수 있습니다.
+**지연 완료 통지에는 `TryAdvanceWaypoint(guidance)`를 사용합니다.** 현재 Actor, Goal Generation, Path Generation, Waypoint Index가 모두 같을 때만 진행하므로, 이전 경로의 늦은 완료와 중복 완료를 거절합니다. 인자 없는 `AdvanceWaypoint()`는 같은 호출 흐름에서 즉시 도착을 판정할 때만 쓰세요. 비동기 완료 콜백에 쓰면 오래된 완료를 통과시킬 수 있습니다.
 
 ## Owned State와 Correction
 
@@ -75,14 +75,14 @@ var snapshot = navigation.Capture();
 var result = navigation.Restore(snapshot, currentWorldRevision);
 ```
 
-- `Restore`는 Actor가 다르면 `ActorMismatch`, 캡처 시 World Revision과 현재 값이 다르면 `WorldMismatch`를 반환하고 상태를 바꾸지 않습니다.
+- `Restore`는 Actor가 다르면 `ActorMismatch`, 캡처 시 World Revision과 현재 값이 다르면 `WorldMismatch`를 반환하고 상태를 바꾸지 않습니다. 현재 World Revision이 `None`이면 `ArgumentOutOfRangeException`입니다. 캡처 당시 요청한 적이 없어 World Revision이 `None`이었다면 비교하지 않습니다.
 - 복원에 성공해도 **진행 중이던 비동기 요청은 다시 발급해야 합니다**(`Planning`이었다면 `NeedsPlan`으로 돌아갑니다). 이미 발급한 Planner 결과는 Request ID로 차단합니다.
-- 복원 성공 시 Goal Revision과 Path ID를 새로 발급해 복원 전 Guidance의 늦은 완료가 현재 경로를 바꾸지 못하게 합니다. `GoalRevision`은 복원에서도 줄어들지 않습니다.
+- 복원 성공 시 Goal Generation과 Path Generation를 새로 발급해 복원 전 Guidance의 늦은 완료가 현재 경로를 바꾸지 못하게 합니다. `GoalGeneration`은 복원에서도 줄어들지 않습니다.
 - 실제 World Snapshot과 History의 일관성은 Host가 보장합니다. Motor의 교정이 Navigation을 자동으로 무효화하지 않으므로, 교정이나 World Shift를 감지하면 Host가 `Invalidate`를 호출합니다.
 
 ## 소유권과 수명
 
-Controller는 Actor 하나가 소유하며 `MotionActorKey`로 만듭니다. 요청 ID, 경로 ID, Goal Revision은 단조 증가하는 수명 토큰이고 Restore에서도 되돌리지 않습니다.
+Controller는 Actor 하나가 소유하며 `MotionActorKey`로 만듭니다. 요청 ID, 경로 ID, Goal Generation은 단조 증가하는 수명 토큰이고 Restore에서도 되돌리지 않습니다.
 
 ## 책임 범위
 

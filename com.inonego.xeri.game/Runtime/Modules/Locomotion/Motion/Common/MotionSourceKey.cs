@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotionSourceKey.cs
-수정일 : 2026-11-22
+수정일 : 2026-11-25
 
 # 설명
 Actor별 Modifier 항목의 키와 수명 세대를 정의한다.
@@ -39,14 +39,14 @@ namespace inonego.Xeri.Game.Motion
         /// 같은 키의 수명 세대.
         /// </summary>
         // ------------------------------------------------------------
-        public long Generation { get; }
+        public Revision Generation { get; }
 
         // ------------------------------------------------------------
         /// <summary>
         /// 기본값이 아닌 유효한 식별자인지 나타낸다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool IsValid => !string.IsNullOrEmpty(Key) && Generation > 0;
+        public bool IsValid => !string.IsNullOrEmpty(Key) && !Generation.IsNone;
 
     #endregion
 
@@ -57,14 +57,14 @@ namespace inonego.Xeri.Game.Motion
         /// 키와 Generation을 설정한다.
         /// </summary>
         // ------------------------------------------------------------
-        public MotionSourceKey(string key, long generation)
+        public MotionSourceKey(string key, Revision generation)
         {
             if (string.IsNullOrEmpty(key))
             {
                 throw new ArgumentException("키가 필요합니다.", nameof(key));
             }
 
-            if (generation <= 0)
+            if (generation.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(generation));
             }

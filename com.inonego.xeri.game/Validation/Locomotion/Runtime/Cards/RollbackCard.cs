@@ -9,7 +9,7 @@
 # 특이사항, 제약사항
 입력은 Tick 번호만의 함수라 도메인 상태 없이 재현된다. Snapshot에는 Motion Model(항목, Up, 반영 몫)과
 Motor Body 상태(위치·속도)를 함께 저장한다.
-프레임 비교는 StepVersion을 제외한 모든 필드의 정확한 일치다. Body 위치는 Physics 재실행이라 차이만 보여준다.
+프레임 비교는 StepGeneration을 제외한 모든 필드의 정확한 일치다. Body 위치는 Physics 재실행이라 차이만 보여준다.
 H 키는 재실행에서 충격 입력 하나를 일부러 빼, 점검이 실제로 어긋남을 잡는지 확인한다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -277,11 +277,11 @@ namespace inonego.Xeri.Game.Validation.Locomotion
             // 10~40: 대시(SET), 40에 끝.
             if (k == 10)
             {
-                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Dash", 1), 10, NumericFOperation.SET, MotionChannelValues.Linear(MotionChannel.Planar, new Vector3(0f, 0f, 9f)), 1));
+                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Dash", Revision.FromUInt64(1)), 10, NumericFOperation.SET, MotionChannelValues.Linear(MotionChannel.Planar, new Vector3(0f, 0f, 9f)), 1));
             }
             else if (k == 40)
             {
-                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Dash", 1)));
+                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Dash", Revision.FromUInt64(1))));
             }
 
             // 20~80: 감쇠하는 넉백(같은 세대 갱신), 80에 속도를 남기고 끝.
@@ -289,27 +289,27 @@ namespace inonego.Xeri.Game.Validation.Locomotion
             {
                 var scale = Mathf.Exp(-3f * (k - 20) * dt);
 
-                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Knock", 1), 20, NumericFOperation.ADD, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(-8f * scale, 2f * scale, 0f))));
+                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Knock", Revision.FromUInt64(1)), 20, NumericFOperation.ADD, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(-8f * scale, 2f * scale, 0f))));
             }
             else if (k == 80)
             {
-                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Knock", 1), true));
+                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Knock", Revision.FromUInt64(1)), true));
             }
 
             // 30: 점프 충격.
             if (k == 30 && !skipImpulse)
             {
-                buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey("S_Jump", 1), 100, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 6f, 0f))));
+                buffer.Add(MotionModifierCommand.Impulse(new MotionSourceKey("S_Jump", Revision.FromUInt64(1)), 100, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 6f, 0f))));
             }
 
             // 50~75: 회전(SET).
             if (k == 50)
             {
-                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Spin", 1), 5, NumericFOperation.SET, MotionChannelValues.Linear(MotionChannel.Rotation, Vector3.zero, new Vector3(0f, 4f, 0f)), 2));
+                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Spin", Revision.FromUInt64(1)), 5, NumericFOperation.SET, MotionChannelValues.Linear(MotionChannel.Rotation, Vector3.zero, new Vector3(0f, 4f, 0f)), 2));
             }
             else if (k == 75)
             {
-                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Spin", 1)));
+                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Spin", Revision.FromUInt64(1))));
             }
 
             // 60~100: Up 기울이기.
@@ -325,21 +325,21 @@ namespace inonego.Xeri.Game.Validation.Locomotion
             // 70~120: 월드 선속도 바람, 120에 속도를 남기고 끝.
             if (k == 70)
             {
-                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_World", 1), 25, NumericFOperation.ADD, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(2f, 3f, 1f))));
+                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_World", Revision.FromUInt64(1)), 25, NumericFOperation.ADD, MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(2f, 3f, 1f))));
             }
             else if (k == 120)
             {
-                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_World", 1), true));
+                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_World", Revision.FromUInt64(1)), true));
             }
 
             // 90~110: 스턴(MUL 0).
             if (k == 90)
             {
-                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Stun", 1), 50, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.Planar, 0f)));
+                buffer.Add(MotionModifierCommand.Apply(new MotionSourceKey("S_Stun", Revision.FromUInt64(1)), 50, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.Planar, 0f)));
             }
             else if (k == 110)
             {
-                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Stun", 1)));
+                buffer.Add(MotionModifierCommand.End(new MotionSourceKey("S_Stun", Revision.FromUInt64(1))));
             }
         }
 

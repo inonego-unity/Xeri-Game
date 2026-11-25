@@ -304,7 +304,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                     {
                         if (network.Tick == 1)
                         {
-                            Assert.IsTrue(serverKit.State.Control.TryBeginCooldown(5f));
+                            Assert.IsTrue(serverKit.State.TryBeginCooldown(5f));
                         }
                     }
                 );
@@ -440,18 +440,20 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 서버만 먼저 새 Epoch로 전환한다.
             network.Server.ChangeEpoch(1);
-            Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
             Step(network, host, client);
             Step(network, host, client);
 
-            Assert.AreEqual(1, client.DroppedEpoch);
+            // 새 Epoch의 Ability Snapshot과 Status Snapshot이 각각 한 번씩 버려진다.
+            Assert.AreEqual(2, client.DroppedEpoch);
             Assert.AreEqual(0, client.SnapshotsApplied);
+            Assert.AreEqual(0, client.StatusSnapshotsApplied);
             Assert.AreEqual(3, kit.State.Charge.Current);
 
             host.Despawn(1);
             Step(network, host, client);
 
-            Assert.AreEqual(2, client.DroppedEpoch);
+            Assert.AreEqual(3, client.DroppedEpoch);
             Assert.IsFalse(client.Despawned);
         }
 
@@ -541,10 +543,12 @@ namespace inonego.Xeri.Game.TEST._Ability
 
             // 서버만 새 Epoch에서 변경하고 보낸 Snapshot은 아직 전환하지 않은 Client가 버린다.
             network.Server.ChangeEpoch(1);
-            Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
             Step(network, host, client);
             Step(network, host, client);
-            Assert.AreEqual(1, client.DroppedEpoch);
+
+            // 새 Epoch의 Ability Snapshot과 Status Snapshot이 각각 한 번씩 버려진다.
+            Assert.AreEqual(2, client.DroppedEpoch);
             Assert.AreEqual(3, kit.State.Charge.Current);
 
             // 서버 State는 더 바뀌지 않은 채 Client가 전환해 합류한다.
@@ -621,7 +625,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var ally = host.Replication.AddObserver();
             var far = host.Replication.AddObserver();
 
-            enemy.State.Control.TryBeginCooldown(5f);
+            enemy.State.TryBeginCooldown(5f);
             host.Replication.Replicate();
             Assert.AreEqual(0, ally.Count(2));
             Assert.AreEqual(0, far.Count(2));
@@ -713,7 +717,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 delivered++;
             };
             host.Replication.Enter(observer, 1, send: false);
-            Assert.IsTrue(kit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(kit.State.TryConsumeCharge(1));
 
             Assert.Throws<InvalidOperationException>(() => host.Replication.Replicate());
             failing = false;
@@ -753,8 +757,8 @@ namespace inonego.Xeri.Game.TEST._Ability
             };
             host.Replication.Enter(observer, 1, send: false);
             host.Replication.Enter(observer, 2, send: false);
-            Assert.IsTrue(first.State.Control.TryConsumeCharge(1));
-            Assert.IsTrue(second.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(first.State.TryConsumeCharge(1));
+            Assert.IsTrue(second.State.TryConsumeCharge(1));
 
             Assert.DoesNotThrow(() => host.Replication.Replicate());
 
@@ -850,8 +854,8 @@ namespace inonego.Xeri.Game.TEST._Ability
                 }
             };
 
-            Assert.IsTrue(left.State.Control.TryConsumeCharge(1));
-            Assert.IsTrue(removed.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(left.State.TryConsumeCharge(1));
+            Assert.IsTrue(removed.State.TryConsumeCharge(1));
             host.Replication.Replicate();
 
             Assert.IsFalse(observer.LastSent.ContainsKey((1, new AbilityKey("Skill"))));
@@ -872,7 +876,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var serverKit = host.AddOwner(1, "Skill", 0, 3, connection: 10);
             var observer = host.Replication.AddObserver();
             host.Replication.Enter(observer, 1, send: false);
-            Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
             var delivered = 0;
             observer.Deliver = (owner, packet, _) =>
             {
@@ -888,7 +892,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             host.Replication.Replicate();
 
             Assert.AreEqual(1, delivered);
-            Assert.AreEqual(serverKit.State.Revision, observer.LastSent[(1, serverKit.State.Key)].Revision);
+            Assert.IsTrue(observer.LastSent[(1, serverKit.State.Key)].Mark.IsCurrent);
         }
 
         // --------------------------------------------------------------------------------
@@ -925,7 +929,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(2, all.Count(1, ultimate));
             Assert.AreEqual(1, concealed.Count(1));
 
-            Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
             host.Replication.Replicate();
             Assert.AreEqual(2, all.Count(1, skill));
             Assert.AreEqual(2, all.Count(1, ultimate));
@@ -1328,7 +1332,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 failing.Record(owner, packet);
             };
 
-            Assert.IsTrue(serverKit.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(serverKit.State.TryConsumeCharge(1));
             Assert.Throws<InvalidOperationException>(() => host.Pump());
             Assert.AreEqual(1, failing.Count(1));
             Assert.AreEqual(2, watching.Count(1));
@@ -1532,8 +1536,8 @@ namespace inonego.Xeri.Game.TEST._Ability
             using var host = new AuthorityHost(network);
             var first = host.AddOwner(1, "Skill", 0, 3, connection: 10);
             var second = host.AddOwner(2, "Skill", 0, 3, connection: 11);
-            Assert.IsTrue(first.State.Control.TryConsumeCharge(1));
-            Assert.IsTrue(second.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(first.State.TryConsumeCharge(1));
+            Assert.IsTrue(second.State.TryConsumeCharge(1));
             first.State.OnChargeRecharged += (_, _) => host.Despawn(1);
 
             Assert.DoesNotThrow(() => host.Advance(10f));
@@ -1558,8 +1562,8 @@ namespace inonego.Xeri.Game.TEST._Ability
             var second = host.AddOwner(2, "Skill", 0, 3, connection: 11);
             using var kit = new AuthorityKit("Skill", 0, 3);
             var client = new AuthorityClient(network, kit, 10, 1);
-            Assert.IsTrue(first.State.Control.TryConsumeCharge(1));
-            Assert.IsTrue(second.State.Control.TryConsumeCharge(1));
+            Assert.IsTrue(first.State.TryConsumeCharge(1));
+            Assert.IsTrue(second.State.TryConsumeCharge(1));
             first.State.OnChargeRecharged += (_, _) => throw new InvalidOperationException("충전 알림 실패");
 
             client.Send(client.Create());
@@ -1625,7 +1629,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var before = serverKit.State.Revision;
             serverKit.State.CloneFrom(local.State);
             Assert.AreEqual(revisionAtStop, local.State.Revision);
-            Assert.Greater(serverKit.State.Revision, before);
+            Assert.IsTrue(serverKit.State.Revision > before);
 
             // 경과 기준 Timer이므로 시각 변환 없이 남은 시간, Charge, 충전 진행, Values가 그대로 이어진다.
             Assert.AreEqual(1.5f, Remaining(serverKit.State), 1e-4f);
@@ -1722,7 +1726,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             client.JoinEpoch(1);
             var next = new AbilityState(kit.State.Key);
             next.Values.SetI("Stack", 100);
-            Assert.Less(next.Revision, previous.Revision);
+            Assert.IsTrue(next.Revision < previous.Revision);
 
             network.Send(network.Server, client.Endpoint, AuthorityPacket.ForSnapshot(1, new AuthoritySnapshot(next, network.Tick)));
             Step(network, host, client);

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : MotionActorKey.cs
-수정일 : 2026-11-21
+수정일 : 2026-11-25
 
 # 설명
 실행 Scope와 Actor 수명을 식별하는 값을 정의한다.
@@ -46,7 +46,7 @@ namespace inonego.Xeri.Game.Motion
         /// 해당 Actor의 수명 세대입니다.
         /// </summary>
         // ------------------------------------------------------------
-        public long Generation { get; }
+        public Revision Generation { get; }
 
     #endregion
 
@@ -57,9 +57,9 @@ namespace inonego.Xeri.Game.Motion
         /// Actor의 실행 범위와 수명 식별자를 구성합니다.
         /// </summary>
         // ------------------------------------------------------------
-        public MotionActorKey(long scopeID, long actorID, long generation)
+        public MotionActorKey(long scopeID, long actorID, Revision generation)
         {
-            if (scopeID <= 0 || actorID <= 0 || generation <= 0)
+            if (scopeID <= 0 || actorID <= 0 || generation.IsNone)
             {
                 throw new ArgumentOutOfRangeException(nameof(scopeID));
             }

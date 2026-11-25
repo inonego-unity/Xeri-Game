@@ -48,10 +48,9 @@ namespace inonego.Xeri.Game.TEST._Execution
             var session = CreateTimelineSession(behavior: supplied);
 
             supplied[0] = new TraceBehaviorRuntime();
-            Assert.Throws<NotSupportedException>
-            (
-                () => ((IList<ExecutionBehaviorRuntime>)session.Behaviors)[0] = new TraceBehaviorRuntime()
-            );
+
+            // 목록 뷰는 쓰기 가능한 IList가 아니라서 캐스팅으로도 내용을 바꿀 수 없다.
+            Assert.IsFalse(((object)session.Behaviors) is IList<ExecutionBehaviorRuntime>);
 
             session.Begin();
             session.End(ExecutionEndReason.Cancelled);

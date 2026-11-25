@@ -71,7 +71,7 @@ Motor<TState> ── IMotorBackend<TState> ── RigidbodyMotorBackend2D / 3D
 - `TryApply`는 결과의 Actor가 Motor의 Actor와 다르거나 Backend가 거절하면 `false`입니다. Physics Step 중이거나 이미 적용했다면 `InvalidOperationException`입니다.
 - `BeginPhysicsStep`을 진행 중인 Step에서 다시 호출하면 예외이고 기존 관측을 덮어쓰지 않습니다. Backend의 `BeginContactStep`이 예외를 던지면 Step을 시작한 것으로 확정하지 않아 다시 시도할 수 있습니다.
 - `CompletePhysicsStep`은 `BeginPhysicsStep` 없이 호출하면 예외입니다. 다만 실제로 Physics가 진행됐는지는 검증하지 못합니다. 같은 `FixedUpdate` 콜백에서 Begin과 Complete를 연달아 호출해 Physics가 끝났다고 가정하지 마세요.
-- `ObservedPhysicsStep`과 `PhysicsObservationVersion`으로 관측의 유효성을 판단합니다. `BeginPhysicsStep`과 성공한 교정·복원은 기존 관측을 지우고 Version을 올립니다. 같은 Step 번호를 다시 써도 이전 표본을 재사용하지 않습니다.
+- `ObservedPhysicsStep`과 `PhysicsObservationGeneration`으로 관측의 유효성을 판단합니다. `BeginPhysicsStep`과 성공한 교정·복원은 기존 관측을 지우고 Generation을 올립니다. `None`은 관측 없음 표식이라 `PhysicsObservationGeneration`의 첫 번호는 1입니다. 같은 Step 번호를 다시 써도 이전 표본을 재사용하지 않습니다.
 
 ## 접촉 읽기
 
@@ -114,10 +114,10 @@ if (support.CheckAndObserve(step, deltaTime, worldPoint) && support.TryRead(out 
 
 ## 현재 상태 교정과 과거 복원
 
-- `ApplyCurrentState(in state)`는 권한 있는 Body의 현재 Pose와 속도를 **지금** 적용합니다. 성공하면 이전 Motor History 세대, 접촉·지면 관측이 무효화되고 `DiscontinuityVersion`과 `LastDiscontinuity`가 갱신됩니다. 외부 패킷의 Actor와 Session 매핑은 호출 전에 Host가 검증합니다.
+- `ApplyCurrentState(in state)`는 권한 있는 Body의 현재 Pose와 속도를 **지금** 적용합니다. 성공하면 이전 Motor History 세대, 접촉·지면 관측이 무효화되고 `DiscontinuityRevision`과 `LastDiscontinuity`가 갱신됩니다. 외부 패킷의 Actor와 Session 매핑은 호출 전에 Host가 검증합니다.
 - `TryCaptureHistorical`과 `RestoreHistorical`은 Backend가 `IMotorHistoricalBackend`를 구현했을 때만 과거 Owned State에 적용됩니다. 복원 결과는 `MotorRestoreStatus`(`Restored`, `Unsupported`, `ActorMismatch`, `StaleHistory`, `BackendRejected`)로 구분합니다. 콜백 안의 교정·복원은 재진입으로 거절되고, 실패한 복원은 불연속을 기록하지 않습니다.
 - `MotorSnapshot<TState>`는 Actor, 외부 Step, History 세대, Owned State를 담은 값이며 네트워크 전송 포맷이나 World 기록이 아닙니다.
-- `DiscontinuityVersion`과 `LastDiscontinuity`는 읽을 수 있는 상태이지 이벤트가 아닙니다. 표현이나 Navigation이 값을 보고 자기 캐시를 무효화합니다. Motor의 교정이 Navigation을 자동으로 무효화하지는 않습니다.
+- `DiscontinuityRevision`과 `LastDiscontinuity`는 읽을 수 있는 상태이지 이벤트가 아닙니다. 표현이나 Navigation이 값을 보고 자기 캐시를 무효화합니다. Motor의 교정이 Navigation을 자동으로 무효화하지는 않습니다.
 
 ## 소유권과 수명
 

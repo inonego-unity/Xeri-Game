@@ -50,16 +50,16 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         {
             MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Knockback", 1), 20, NumericFOperation.ADD,
+                new MotionSourceKey("Knockback", Revision.FromUInt64(1)), 20, NumericFOperation.ADD,
                 MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 1f, 4f))
             ),
             MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Slow", 1), 30, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.Planar, 0.5f)
+                new MotionSourceKey("Slow", Revision.FromUInt64(1)), 30, NumericFOperation.MUL, MotionChannelValues.Uniform(MotionChannel.Planar, 0.5f)
             ),
             MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Turn", 1), 5, NumericFOperation.SET,
+                new MotionSourceKey("Turn", Revision.FromUInt64(1)), 5, NumericFOperation.SET,
                 new MotionChannelValues(MotionChannel.Rotation, rotation: new Vector3(0f, 1f, 0f))
             )
         };
@@ -69,7 +69,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         {
             MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Knockback", 1), 20, NumericFOperation.ADD,
+                new MotionSourceKey("Knockback", Revision.FromUInt64(1)), 20, NumericFOperation.ADD,
                 MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 1f, 5f))
             )
         };
@@ -79,14 +79,14 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         {
             MotionModifierCommand.Apply
             (
-                new MotionSourceKey("Knockback", 1), 20, NumericFOperation.SUB,
+                new MotionSourceKey("Knockback", Revision.FromUInt64(1)), 20, NumericFOperation.SUB,
                 MotionChannelValues.Linear(MotionChannel.Planar | MotionChannel.Elevation, new Vector3(0f, 1f, 5f))
             )
         };
 
         private static MotionModel CreateWarmModel()
         {
-            var model = new MotionModel(new MotionActorKey(1, 1, 1), Vector3.up);
+            var model = new MotionModel(new MotionActorKey(1, 1, Revision.FromUInt64(1)), Vector3.up);
 
             model.StepLocal(DELTA, new MotionStepInput(walk, begin));
             Step(model);
@@ -175,9 +175,17 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motion
         public void TEST_MotionAllocation_항목조회_할당없음()
         {
             var model = CreateWarmModel();
-            var key = new MotionSourceKey("Knockback", 1);
+            var key = new MotionSourceKey("Knockback", Revision.FromUInt64(1));
 
-            Assert.That(() => model.TryGetModifier(key, out _), Is.Not.AllocatingGCMemory());
+            // 조회 결과는 쓰지 않으므로 반환값 없는 메서드로 감싸 TestDelegate로 받는다.
+            void Lookup()
+            {
+                model.TryGetModifier(key, out _);
+            }
+
+            Lookup();
+
+            Assert.That(Lookup, Is.Not.AllocatingGCMemory());
         }
 
         // ------------------------------------------------------------

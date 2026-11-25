@@ -257,7 +257,7 @@ namespace inonego.Xeri.Game
             {
                 // 생성 실패한 Actor의 Provider 수명은 rollback 이후 terminal 종료된다.
                 activeActors.Remove(actor);
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
 
                 for (var index = attempted - 1; index >= 0; index--)
                 {
@@ -272,18 +272,17 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception rollbackException)
                     {
-                        failures ??= new List<Exception>();
                         failures.Add(rollbackException);
                     }
                 }
 
-                if (failures == null)
+                if (failures.Count == 0)
                 {
                     throw;
                 }
 
-                failures.Insert(0, createException);
-                throw new AggregateException("Presentation 생성과 rollback 중 오류가 발생했습니다.", failures);
+                failures.Prepend(createException);
+                throw failures.CreateAggregateException("Presentation 생성과 rollback 중 오류가 발생했습니다.");
             }
             finally
             {
@@ -337,7 +336,7 @@ namespace inonego.Xeri.Game
             try
             {
                 // Detached Actor의 terminal 반환에서는 entity가 null일 수 있다.
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
 
                 for (var index = providers.Count - 1; index >= 0; index--)
                 {
@@ -347,19 +346,11 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception exception)
                     {
-                        failures ??= new List<Exception>();
                         failures.Add(exception);
                     }
                 }
 
-                if (failures == null)
-                {
-                    return;
-                }
-
-                throw failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException("일부 Presentation Provider 반환에 실패했습니다.", failures);
+                failures.ThrowWhenAny("일부 Presentation Provider 반환에 실패했습니다.");
             }
             finally
             {
@@ -440,7 +431,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception rebindException)
             {
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
 
                 for (var index = attempted - 1; index >= 0; index--)
                 {
@@ -455,22 +446,17 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception rollbackException)
                     {
-                        failures ??= new List<Exception>();
                         failures.Add(rollbackException);
                     }
                 }
 
-                if (failures == null)
+                if (failures.Count == 0)
                 {
                     throw;
                 }
 
-                failures.Insert(0, rebindException);
-                throw new AggregateException
-                (
-                    "Presentation Rebind와 rollback 중 오류가 발생했습니다.",
-                    failures
-                );
+                failures.Prepend(rebindException);
+                throw failures.CreateAggregateException("Presentation Rebind와 rollback 중 오류가 발생했습니다.");
             }
             finally
             {
@@ -546,7 +532,7 @@ namespace inonego.Xeri.Game
             }
             catch (Exception rebindException)
             {
-                List<Exception> failures = null;
+                var failures = new ExceptionBuffer();
 
                 for (var index = attempted - 1; index >= 0; index--)
                 {
@@ -560,22 +546,17 @@ namespace inonego.Xeri.Game
                     }
                     catch (Exception rollbackException)
                     {
-                        failures ??= new List<Exception>();
                         failures.Add(rollbackException);
                     }
                 }
 
-                if (failures == null)
+                if (failures.Count == 0)
                 {
                     throw;
                 }
 
-                failures.Insert(0, rebindException);
-                throw new AggregateException
-                (
-                    "Presentation owner Rebind와 rollback 중 오류가 발생했습니다.",
-                    failures
-                );
+                failures.Prepend(rebindException);
+                throw failures.CreateAggregateException("Presentation owner Rebind와 rollback 중 오류가 발생했습니다.");
             }
             finally
             {

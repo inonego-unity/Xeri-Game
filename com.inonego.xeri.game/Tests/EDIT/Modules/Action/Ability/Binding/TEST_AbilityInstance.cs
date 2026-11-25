@@ -104,7 +104,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             secondExecution.Begin();
             firstExecution.Variables.SetI("ActorLocal", 1);
             secondExecution.Variables.SetI("ActorLocal", 2);
-            ability.State.Control.TryBeginCooldown(2f);
+            ability.State.TryBeginCooldown(2f);
 
             Assert.AreSame(firstContext.Ability.State, secondContext.Ability.State);
             Assert.AreSame(owner, firstExecution.Context.Owner);
@@ -162,7 +162,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.IsTrue(policy.TryActivate(firstContext, null, new List<AbilityCostReceipt>(), out var firstResult));
             Assert.IsTrue(firstResult.Succeeded);
 
-            Assert.IsTrue(ability.State.Control.TryBeginCooldown(2f));
+            Assert.IsTrue(ability.State.TryBeginCooldown(2f));
 
             Assert.IsFalse(policy.TryActivate(secondContext, null, new List<AbilityCostReceipt>(), out var secondResult));
             Assert.AreEqual
@@ -183,9 +183,9 @@ namespace inonego.Xeri.Game.TEST._Ability
             var entry = new AbilityEntryKey("Skill");
             var bench = CreateInstance("Skill");
             var active = CreateInstance("Skill");
-            bench.State.Control.ConfigureCharge(2, 1f);
-            active.State.Control.ConfigureCharge(2, 1f);
-            Assert.IsTrue(bench.State.Control.TryBeginCooldown(4f));
+            bench.State.ConfigureCharge(2, 1f);
+            active.State.ConfigureCharge(2, 1f);
+            Assert.IsTrue(bench.State.TryBeginCooldown(4f));
 
             var bindings = new AbilityBindings<TestSpec>();
             var baseLayer = new AbilityBindingLayer<TestSpec>(0);
@@ -211,7 +211,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             var benchRevision = bench.State.Revision;
 
             Assert.IsTrue(policy.TryActivate(CreateContext(entry, resolved.Instance), null, new List<AbilityCostReceipt>(), out _));
-            Assert.IsTrue(active.State.Control.TryBeginCooldown(2f));
+            Assert.IsTrue(active.State.TryBeginCooldown(2f));
 
             Assert.AreEqual(1, active.State.Charge.Current);
             Assert.AreEqual(2, bench.State.Charge.Current);

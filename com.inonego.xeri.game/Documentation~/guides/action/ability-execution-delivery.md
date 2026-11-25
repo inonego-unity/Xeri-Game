@@ -36,7 +36,7 @@ public sealed class ExampleAbilityHost : IDisposable
 
     public ExampleAbilityHost()
     {
-        state.Control.ConfigureCharge(capacity: 2, rechargeDuration: 3f);
+        state.ConfigureCharge(capacity: 2, rechargeDuration: 3f);
         var instance = new AbilityInstance<object>(new object(), state);
         var layer = new AbilityBindingLayer<object>(priority: 0);
         layer.Set(entry, instance);
@@ -62,7 +62,7 @@ public sealed class ExampleAbilityHost : IDisposable
                     // Cooldown 시작은 begin 성공 후 실행되는 transition에 둡니다.
                     transition: () =>
                     {
-                        request.Ability.State.Control.TryBeginCooldown(0.6f);
+                        request.Ability.State.TryBeginCooldown(0.6f);
                     }
                 )
             }

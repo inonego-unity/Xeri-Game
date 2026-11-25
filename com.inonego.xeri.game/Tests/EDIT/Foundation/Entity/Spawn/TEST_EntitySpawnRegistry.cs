@@ -1657,7 +1657,6 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
             var current = new EntityHandle(entity);
 
             Assert.AreEqual(previous.Key, current.Key);
-            Assert.AreNotEqual(previous.RegistrationRevision, current.RegistrationRevision);
             Assert.IsFalse(previous.IsValid());
             Assert.IsTrue(current.IsValid());
         }
@@ -1939,8 +1938,8 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
             Assert.IsNotNull(restoredSecond);
             Assert.AreEqual(SpawnState.Spawned, restoredFirst.SpawnState);
             Assert.AreEqual(SpawnState.Spawned, restoredSecond.SpawnState);
-            Assert.Greater(restoredFirst.RegistrationRevision, 0UL);
-            Assert.Greater(restoredSecond.RegistrationRevision, 0UL);
+            Assert.IsFalse(restoredFirst.RegistrationGeneration.IsNone);
+            Assert.IsFalse(restoredSecond.RegistrationGeneration.IsNone);
 
             var restoredHandle = new EntityHandle(restoredFirst);
             Assert.IsTrue(restoredHandle.IsValid());

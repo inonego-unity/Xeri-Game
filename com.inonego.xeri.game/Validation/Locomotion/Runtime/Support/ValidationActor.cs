@@ -42,7 +42,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
         {
             Action = command.Action;
             Key = command.Source.Key ?? "(none)";
-            Generation = command.Source.Generation;
+            Generation = (long)command.Source.Generation.ToUInt64();
             IsImpulse = command.IsImpulse;
             Status = status;
         }
@@ -115,7 +115,7 @@ namespace inonego.Xeri.Game.Validation.Locomotion
             Body.sleepThreshold = 0f;
             Body.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
 
-            Key = new MotionActorKey(1, actorId, 1);
+            Key = new MotionActorKey(1, actorId, Revision.FromUInt64(1));
             Model = new MotionModel(Key, Vector3.up, capacity);
             Mover = new Motor<MotorState3D>(Key, new RigidbodyMotorBackend3D(Body));
 

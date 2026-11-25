@@ -42,7 +42,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
     #region 헬퍼
 
-        private static readonly MotionActorKey actor = new(1, 1, 1);
+        private static readonly MotionActorKey actor = new(1, 1, Revision.FromUInt64(1));
 
         private sealed class HistoricalBody :
             IMotorBackend<MotorState2D>,
@@ -209,7 +209,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             /// 센서 연결 수명을 나타내는 세대입니다.
             /// </summary>
             // ------------------------------------------------------------
-            public long ContactObservationRevision { get; private set; }
+            public Revision ContactObservationRevision { get; private set; }
 
             internal Action DuringContactRead;
             internal Action DuringContactBegin;
@@ -218,7 +218,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             internal void SetAvailable(bool available)
             {
                 isAvailable = available;
-                ContactObservationRevision++;
+                ContactObservationRevision = ContactObservationRevision.Inc();
             }
 
             // ------------------------------------------------------------
@@ -286,7 +286,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             Vector3 impulse = default
         ) => new
         (
-            frameActor, new MotionTick(0, 0.02d), 1, up,
+            frameActor, new MotionTick(0, 0.02d), Revision.FromUInt64(1), up,
             planarMode, planar, elevationMode, elevation, rotationMode, rotation,
             impulse, 0, -1
         );
@@ -315,7 +315,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             var frame = model.StepLocal(0.02d, new MotionStepInput(inputs));
             Assert.That(motor.TryApply(frame), Is.True);
             Assert.That(motor.ReadCurrentState().LinearVelocity, Is.EqualTo(new Vector2(3f, 4f)));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
             Assert.Throws<InvalidOperationException>(() => motor.TryApply(frame));
 
             // Physics Step 경계를 넘으면 다음 Tick 결과를 다시 받는다.
@@ -328,6 +328,26 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
         // ------------------------------------------------------------
         /// <summary>
+        /// <br/> 관측 수명 번호는 None이 아닌 1에서 시작해 교정마다 오릅니다.
+        /// <br/> None은 지면 지원 등이 쓰는 관측 없음 표식과 겹치지 않습니다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_Motor_관측수명번호는_None이_아닌_1에서시작()
+        {
+            var motor = new Motor<MotorState2D>(actor, new HistoricalBody());
+
+            Assert.That(motor.PhysicsObservationGeneration, Is.EqualTo(Revision.FromUInt64(1)));
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
+
+            motor.ApplyCurrentState(motor.ReadCurrentState());
+
+            Assert.That(motor.PhysicsObservationGeneration, Is.EqualTo(Revision.FromUInt64(2)));
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(1)));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
         /// 다른 Actor의 합성 결과는 Body에 적용하지 않습니다.
         /// </summary>
         // ------------------------------------------------------------
@@ -336,7 +356,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
         {
             var backend = new HistoricalBody();
             var motor = new Motor<MotorState2D>(actor, backend);
-            var other = new MotionActorKey(1, 2, 1);
+            var other = new MotionActorKey(1, 2, Revision.FromUInt64(1));
             var velocity = new Vector3(10f, 20f, 0f);
 
             Assert.That(motor.TryApply(CreateFrame(other, MotionModel.TopDown2DUp, MotionChannelMode.Set, velocity)), Is.False);
@@ -536,7 +556,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
             Assert.That(motor.RestoreHistorical(saved), Is.EqualTo(MotorRestoreStatus.StaleHistory));
             Assert.That(motor.ReadCurrentState().Position, Is.EqualTo(new Vector2(7f, 8f)));
-            Assert.That(motor.DiscontinuityVersion, Is.EqualTo(1));
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(1)));
             Assert.That(motor.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.CurrentStateApply));
         }
 
@@ -548,8 +568,8 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
         [Test]
         public void TEST_Motor_서버확정State를클라이언트에적용()
         {
-            var serverActor = new MotionActorKey(1, 1, 1);
-            var clientActor = new MotionActorKey(2, 1, 1);
+            var serverActor = new MotionActorKey(1, 1, Revision.FromUInt64(1));
+            var clientActor = new MotionActorKey(2, 1, Revision.FromUInt64(1));
             var server = new Motor<MotorState2D>
             (
                 serverActor, new HistoricalBody()
@@ -572,7 +592,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             Assert.That(client.ReadCurrentState().Position, Is.EqualTo(authoritative.Position));
             Assert.That(client.RestoreHistorical(predicted), Is.EqualTo(MotorRestoreStatus.StaleHistory));
             Assert.That(client.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.CurrentStateApply));
-            Assert.That(client.DiscontinuityVersion, Is.EqualTo(1));
+            Assert.That(client.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(1)));
         }
 
     #endregion
@@ -606,7 +626,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
             Assert.Throws<InvalidOperationException>(() => motor.TryCaptureHistorical(5, out _));
             Assert.That(motor.ReadCurrentState().Position, Is.EqualTo(new Vector2(1f, 2f)));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
 
             body.DuringCapture = null;
             Assert.That(motor.TryCaptureHistorical(6, out var current), Is.True);
@@ -633,7 +653,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             body.Current = new MotorState2D(new Vector2(8f, 9f), 0f, Vector2.zero, 0f);
             Assert.That(motor.RestoreHistorical(saved), Is.EqualTo(MotorRestoreStatus.Restored));
             Assert.That(motor.ReadCurrentState().Position, Is.EqualTo(Vector2.zero));
-            Assert.That(motor.DiscontinuityVersion, Is.EqualTo(2));
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(2)));
             Assert.That(motor.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.HistoricalRestore));
         }
 
@@ -670,12 +690,12 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
             Assert.Throws<InvalidOperationException>(() => motor.RestoreHistorical(snapshot));
             Assert.That(motor.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.None));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
 
             body.DuringRestore = null;
             Assert.That(motor.RestoreHistorical(snapshot), Is.EqualTo(MotorRestoreStatus.Restored));
             Assert.That(motor.ReadCurrentState().Position, Is.EqualTo(new Vector2(1f, 2f)));
-            Assert.That(motor.DiscontinuityVersion, Is.EqualTo(1));
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(1)));
         }
 
         // ------------------------------------------------------------
@@ -691,7 +711,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             var first = new Motor<MotorState2D>(actor, firstBody);
             var second = new Motor<MotorState2D>
             (
-                new MotionActorKey(1, 2, 1), secondBody
+                new MotionActorKey(1, 2, Revision.FromUInt64(1)), secondBody
             );
 
             Assert.That(first.TryCaptureHistorical(0, out var saved), Is.True);
@@ -699,7 +719,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
             firstBody.AllowRestore = false;
             Assert.That(first.RestoreHistorical(saved), Is.EqualTo(MotorRestoreStatus.BackendRejected));
-            Assert.That(first.DiscontinuityVersion, Is.Zero);
+            Assert.That(first.DiscontinuityRevision, Is.EqualTo(Revision.None));
         }
 
     #endregion
@@ -779,10 +799,10 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
                     actor, new RigidbodyMotorBackend2D(body)
                 );
                 motor.BeginPhysicsStep();
-                var version = motor.PhysicsObservationVersion;
+                var version = motor.PhysicsObservationGeneration;
 
                 Assert.Throws<InvalidOperationException>(() => motor.BeginPhysicsStep());
-                Assert.That(motor.PhysicsObservationVersion, Is.EqualTo(version));
+                Assert.That(motor.PhysicsObservationGeneration, Is.EqualTo(version));
                 motor.CompletePhysicsStep(7);
                 Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(7));
 
@@ -817,7 +837,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
                 var reader = new MotorContactReader<MotorState2D, ContactPoint2D>(motor);
 
                 motor.BeginPhysicsStep();
-                var firstVersion = motor.PhysicsObservationVersion;
+                var firstVersion = motor.PhysicsObservationGeneration;
                 motor.ApplyCurrentState
                 (
                     new MotorState2D
@@ -828,11 +848,11 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
                 );
 
                 Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(-1));
-                Assert.That(motor.PhysicsObservationVersion, Is.GreaterThan(firstVersion));
+                Assert.IsTrue(motor.PhysicsObservationGeneration > firstVersion);
                 var status = reader.Read(contacts, out _);
                 Assert.That(status, Is.EqualTo(MotorContactReadStatus.NotObserved));
                 Assert.Throws<InvalidOperationException>(() => motor.CompletePhysicsStep(0));
-                Assert.That(motor.DiscontinuityVersion, Is.EqualTo(1));
+                Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(1)));
 
                 motor.BeginPhysicsStep();
                 motor.CompletePhysicsStep(1);
@@ -849,7 +869,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
 
                 status = reader.Read(contacts, out _);
                 Assert.That(status, Is.EqualTo(MotorContactReadStatus.NotObserved));
-                Assert.That(motor.DiscontinuityVersion, Is.EqualTo(2));
+                Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.FromUInt64(2)));
                 Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(-1));
                 motor.BeginPhysicsStep();
                 motor.CompletePhysicsStep(2);
@@ -915,7 +935,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             Assert.Throws<InvalidOperationException>(() => motor.BeginPhysicsStep());
             Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(-1));
             Assert.That(motor.LastDiscontinuity, Is.EqualTo(MotorDiscontinuityKind.None));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
             Assert.Throws<InvalidOperationException>(() => motor.CompletePhysicsStep(0));
 
             body.DuringContactBegin = null;
@@ -993,7 +1013,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             Assert.Throws<InvalidOperationException>(() => motor.BeginPhysicsStep());
             Assert.That(corrected, Is.True);
             Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(-1));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
             Assert.Throws<InvalidOperationException>(() => motor.CompletePhysicsStep(20));
 
             body.DuringContactClear = null;
@@ -1105,7 +1125,7 @@ namespace inonego.Xeri.Game.TEST.EDIT._Motor
             body.DuringContactRead = () => motor.ApplyCurrentState(default);
             Assert.Throws<InvalidOperationException>(() => reader.Read(contacts, out _));
             Assert.That(motor.ObservedPhysicsStep, Is.EqualTo(1));
-            Assert.That(motor.DiscontinuityVersion, Is.Zero);
+            Assert.That(motor.DiscontinuityRevision, Is.EqualTo(Revision.None));
         }
 
         // ------------------------------------------------------------
