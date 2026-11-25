@@ -224,7 +224,7 @@ namespace inonego.Xeri.Game
         /// 적용 순서대로 현재 Status 목록을 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<IReadOnlyStatus<TOrigin>> Statuses => entries;
+        public ReadOnlyListView<IReadOnlyStatus<TOrigin>> Statuses => new(entries);
 
         [SerializeField]
         private List<Entry> entries = new();

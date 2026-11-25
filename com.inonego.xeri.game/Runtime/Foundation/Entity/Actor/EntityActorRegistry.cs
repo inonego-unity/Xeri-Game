@@ -64,17 +64,7 @@ namespace inonego.Xeri.Game
         /// 현재 Registry가 수명을 추적하는 모든 Actor.
         /// </summary>
         // ------------------------------------------------------------
-        public ReadOnlySetView<TEntityActor> Actors
-        {
-            get
-            {
-                actorsView ??= new ReadOnlySetView<TEntityActor>(actors);
-                return actorsView;
-            }
-        }
-
-        [NonSerialized]
-        private ReadOnlySetView<TEntityActor> actorsView = null;
+        public ReadOnlySetView<TEntityActor> Actors => new(actors);
 
         // 하나의 Registry는 하나의 Controller만 소유한다.
         [NonSerialized]

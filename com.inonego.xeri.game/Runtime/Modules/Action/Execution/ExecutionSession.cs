@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionSession.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-25
 
 # 설명
 Execution의 요청·적용 시간, Flow/Behavior, 독립 Signal·Command, Commit·종료 수명을 소유한다.
@@ -55,8 +55,7 @@ namespace inonego.Xeri.Game
         /// 세션에 귀속된 Behavior 실행 인스턴스 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ExecutionBehaviorRuntime> Behaviors => behaviorView;
-        private readonly IReadOnlyList<ExecutionBehaviorRuntime> behaviorView;
+        public ReadOnlyListView<ExecutionBehaviorRuntime> Behaviors => new(behaviors);
         private readonly ExecutionBehaviorRuntime[] behaviors;
 
         // ------------------------------------------------------------
@@ -253,7 +252,6 @@ namespace inonego.Xeri.Game
             this.flow = flow;
             this.maximumTime = maximumTime;
             this.behaviors = runtimeBehaviors;
-            behaviorView = Array.AsReadOnly(runtimeBehaviors);
 
             flow.Bind(this);
 

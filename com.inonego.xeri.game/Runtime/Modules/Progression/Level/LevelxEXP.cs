@@ -89,7 +89,10 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------------------------------------
         [SerializeField, ReadOnly]
         private int[] requiredEXPToLevelUpArray;
-        public IReadOnlyList<int> RequiredEXPToLevelUpArray => requiredEXPToLevelUpArray;
+        public ReadOnlyListView<int> RequiredEXPToLevelUpArray => new
+        (
+            requiredEXPToLevelUpArray ?? Array.Empty<int>()
+        );
 
         // ------------------------------------------------------------
         /// <summary>

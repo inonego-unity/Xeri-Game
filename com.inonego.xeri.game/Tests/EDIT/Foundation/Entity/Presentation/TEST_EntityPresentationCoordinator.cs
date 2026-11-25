@@ -381,8 +381,8 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
             var first = new object();
             var second = new object();
 
+            // 전체 View는 값 타입이라 접근마다 새로 만들지만 같은 원본을 그대로 보여 준다.
             var all = registry.Presentations;
-            Assert.AreSame(all, registry.Presentations);
             Assert.IsFalse(((object)all) is HashSet<object>);
 
             registry.Register(first);

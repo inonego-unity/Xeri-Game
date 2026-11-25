@@ -44,7 +44,7 @@ namespace inonego.Xeri.Game
         /// 추가 순서대로 State 목록을 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<AbilityState> States => states;
+        public ReadOnlyListView<AbilityState> States => new(states);
 
         [SerializeField]
         private List<AbilityState> states = new();

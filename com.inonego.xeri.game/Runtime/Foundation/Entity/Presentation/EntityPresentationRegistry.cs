@@ -124,17 +124,7 @@ namespace inonego.Xeri.Game
         /// 현재 객체 수명을 추적하는 모든 Presentation.
         /// </summary>
         // ------------------------------------------------------------
-        public ReadOnlySetView<TPresentation> Presentations
-        {
-            get
-            {
-                presentationView ??= new ReadOnlySetView<TPresentation>(registered);
-                return presentationView;
-            }
-        }
-
-        [NonSerialized]
-        private ReadOnlySetView<TPresentation> presentationView = null;
+        public ReadOnlySetView<TPresentation> Presentations => new(registered);
 
         [NonSerialized]
         private readonly HashSet<TPresentation> registered = new
