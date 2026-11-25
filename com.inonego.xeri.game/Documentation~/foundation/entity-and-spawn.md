@@ -66,7 +66,7 @@ Entity의 Key는 **현재 Registry 안에서만** 유일합니다. 서로 다른
 
 직접 등록(`RegisterWithKey`)은 위 순서에서 **게임 Spawn 전용 훅·이벤트를 실행하지 않습니다.** `Spawned` 상태와 공통 Registry 등록 이벤트·Binding은 동일하게 구성합니다.
 
-필수 Binding 또는 준비 단계가 실패하면 이미 호출한 Binding을 역순으로 정리하고 등록을 롤백합니다. 원래 오류와 정리 오류가 함께 발생하면 `AggregateException`으로 전달합니다. **`OnRegistered`/`OnSpawned` 완료 observer가 예외를 던져도 등록은 이미 확정된 상태**이며 자동으로 Despawn되지 않습니다. 공개 이벤트는 다른 구독자 호출을 계속 시도하며, 등록 시작 실패와 등록 완료 통지 실패는 서로 다른 결과입니다.
+필수 Binding 또는 준비 단계가 실패하면 이미 호출한 Binding을 역순으로 정리하고 등록을 롤백합니다. 원래 오류와 정리 오류가 함께 발생하면 `AggregateException`으로 전달합니다. **`OnRegistered`/`OnSpawned` 완료 handler가 예외를 던져도 등록은 이미 확정된 상태**이며 자동으로 Despawn되지 않습니다. 공개 이벤트는 다른 구독자 호출을 계속 시도하며, 등록 시작 실패와 등록 완료 통지 실패는 서로 다른 결과입니다.
 
 ### 해제 순서
 

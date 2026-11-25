@@ -1050,23 +1050,23 @@ namespace inonego.Xeri.Game
         // 모든 변경을 모든 구독자에게 보낸 뒤 구독자 예외를 전달한다.
         private void Raise(List<StatusChange<TOrigin>> changes)
         {
-            var observers = OnChanged;
+            var handlers = OnChanged;
 
-            if (observers == null || changes.Count == 0)
+            if (handlers == null || changes.Count == 0)
             {
                 return;
             }
 
-            var invocationList = observers.GetInvocationList();
+            var invocationList = handlers.GetInvocationList();
             var failures = new ExceptionBuffer();
 
             foreach (var change in changes)
             {
-                foreach (Action<StatusContainer<TOrigin>, StatusChange<TOrigin>> observer in invocationList)
+                foreach (Action<StatusContainer<TOrigin>, StatusChange<TOrigin>> handler in invocationList)
                 {
                     try
                     {
-                        observer(this, change);
+                        handler(this, change);
                     }
                     catch (Exception exception)
                     {

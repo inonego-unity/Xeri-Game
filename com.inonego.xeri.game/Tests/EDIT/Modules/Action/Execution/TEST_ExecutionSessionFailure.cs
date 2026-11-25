@@ -3,10 +3,10 @@
 수정일 : 2026-11-19
 
 # 설명
-ExecutionSession의 시작 실패 롤백과 진행·완료 판정·Observer 실패 뒤 정리 계약을 검증한다.
+ExecutionSession의 시작 실패 롤백과 진행·완료 판정·Handler 실패 뒤 정리 계약을 검증한다.
 
 # 테스트 구성
- E: 시작·진행·Observer 실패 복구
+ E: 시작·진행·Handler 실패 복구
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -119,7 +119,7 @@ namespace inonego.Xeri.Game.TEST._Execution
                 Assert.AreEqual(ExecutionEndReason.Cancelled, reason);
                 endedCount++;
             };
-            session.OnBegun += _ => throw new InvalidOperationException("start observer failure");
+            session.OnBegun += _ => throw new InvalidOperationException("start handler failure");
 
             Assert.Throws<InvalidOperationException>(() => session.Begin());
             Assert.AreEqual(1, endedCount);
@@ -196,7 +196,7 @@ namespace inonego.Xeri.Game.TEST._Execution
 
     #endregion
 
-    #region E-2: Session 진행·Observer 실패
+    #region E-2: Session 진행·Handler 실패
 
         // ------------------------------------------------------------
         /// <summary>
@@ -255,7 +255,7 @@ namespace inonego.Xeri.Game.TEST._Execution
                     probe
                 }
             );
-            session.OnCommitted += _ => throw new InvalidOperationException("commit observer failure");
+            session.OnCommitted += _ => throw new InvalidOperationException("commit handler failure");
 
             session.Begin();
             Assert.Throws<InvalidOperationException>(() => session.TryCommit());
@@ -474,15 +474,15 @@ namespace inonego.Xeri.Game.TEST._Execution
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 종료 Observer 일부가 실패해도 나머지 Observer를 호출한다.
+        /// 종료 Handler 일부가 실패해도 나머지 Handler를 호출한다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_ExecutionSession_OnEnded실패에도모든Observer에게통지()
+        public void TEST_ExecutionSession_OnEnded실패에도모든Handler에게통지()
         {
             var session = CreateTimelineSession();
             var observed = 0;
-            session.OnEnded += (_, _) => throw new InvalidOperationException("end observer failure");
+            session.OnEnded += (_, _) => throw new InvalidOperationException("end handler failure");
             session.OnEnded += (_, _) => observed++;
 
             session.Begin();
@@ -505,7 +505,7 @@ namespace inonego.Xeri.Game.TEST._Execution
         public void TEST_ExecutionSession_종료실패하나는_원래스택추적유지()
         {
             var session = CreateTimelineSession();
-            session.OnEnded += ThrowFromEndObserver;
+            session.OnEnded += ThrowFromEndHandler;
 
             session.Begin();
             var thrown = Assert.Throws<InvalidOperationException>
@@ -513,12 +513,12 @@ namespace inonego.Xeri.Game.TEST._Execution
                 () => session.End(ExecutionEndReason.Cancelled)
             );
 
-            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromEndObserver)));
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromEndHandler)));
         }
 
-        private static void ThrowFromEndObserver(ExecutionSession session, ExecutionEndReason reason)
+        private static void ThrowFromEndHandler(ExecutionSession session, ExecutionEndReason reason)
         {
-            throw new InvalidOperationException("end observer failure");
+            throw new InvalidOperationException("end handler failure");
         }
 
     #endregion

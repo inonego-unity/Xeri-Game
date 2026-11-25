@@ -105,7 +105,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_AbilityExecutionDrive_소비실패와종료가겹치고종료Observer가실패()
+        public void TEST_AbilityExecutionDrive_소비실패와종료가겹치고종료Handler가실패()
         {
             var resource = new ResourceFixture();
             var owner = new object();
@@ -115,7 +115,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             host.Session.OnEnded += (_, _) =>
             {
                 failingCalls++;
-                throw new InvalidOperationException("end observer");
+                throw new InvalidOperationException("end handler");
             };
             host.Session.Begin();
             Assert.Throws<InvalidOperationException>(() => host.Tick(endRequested: true));

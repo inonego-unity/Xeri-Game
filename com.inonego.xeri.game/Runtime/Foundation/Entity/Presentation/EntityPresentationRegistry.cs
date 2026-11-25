@@ -453,7 +453,7 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 객체 등록과 owner 관계를 비우고 완료 observer를 모두 호출한다.
+        /// 객체 등록과 owner 관계를 비우고 완료 handler를 모두 호출한다.
         /// </summary>
         // ------------------------------------------------------------
         public void Clear()
@@ -475,7 +475,7 @@ namespace inonego.Xeri.Game
             owners.Clear();
             registered.Clear();
 
-            // Clear도 commit 이후 observer 실패를 격리해 모든 소비자의 정리가 진행되게 한다.
+            // Clear도 commit 이후 handler 실패를 격리해 모든 소비자의 정리가 진행되게 한다.
             var handlers = OnClear?.GetInvocationList();
             if (handlers == null) return;
 
@@ -592,12 +592,12 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 확정된 Attach 관계를 observer에 전달한다.
+        /// 확정된 Attach 관계를 handler에 전달한다.
         /// </summary>
         // ------------------------------------------------------------
         private void PublishAttach(TOwner owner, TPresentation presentation)
         {
-            PublishObservers
+            PublishHandlers
             (
                 OnAttach,
                 new EntityPresentationRegistryEventArgs<TOwner, TPresentation>
@@ -610,12 +610,12 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 확정된 Detach 관계를 observer에 전달한다.
+        /// 확정된 Detach 관계를 handler에 전달한다.
         /// </summary>
         // ------------------------------------------------------------
         private void PublishDetach(TOwner owner, TPresentation presentation)
         {
-            PublishObservers
+            PublishHandlers
             (
                 OnDetach,
                 new EntityPresentationRegistryEventArgs<TOwner, TPresentation>
@@ -628,16 +628,16 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 관계 observer의 개별 실패를 격리하고 나머지 알림을 계속한다.
+        /// 관계 handler의 개별 실패를 격리하고 나머지 알림을 계속한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void PublishObservers
+        private void PublishHandlers
         (
-            EntityPresentationRegistryEventHandler<TOwner, TPresentation> observers,
+            EntityPresentationRegistryEventHandler<TOwner, TPresentation> handler,
             EntityPresentationRegistryEventArgs<TOwner, TPresentation> args
         )
         {
-            var handlers = observers?.GetInvocationList();
+            var handlers = handler?.GetInvocationList();
             if (handlers == null) return;
 
             isPublishing = true;

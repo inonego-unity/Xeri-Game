@@ -667,21 +667,21 @@ namespace inonego.Xeri.Game
         /// <br/> 알리지 않는다. 종료된 Session의 시작·확정 통지가 종료 통지보다 늦게 가지 않는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        private void InvokeWhileActive(Action<ExecutionSession> observers)
+        private void InvokeWhileActive(Action<ExecutionSession> handlers)
         {
-            if (observers == null)
+            if (handlers == null)
             {
                 return;
             }
 
-            foreach (Action<ExecutionSession> observer in observers.GetInvocationList())
+            foreach (Action<ExecutionSession> handler in handlers.GetInvocationList())
             {
                 if (!IsActive)
                 {
                     return;
                 }
 
-                observer(this);
+                handler(this);
             }
         }
 
@@ -821,22 +821,22 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 종료 observer 하나가 실패해도 나머지를 통지한다.
+        /// 종료 handler 하나가 실패해도 나머지를 통지한다.
         /// </summary>
         // ------------------------------------------------------------
         private void NotifyEnded(ExecutionEndReason reason, ref ExceptionBuffer failures)
         {
-            var observers = OnEnded;
-            if (observers == null)
+            var handlers = OnEnded;
+            if (handlers == null)
             {
                 return;
             }
 
-            foreach (Action<ExecutionSession, ExecutionEndReason> observer in observers.GetInvocationList())
+            foreach (Action<ExecutionSession, ExecutionEndReason> handler in handlers.GetInvocationList())
             {
                 try
                 {
-                    observer(this, reason);
+                    handler(this, reason);
                 }
                 catch (Exception exception)
                 {

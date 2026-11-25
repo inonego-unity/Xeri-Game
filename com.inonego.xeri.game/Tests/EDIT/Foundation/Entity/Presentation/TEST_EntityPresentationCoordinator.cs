@@ -7,7 +7,7 @@ EntityPresentationCoordinator의 Provider 정순 생성·Rebind, 역순 release�
 단순 Registry CRUD가 아니라 여러 Provider의 수명 transaction과 실패 격리를 대상으로 한다.
 
 # 테스트 구성
- R: Registry 관계와 committed observer 알림
+ R: Registry 관계와 committed handler 알림
  L: 정상 Provider lifecycle
  T: Provider Rebind transaction
  X: Create·Release 실패 rollback과 격리
@@ -433,15 +433,15 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
     #endregion
 
-    #region R-2: Registry observer failure 격리
+    #region R-2: Registry handler failure 격리
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Clear observer 실패가 다른 소비자의 완료 정리를 막지 않게 한다.
+        /// Clear handler 실패가 다른 소비자의 완료 정리를 막지 않게 한다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_EntityPresentationRegistry_ClearObserver실패에도_정리와후속Observer를유지()
+        public void TEST_EntityPresentationRegistry_ClearHandler실패에도_정리와후속Handler를유지()
         {
             var registry = new EntityPresentationRegistry<object, object>();
             var owner = new object();
@@ -451,10 +451,10 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
             registry.Register(detached);
             registry.Attach(owner, bound);
             var observed = 0;
-            registry.OnClear += (_, _) => throw new InvalidOperationException("clear observer failure");
+            registry.OnClear += (_, _) => throw new InvalidOperationException("clear handler failure");
             registry.OnClear += (_, _) => observed++;
 
-            LogAssert.Expect(LogType.Exception, "InvalidOperationException: clear observer failure");
+            LogAssert.Expect(LogType.Exception, "InvalidOperationException: clear handler failure");
             registry.Clear();
 
             Assert.IsFalse(registry.Contains(bound));
@@ -468,11 +468,11 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Attach observer 실패에도 확정된 관계와 후속 알림을 유지한다.
+        /// Attach handler 실패에도 확정된 관계와 후속 알림을 유지한다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_EntityPresentationRegistry_AttachObserver실패에도_BoundCommit과후속Observer를유지()
+        public void TEST_EntityPresentationRegistry_AttachHandler실패에도_BoundCommit과후속Handler를유지()
         {
             var registry = new EntityPresentationRegistry<object, object>();
             var owner = new object();
@@ -481,10 +481,10 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
             registry.Register(presentation);
             registry.OnAttach += (_, _) =>
-                throw new InvalidOperationException("attach observer failure");
+                throw new InvalidOperationException("attach handler failure");
             registry.OnAttach += (_, _) => observed++;
 
-            LogAssert.Expect(LogType.Exception, "InvalidOperationException: attach observer failure");
+            LogAssert.Expect(LogType.Exception, "InvalidOperationException: attach handler failure");
             registry.Attach(owner, presentation);
 
             Assert.IsTrue(registry.IsBound(presentation));
@@ -495,11 +495,11 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Detach observer 실패에도 관계 종료와 후속 알림을 유지한다.
+        /// Detach handler 실패에도 관계 종료와 후속 알림을 유지한다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_EntityPresentationRegistry_DetachObserver실패에도_DetachedCommit과후속Observer를유지()
+        public void TEST_EntityPresentationRegistry_DetachHandler실패에도_DetachedCommit과후속Handler를유지()
         {
             var registry = new EntityPresentationRegistry<object, object>();
             var owner = new object();
@@ -509,10 +509,10 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
             registry.Register(presentation);
             registry.Attach(owner, presentation);
             registry.OnDetach += (_, _) =>
-                throw new InvalidOperationException("detach observer failure");
+                throw new InvalidOperationException("detach handler failure");
             registry.OnDetach += (_, _) => observed++;
 
-            LogAssert.Expect(LogType.Exception, "InvalidOperationException: detach observer failure");
+            LogAssert.Expect(LogType.Exception, "InvalidOperationException: detach handler failure");
             Assert.IsTrue(registry.Detach(presentation));
 
             Assert.IsFalse(registry.IsBound(presentation));
@@ -522,11 +522,11 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Rebind observer 실패에도 새 owner 관계와 후속 알림을 유지한다.
+        /// Rebind handler 실패에도 새 owner 관계와 후속 알림을 유지한다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_EntityPresentationRegistry_RebindObserver실패에도_NextOwnerCommit과후속Observer를유지()
+        public void TEST_EntityPresentationRegistry_RebindHandler실패에도_NextOwnerCommit과후속Handler를유지()
         {
             var registry = new EntityPresentationRegistry<object, object>();
             var previousOwner = new object();
@@ -538,14 +538,14 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
             registry.Register(presentation);
             registry.Attach(previousOwner, presentation);
             registry.OnDetach += (_, _) =>
-                throw new InvalidOperationException("rebind detach observer failure");
+                throw new InvalidOperationException("rebind detach handler failure");
             registry.OnDetach += (_, _) => detachObserved++;
             registry.OnAttach += (_, _) =>
-                throw new InvalidOperationException("rebind attach observer failure");
+                throw new InvalidOperationException("rebind attach handler failure");
             registry.OnAttach += (_, _) => attachObserved++;
 
-            LogAssert.Expect(LogType.Exception, "InvalidOperationException: rebind detach observer failure");
-            LogAssert.Expect(LogType.Exception, "InvalidOperationException: rebind attach observer failure");
+            LogAssert.Expect(LogType.Exception, "InvalidOperationException: rebind detach handler failure");
+            LogAssert.Expect(LogType.Exception, "InvalidOperationException: rebind attach handler failure");
             Assert.IsTrue(registry.Rebind(presentation, nextOwner));
 
             Assert.AreEqual(0, registry.FindAll(previousOwner).Count);
@@ -558,7 +558,7 @@ namespace inonego.Xeri.Game.TEST._EntityPresentation
 
         // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/> Rebind observer가 같은 Registry 상태를 변경해 알림을 무효화하지 못한다.
+        /// <br/> Rebind handler가 같은 Registry 상태를 변경해 알림을 무효화하지 못한다.
         /// <br/> Detach 다음 Attach 알림까지 확정된 next Owner 관계를 유지한다.
         /// </summary>
         // --------------------------------------------------------------------------------

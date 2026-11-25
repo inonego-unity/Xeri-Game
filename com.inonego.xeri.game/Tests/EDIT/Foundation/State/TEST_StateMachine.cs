@@ -988,14 +988,14 @@ namespace inonego.Xeri.Game.TEST._State
         public void TEST_StateMachine_이벤트_구독자_예외하나는_원래스택추적유지()
         {
             var machine = new StateMachine<TestOwner>(new TestOwner());
-            machine.OnStateChanged += ThrowFromStateObserver;
+            machine.OnStateChanged += ThrowFromStateHandler;
 
             var thrown = Assert.Throws<InvalidOperationException>(() => machine.MoveTo(new CallbackState()));
 
-            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromStateObserver)));
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromStateHandler)));
         }
 
-        private static void ThrowFromStateObserver(IState previous, IState next)
+        private static void ThrowFromStateHandler(IState previous, IState next)
         {
             throw new InvalidOperationException("listener failed");
         }

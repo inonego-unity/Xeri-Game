@@ -606,12 +606,12 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
         // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/> RequiredBinding을 정순Spawn 역순Despawn하고 Observer는 Commit후 발행 계약을
+        /// <br/> RequiredBinding을 정순Spawn 역순Despawn하고 Handler는 Commit후 발행 계약을
         /// <br/> 검증한다.
         /// </summary>
         // --------------------------------------------------------------------------------
         [Test]
-        public void TEST_SpawnRegistry_RequiredBinding을_정순Spawn_역순Despawn하고_Observer는_Commit후_발행()
+        public void TEST_SpawnRegistry_RequiredBinding을_정순Spawn_역순Despawn하고_Handler는_Commit후_발행()
         {
             var trace = new List<string>();
             var registry = new TestRegistry();
@@ -847,12 +847,12 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
         // ------------------------------------------------------------
         /// <summary>
-        /// <br/> Despawning Binding과 완료 Observer가 모두 실패해도
+        /// <br/> Despawning Binding과 완료 Handler가 모두 실패해도
         /// <br/> 원인을 보존하고 객체의 terminal 제거를 마친다.
         /// </summary>
         // ------------------------------------------------------------
         [Test]
-        public void TEST_SpawnRegistry_Despawn과완료Observer실패를_모두전달()
+        public void TEST_SpawnRegistry_Despawn과완료Handler실패를_모두전달()
         {
             var trace = new List<string>();
             var registry = new TestRegistry();
@@ -891,7 +891,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             var entity = InjectTraceObject(registry, trace);
             var completedNotifications = 0;
 
-            registry.OnSpawning += (_, _) => throw new InvalidOperationException("spawning observer failure");
+            registry.OnSpawning += (_, _) => throw new InvalidOperationException("spawning handler failure");
             registry.OnRegistered += (_, _) => completedNotifications++;
             registry.OnUnregistered += (_, _, _) => completedNotifications++;
             registry.OnDespawned += (_, _, _) => completedNotifications++;
@@ -901,7 +901,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 () => registry.TrySpawn(out _)
             );
 
-            Assert.AreEqual("spawning observer failure", error.Message);
+            Assert.AreEqual("spawning handler failure", error.Message);
             Assert.AreEqual(0, completedNotifications);
             Assert.AreEqual(SpawnState.Despawned, entity.SpawnState);
             Assert.AreEqual(0, registry.Registered.Count);
@@ -913,11 +913,11 @@ namespace inonego.Xeri.Game.TEST._Spawn
 
         // --------------------------------------------------------------------------------
         /// <summary>
-        /// CommittedSpawnObserver실패가 완료된Spawn을 Rollback하지않음 계약을 검증한다.
+        /// CommittedSpawnHandler실패가 완료된Spawn을 Rollback하지않음 계약을 검증한다.
         /// </summary>
         // --------------------------------------------------------------------------------
         [Test]
-        public void TEST_SpawnRegistry_CommittedSpawnObserver실패가_완료된Spawn을_Rollback하지않음()
+        public void TEST_SpawnRegistry_CommittedSpawnHandler실패가_완료된Spawn을_Rollback하지않음()
         {
             // 예외가 전파되면 out 대입은 완료되지 않으므로 획득 후보의 동일성을 먼저 확보한다.
             var obj = new TestObject();
@@ -926,10 +926,10 @@ namespace inonego.Xeri.Game.TEST._Spawn
             {
                 NextObject = obj,
             };
-            Action<ulong, TestObject> observer =
-                (_, _) => throw new InvalidOperationException("observer failure");
+            Action<ulong, TestObject> handler =
+                (_, _) => throw new InvalidOperationException("handler failure");
 
-            registry.OnSpawned += observer;
+            registry.OnSpawned += handler;
 
             Assert.Throws<InvalidOperationException>
             (
@@ -941,7 +941,7 @@ namespace inonego.Xeri.Game.TEST._Spawn
             Assert.AreEqual(1, registry.Registered.Count);
             Assert.AreSame(obj, registry.Registered[obj.Key]);
 
-            registry.OnSpawned -= observer;
+            registry.OnSpawned -= handler;
             registry.Despawn(obj, DespawnReason.Removed);
         }
 
@@ -960,19 +960,19 @@ namespace inonego.Xeri.Game.TEST._Spawn
                 NextObject = obj,
             };
 
-            registry.OnSpawned += ThrowFromSpawnedObserver;
+            registry.OnSpawned += ThrowFromSpawnedHandler;
 
             var thrown = Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
 
-            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromSpawnedObserver)));
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromSpawnedHandler)));
 
-            registry.OnSpawned -= ThrowFromSpawnedObserver;
+            registry.OnSpawned -= ThrowFromSpawnedHandler;
             registry.Despawn(obj, DespawnReason.Removed);
         }
 
-        private static void ThrowFromSpawnedObserver(ulong key, TestObject spawnable)
+        private static void ThrowFromSpawnedHandler(ulong key, TestObject spawnable)
         {
-            throw new InvalidOperationException("observer failure");
+            throw new InvalidOperationException("handler failure");
         }
 
         // ------------------------------------------------------------

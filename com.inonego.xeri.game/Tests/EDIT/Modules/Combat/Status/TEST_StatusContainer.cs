@@ -656,7 +656,7 @@ namespace inonego.Xeri.Game.TEST._Status
             {
                 if (change.Key == burn.Key)
                 {
-                    throw new InvalidOperationException("observer");
+                    throw new InvalidOperationException("handler");
                 }
             };
             container.OnChanged += (_, _) => received++;
@@ -728,16 +728,16 @@ namespace inonego.Xeri.Game.TEST._Status
             var container = new StatusContainer<TestOrigin>();
             var spec = CreateSpec("Mark", 1, 5f, StatusStacking.Independent);
 
-            container.OnChanged += ThrowFromObserver;
+            container.OnChanged += ThrowFromHandler;
 
             var thrown = Assert.Throws<InvalidOperationException>(() => container.Apply(spec, originA));
 
-            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromObserver)));
+            Assert.That(thrown.StackTrace, Does.Contain(nameof(ThrowFromHandler)));
         }
 
-        private static void ThrowFromObserver(StatusContainer<TestOrigin> sender, StatusChange<TestOrigin> change)
+        private static void ThrowFromHandler(StatusContainer<TestOrigin> sender, StatusChange<TestOrigin> change)
         {
-            throw new InvalidOperationException("observer");
+            throw new InvalidOperationException("handler");
         }
 
     #endregion

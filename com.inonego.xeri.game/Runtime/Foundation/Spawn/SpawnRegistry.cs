@@ -629,7 +629,7 @@ namespace inonego.Xeri.Game
                 }
 
                 // 직접 등록도 일반 Spawn과 동일한 Registry 등록 시작 알림을 제공한다.
-                NotifyObservers(OnRegistering, key, spawnable).ThrowWhenAny("직접 등록 시작 알림에 실패했습니다.");
+                NotifyHandlers(OnRegistering, key, spawnable).ThrowWhenAny("직접 등록 시작 알림에 실패했습니다.");
 
                 if
                 (
@@ -696,7 +696,7 @@ namespace inonego.Xeri.Game
             try
             {
                 // 완료 알림 예외는 확정된 등록을 Rollback하지 않는다.
-                NotifyObservers(OnRegistered, key, spawnable).ThrowWhenAny("직접 등록 완료 알림에 실패했습니다.");
+                NotifyHandlers(OnRegistered, key, spawnable).ThrowWhenAny("직접 등록 완료 알림에 실패했습니다.");
 
                 return spawnable;
             }
@@ -790,7 +790,7 @@ namespace inonego.Xeri.Game
 
             if (publishRegistration)
             {
-                failures = NotifyObservers(OnUnregistering, key, spawnable, reason);
+                failures = NotifyHandlers(OnUnregistering, key, spawnable, reason);
             }
 
             for (var index = Math.Min(bindingCount, bindings.Count) - 1; index >= 0; index--)
@@ -835,7 +835,7 @@ namespace inonego.Xeri.Game
 
             if (publishRegistration)
             {
-                failures = NotifyObservers(OnUnregistered, key, spawnable, reason, failures);
+                failures = NotifyHandlers(OnUnregistered, key, spawnable, reason, failures);
             }
 
             failures.ThrowWhenAny("직접 등록 해제 중 일부 정리가 실패했습니다.");
@@ -905,24 +905,24 @@ namespace inonego.Xeri.Game
         /// 등록·Spawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
         /// </summary>
         // ------------------------------------------------------------
-        private static ExceptionBuffer NotifyObservers
+        private static ExceptionBuffer NotifyHandlers
         (
-            Action<TKey, T> observers,
+            Action<TKey, T> handlers,
             TKey key,
             T spawnable,
             ExceptionBuffer failures = default
         )
         {
-            if (observers == null)
+            if (handlers == null)
             {
                 return failures;
             }
 
-            foreach (Action<TKey, T> observer in observers.GetInvocationList())
+            foreach (Action<TKey, T> handler in handlers.GetInvocationList())
             {
                 try
                 {
-                    observer(key, spawnable);
+                    handler(key, spawnable);
                 }
                 catch (Exception exception)
                 {
@@ -938,25 +938,25 @@ namespace inonego.Xeri.Game
         /// 등록 해제·Despawn 공개 이벤트의 구독자를 모두 실행하고 실패를 수집한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private static ExceptionBuffer NotifyObservers
+        private static ExceptionBuffer NotifyHandlers
         (
-            Action<TKey, T, DespawnReason> observers,
+            Action<TKey, T, DespawnReason> handlers,
             TKey key,
             T spawnable,
             DespawnReason reason,
             ExceptionBuffer failures = default
         )
         {
-            if (observers == null)
+            if (handlers == null)
             {
                 return failures;
             }
 
-            foreach (Action<TKey, T, DespawnReason> observer in observers.GetInvocationList())
+            foreach (Action<TKey, T, DespawnReason> handler in handlers.GetInvocationList())
             {
                 try
                 {
-                    observer(key, spawnable, reason);
+                    handler(key, spawnable, reason);
                 }
                 catch (Exception exception)
                 {
@@ -1076,8 +1076,8 @@ namespace inonego.Xeri.Game
 
                 // 외부 관찰자는 등록 직전의 확정된 Key와 Spawning 상태를 받는다.
                 spawnKey = spawningKey;
-                NotifyObservers(OnSpawning, spawningKey, spawnable).ThrowWhenAny("게임 Spawn 시작 알림에 실패했습니다.");
-                NotifyObservers(OnRegistering, spawningKey, spawnable).ThrowWhenAny("Registry 등록 시작 알림에 실패했습니다.");
+                NotifyHandlers(OnSpawning, spawningKey, spawnable).ThrowWhenAny("게임 Spawn 시작 알림에 실패했습니다.");
+                NotifyHandlers(OnRegistering, spawningKey, spawnable).ThrowWhenAny("Registry 등록 시작 알림에 실패했습니다.");
 
                 if (!spawnable.HasKey || !EqualityComparer<TKey>.Default.Equals(spawnable.Key, spawningKey))
                 {
@@ -1157,8 +1157,8 @@ namespace inonego.Xeri.Game
 
             try
             {
-                notificationFailures = NotifyObservers(OnRegistered, spawnKey, spawnable);
-                notificationFailures = NotifyObservers
+                notificationFailures = NotifyHandlers(OnRegistered, spawnKey, spawnable);
+                notificationFailures = NotifyHandlers
                 (
                     OnSpawned,
                     spawnKey,
@@ -1219,7 +1219,7 @@ namespace inonego.Xeri.Game
 
         // ----------------------------------------------------------------------
         /// <summary>
-        /// <br/> 객체 훅과 필수 바인딩을 정리하고 일반 Despawning observer까지 끝까지
+        /// <br/> 객체 훅과 필수 바인딩을 정리하고 일반 Despawning handler까지 끝까지
         /// <br/> 호출한다.
         /// </summary>
         // ----------------------------------------------------------------------
@@ -1246,12 +1246,12 @@ namespace inonego.Xeri.Game
 
             if (publishRegistry)
             {
-                failures = NotifyObservers(OnDespawning, key, despawnable, reason, failures);
+                failures = NotifyHandlers(OnDespawning, key, despawnable, reason, failures);
             }
 
             if (detachRegistration && publishRegistry)
             {
-                failures = NotifyObservers(OnUnregistering, key, despawnable, reason, failures);
+                failures = NotifyHandlers(OnUnregistering, key, despawnable, reason, failures);
             }
 
             var count = Math.Min(bindingCount, bindings.Count);
@@ -1319,12 +1319,12 @@ namespace inonego.Xeri.Game
 
             if (publishRegistration)
             {
-                failures = NotifyObservers(OnUnregistered, key, spawnable, reason, failures);
+                failures = NotifyHandlers(OnUnregistered, key, spawnable, reason, failures);
             }
 
             if (publishRegistry)
             {
-                failures = NotifyObservers(OnDespawned, key, spawnable, reason, failures);
+                failures = NotifyHandlers(OnDespawned, key, spawnable, reason, failures);
             }
 
             try

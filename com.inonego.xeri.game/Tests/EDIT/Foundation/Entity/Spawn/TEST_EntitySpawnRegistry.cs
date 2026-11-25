@@ -624,14 +624,14 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
                 registry.OnRegistered += (_, _) =>
                 {
                     trace.Add("Registered.First");
-                    throw new InvalidOperationException("registered observer failure");
+                    throw new InvalidOperationException("registered handler failure");
                 };
                 registry.OnRegistered += (_, _) => trace.Add("Registered.Second");
 
                 registry.OnSpawned += (_, _) =>
                 {
                     trace.Add("Spawned.First");
-                    throw new InvalidOperationException("spawned observer failure");
+                    throw new InvalidOperationException("spawned handler failure");
                 };
                 registry.OnSpawned += (_, _) => trace.Add("Spawned.Second");
 
@@ -656,28 +656,28 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
                 registry.OnDespawning += (_, _, _) =>
                 {
                     trace.Add("Despawning.First");
-                    throw new InvalidOperationException("despawning observer failure");
+                    throw new InvalidOperationException("despawning handler failure");
                 };
                 registry.OnDespawning += (_, _, _) => trace.Add("Despawning.Second");
 
                 registry.OnUnregistering += (_, _, _) =>
                 {
                     trace.Add("Unregistering.First");
-                    throw new InvalidOperationException("unregistering observer failure");
+                    throw new InvalidOperationException("unregistering handler failure");
                 };
                 registry.OnUnregistering += (_, _, _) => trace.Add("Unregistering.Second");
 
                 registry.OnUnregistered += (_, _, _) =>
                 {
                     trace.Add("Unregistered.First");
-                    throw new InvalidOperationException("unregistered observer failure");
+                    throw new InvalidOperationException("unregistered handler failure");
                 };
                 registry.OnUnregistered += (_, _, _) => trace.Add("Unregistered.Second");
 
                 registry.OnDespawned += (_, _, _) =>
                 {
                     trace.Add("Despawned.First");
-                    throw new InvalidOperationException("despawned observer failure");
+                    throw new InvalidOperationException("despawned handler failure");
                 };
                 registry.OnDespawned += (_, _, _) => trace.Add("Despawned.Second");
 
@@ -734,7 +734,7 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
             var spawnNotifications = 0;
 
             registry.OnRegistered += (_, _) =>
-                throw new InvalidOperationException("registration observer failure");
+                throw new InvalidOperationException("registration handler failure");
             registry.OnSpawned += (_, _) => spawnNotifications++;
 
             var error = Assert.Throws<InvalidOperationException>
@@ -742,7 +742,7 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
                 () => registry.RegisterWithKey(entity, 103UL)
             );
 
-            Assert.AreEqual("registration observer failure", error.Message);
+            Assert.AreEqual("registration handler failure", error.Message);
             Assert.AreSame(entity, registry.Find(103UL));
             Assert.IsTrue(registry.TryResolve(new EntityHandle(entity), out _));
             Assert.AreEqual(SpawnState.Spawned, entity.SpawnState);
@@ -774,12 +774,12 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
             registry.OnUnregistering += (_, _, _) =>
             {
                 unregisteringCount++;
-                throw new InvalidOperationException("unregistering observer failure");
+                throw new InvalidOperationException("unregistering handler failure");
             };
             registry.OnUnregistered += (_, _, _) =>
             {
                 unregisteredCount++;
-                throw new InvalidOperationException("unregistered observer failure");
+                throw new InvalidOperationException("unregistered handler failure");
             };
 
             Assert.Throws<AggregateException>(() => registry.Unregister(direct));
@@ -1504,7 +1504,7 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
         // ----------------------------------------------------------------------
         /// <summary>
         /// <br/> Key 할당 전 실패와 공통 Spawn 진입 후 실패의 반환 책임을 구분하고,
-        /// <br/> 완료 Observer 예외가 확정된 객체를 반환하지 않는지 검증한다.
+        /// <br/> 완료 Handler 예외가 확정된 객체를 반환하지 않는지 검증한다.
         /// </summary>
         // ----------------------------------------------------------------------
         [Test]
@@ -1536,7 +1536,7 @@ namespace inonego.Xeri.Game.TEST._EntitySpawn
 
             var committed = new TestEntity();
             registry.NextEntity = committed;
-            registry.OnSpawned += (_, _) => throw new InvalidOperationException("완료 Observer 실패");
+            registry.OnSpawned += (_, _) => throw new InvalidOperationException("완료 Handler 실패");
 
             Assert.Throws<InvalidOperationException>(() => registry.TrySpawn(out _));
             Assert.AreEqual(2, registry.ReleaseCount);

@@ -75,7 +75,7 @@ Xeri Gameplay Framework는 **사용 가능한 능력의 상태**, **한 번의 �
 | Cost의 `Pay()` 중 예외 | Policy가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달(Selection 경로와 Policy 직접 호출 모두) | 영수증이 없는 외부 자원의 원자성·환급 규칙 |
 | `begin` 실패(false·예외) | `Selection.TryActivate`가 영수증이 있는 지불 비용을 역순 환급하고 예외는 다시 전달 | 영수증이 없는 외부 자원의 환급. `ExecutionChannel`을 쓰지 않는 Slot의 회수 |
 | `begin` 성공 후 `Transition` 예외 | 예외 전달, 환급하지 않음 | 상태 전이 실패 후 정리 |
-| 실행 `Begin()` 중 Flow·Behavior·Observer 실패 | 시작된 실행 요소를 역순 정리하며 Cancelled 종료 | 이미 발생한 외부 효과 정리. `ExecutionChannel`은 Session 종료와 함께 비워짐 |
+| 실행 `Begin()` 중 Flow·Behavior·Handler 실패 | 시작된 실행 요소를 역순 정리하며 Cancelled 종료 | 이미 발생한 외부 효과 정리. `ExecutionChannel`은 Session 종료와 함께 비워짐 |
 | 실행 `Advance()`·Command·Signal 중 예외 | Session 실패 종료·예외 전달 | 입력 차단, 월드 작업 정리 |
 | Spatial 대상 소실·물리 검색 불완전 | 유효성·완전성의 관측 결과 제공 | 재조회, 불발/유예, 게임별 적합성 판정 |
 | Operation `Rejected` / `NoOp` | 프로젝트가 반환한 상태 전달 | 실제 피해·면역·수치 처리 |
