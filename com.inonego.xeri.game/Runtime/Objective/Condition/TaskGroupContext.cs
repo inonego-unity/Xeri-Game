@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TaskGroupContext.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-25
 
 # 설명
 Group Condition이 현재 참여하는 하위 Entry 결과를 조회하는 읽기 전용 Context.
@@ -169,6 +169,42 @@ namespace inonego.Xeri.Game.Objective
             FailedCount = failed;
         }
 
+        // 이미 검증된 결과를 그대로 보관하는 생성자. ForEvaluation만 쓴다.
+        private TaskGroupContext(ObjectiveContext objective, IReadOnlyList<TaskEntryResult> trusted, int completed, int failed)
+        {
+            Objective = objective;
+            entries = trusted;
+            SucceededCount = completed;
+            FailedCount = failed;
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>Engine이 방금 중복 없이 만든 결과 목록을 복사·검증 없이 그대로 보는 문맥을 만든다.
+        /// <br/>목록은 평가가 끝나면 비워지므로 이 문맥은 그 평가 동안만 쓴다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        internal static TaskGroupContext ForEvaluation(ObjectiveContext objective, List<TaskEntryResult> results)
+        {
+            int completed = 0;
+            int failed = 0;
+            for (int index = 0; index < results.Count; index++)
+            {
+                var entry = results[index];
+                if (entry.Participating && entry.Result == TaskResult.Succeeded)
+                {
+                    completed++;
+                }
+
+                if (entry.Participating && entry.Result == TaskResult.Failed)
+                {
+                    failed++;
+                }
+            }
+
+            return new TaskGroupContext(objective, results, completed, failed);
+        }
+
     #endregion
 
     #region 조회
@@ -180,11 +216,11 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         public bool TryGetEntry(string entryID, out TaskEntryResult result)
         {
-            foreach (var entry in entries)
+            for (int index = 0; index < entries.Count; index++)
             {
-                if (entry.EntryID == entryID)
+                if (entries[index].EntryID == entryID)
                 {
-                    result = entry;
+                    result = entries[index];
                     return true;
                 }
             }

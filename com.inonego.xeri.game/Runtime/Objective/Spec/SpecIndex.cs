@@ -60,10 +60,39 @@ namespace inonego.Xeri.Game.Objective
 
         // ------------------------------------------------------------
         /// <summary>
+        /// 트리 전체의 Node 수.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal int NodeCount => nodeNumbers.Count;
+
+        // ------------------------------------------------------------
+        /// <summary>
         /// 트리 전체의 Entry 수.
         /// </summary>
         // ------------------------------------------------------------
-        internal int EntryCount { get; private set; }
+        internal int EntryCount => entryNumbers.Count;
+
+        // Node·Entry가 평가 결과 배열에서 차지하는 자리. Entry 번호는 평가가 Entry를 기록하는 순서(자식이 먼저)와 같다.
+        private readonly Dictionary<string, int> nodeNumbers = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> entryNumbers = new(StringComparer.Ordinal);
+
+    #endregion
+
+    #region 번호
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// NodeID의 평가 결과 자리를 찾는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool TryGetNodeNumber(string nodeID, out int number) => nodeNumbers.TryGetValue(nodeID, out number);
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// EntryID의 평가 결과 자리를 찾는다.
+        /// </summary>
+        // ------------------------------------------------------------
+        internal bool TryGetEntryNumber(string entryID, out int number) => entryNumbers.TryGetValue(entryID, out number);
 
     #endregion
 
@@ -89,6 +118,11 @@ namespace inonego.Xeri.Game.Objective
     #endregion
 
     #region 수집
+
+        protected override void Enter(TaskNodeSpec node, string path)
+        {
+            nodeNumbers.TryAdd(node.NodeID, nodeNumbers.Count);
+        }
 
         protected override void VisitTask(TaskSpec task, string path)
         {
@@ -117,13 +151,15 @@ namespace inonego.Xeri.Game.Objective
 
         protected override void VisitEntry(TaskGroupSpec group, TaskChildEntry entry, int index, string path)
         {
-            EntryCount++;
             if (entry.TracksOpenTime)
             {
                 timedEntryIDs.Add(entry.EntryID);
             }
 
+            // 평가는 자식 Entry를 먼저 기록하므로 번호도 자식을 내려간 뒤에 매긴다.
             Descend(entry, path);
+            
+            entryNumbers.TryAdd(entry.EntryID, entryNumbers.Count);
         }
 
     #endregion

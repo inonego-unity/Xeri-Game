@@ -109,6 +109,28 @@ namespace inonego.Xeri.Game.TEST.Objective
 
         // ----------------------------------------------------------------------
         /// <summary>
+        /// <br/>Node와 Entry에 번호를 매긴다.
+        /// <br/>Entry 번호는 평가가 Entry를 기록하는 순서(자식이 먼저)와 같다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_SpecIndex_Node와Entry번호를평가순서로매긴다()
+        {
+            var index = Spec().Index;
+
+            Assert.That(index.NodeCount, Is.EqualTo(4));
+            Assert.That(index.TryGetEntryNumber("a-entry", out int first), Is.True);
+            Assert.That(index.TryGetEntryNumber("c-entry", out int inner), Is.True);
+            Assert.That(index.TryGetEntryNumber("inner-entry", out int outer), Is.True);
+            Assert.That(first, Is.EqualTo(0));
+            Assert.That(inner, Is.EqualTo(1));
+            Assert.That(outer, Is.EqualTo(2));
+            Assert.That(index.TryGetNodeNumber("c-node", out _), Is.True);
+            Assert.That(index.TryGetNodeNumber("missing", out _), Is.False);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
         /// 조회표는 Spec마다 한 번만 만들어 모든 Engine이 같은 객체를 공유한다.
         /// </summary>
         // ----------------------------------------------------------------------
