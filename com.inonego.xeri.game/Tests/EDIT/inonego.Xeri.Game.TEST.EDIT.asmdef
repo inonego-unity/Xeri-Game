@@ -3,7 +3,8 @@
   "rootNamespace": "inonego.Xeri.Game.TEST",
   "references": [
     "inonego.Xeri",
-    "inonego.Xeri.Game"
+    "inonego.Xeri.Game",
+    "inonego.Xeri.Game.Objective"
   ],
   "includePlatforms": [
     "Editor"

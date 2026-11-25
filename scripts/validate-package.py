@@ -43,6 +43,9 @@ def check():
         )
         assert tests["name"] == f"inonego.Xeri.Game.TEST.{mode}"
         expected = ["inonego.Xeri", "inonego.Xeri.Game"]
+        if mode == "EDIT":
+            # Objective is a separate runtime assembly, so its tests reference it.
+            expected.append("inonego.Xeri.Game.Objective")
         if mode == "PLAY":
             expected.append("Unity.InputSystem")
         assert tests["references"] == expected

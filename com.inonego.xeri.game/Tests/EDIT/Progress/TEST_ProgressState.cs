@@ -1,19 +1,24 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_ProgressState.cs
-수정일 : 2026-11-14
+수정일 : 2026-11-24
 
 # 설명
 공용 Progress의 자료형별 값·알림·독립 소유권과 Unity 저장 복원을 검증한다.
 
 # 특이사항, 제약사항
-ValueRegistry를 직접 사용하며 Reader·Copy·목표 판정 API는 제공하지 않는다.
+ValueRegistry를 직접 사용하며 Reader·목표 판정 API는 제공하지 않고 복제는 IDeepCloneable로 제공한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
 
-using NUnit.Framework;
 using UnityEngine;
 
+using NUnit;
+using NUnit.Framework;
+
+using inonego;
+using inonego.Xeri;
+using inonego.Xeri.Game;
 using inonego.Xeri.Game.Progress;
 using inonego.Xeri.Serializable;
 
@@ -26,6 +31,34 @@ namespace inonego.Xeri.Game.TEST.Progress
     // ============================================================
     public sealed class TEST_ProgressState
     {
+
+    #region 복제
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 복제는 같은 값을 가진 독립 ProgressState를 만들고 이후 변경이 서로 영향을 주지 않는다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_ProgressState_복제는독립값을가진다()
+        {
+            var state = new ProgressState();
+            state.Values.SetI("count", 3);
+            state.Values.SetFlag("done");
+
+            var copy = state.Clone();
+
+            Assert.That(copy, Is.Not.SameAs(state));
+            Assert.That(copy.Values.GetI("count"), Is.EqualTo(3));
+            Assert.That(copy.Values.HasFlag("done"), Is.True);
+
+            copy.Values.SetI("count", 9);
+            Assert.That(state.Values.GetI("count"), Is.EqualTo(3));
+
+            Assert.Throws<ArgumentNullException>(() => copy.CloneFrom(null));
+        }
+
+    #endregion
 
     #region 값·알림
 
