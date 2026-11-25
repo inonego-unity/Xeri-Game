@@ -712,6 +712,35 @@ namespace inonego.Xeri.Game.TEST.Objective
             Assert.That(timed.Instance.ElapsedTime, Is.EqualTo(5));
         }
 
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 알림 핸들러가 AdvanceTime을 다시 불러도 순회 목록이 섞이지 않고 모든 Engine에 더해진다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveDirectory_AdvanceTime재진입에도순회가섞이지않는다()
+        {
+            var directory = new ObjectiveDirectory();
+            var first = CreateRegistered(directory, "first", new ToggleCond());
+            var second = CreateRegistered(directory, "second", new ToggleCond());
+            first.Activate();
+            second.Activate();
+            bool nested = false;
+            first.Changed += () =>
+            {
+                if (!nested)
+                {
+                    nested = true;
+                    directory.AdvanceTime(1);
+                }
+            };
+
+            directory.AdvanceTime(1);
+
+            Assert.That(first.Instance.ElapsedTime, Is.EqualTo(2));
+            Assert.That(second.Instance.ElapsedTime, Is.EqualTo(2));
+        }
+
     #endregion
 
     #region 등록 변경 전파

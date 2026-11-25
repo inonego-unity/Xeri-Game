@@ -649,6 +649,34 @@ namespace inonego.Xeri.Game.TEST.Objective
             Assert.That(engine.Evaluate().RootResult, Is.EqualTo(TaskResult.Failed));
         }
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/>NonAlloc 평가는 호출자의 버퍼를 비우고 다시 채운다.
+        /// <br/>다른 Spec의 버퍼와 null은 거부한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveEngine_EvaluateNonAlloc은버퍼를비우고다시채운다()
+        {
+            var toggle = new ToggleCond(false);
+            var engine = Create(new ObjectiveSpec("buffer", 1, new TaskSpec("root", toggle)));
+            engine.Activate();
+            var buffer = engine.CreateEvaluationBuffer();
+
+            engine.EvaluateNonAlloc(buffer);
+            Assert.That(buffer.RootResult, Is.EqualTo(TaskResult.Pending));
+
+            toggle.Value = true;
+            engine.EvaluateNonAlloc(buffer);
+            Assert.That(buffer.RootResult, Is.EqualTo(TaskResult.Succeeded));
+            Assert.That(buffer.TryGetNode("root", out var root), Is.True);
+            Assert.That(root.RawResult, Is.EqualTo(TaskResult.Succeeded));
+
+            var other = Create(new ObjectiveSpec("other", 1, new TaskSpec("root", new ToggleCond(false))));
+            Assert.Throws<ArgumentException>(() => engine.EvaluateNonAlloc(other.CreateEvaluationBuffer()));
+            Assert.Throws<ArgumentNullException>(() => engine.EvaluateNonAlloc(null));
+        }
+
     #endregion
 
     #region 계층 Eligibility·분기

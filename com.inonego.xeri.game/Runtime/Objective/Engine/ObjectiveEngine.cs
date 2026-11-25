@@ -16,6 +16,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 using inonego;
 using inonego.Xeri;
 using inonego.Xeri.Game;
@@ -32,24 +35,7 @@ namespace inonego.Xeri.Game.Objective
     public sealed class ObjectiveEngine
     {
 
-    #region 필드·프로퍼티
-
-        private readonly IReadOnlyDictionary<string, string> progressOwners;
-        private readonly Queue<Action> notifications = new();
-        private readonly IObjectiveFactScope factScope;
-        private ObjectiveEvaluation lastEvaluation;
-        private bool executing;
-        private bool notifying;
-
-        // 이 Engine을 실행하는 살아 있는 Flow. 한 Engine은 Flow 하나에만 속한다.
-        internal ObjectiveFlow Flow { get; set; }
-
-        // 이 Engine이 조회·전파에 쓰는 Directory.
-        internal ObjectiveDirectory Directory => directory;
-        private readonly ObjectiveDirectory directory;
-
-        // 마지막으로 확정·초기화한 평가에서 Condition이 읽은 대상. Directory가 변경 전파에 쓴다.
-        internal IReadOnlyCollection<(string Scope, string Name)> Reads => lastEvaluation?.Reads;
+    #region 연결 대상
 
         // ------------------------------------------------------------
         /// <summary>
@@ -67,37 +53,12 @@ namespace inonego.Xeri.Game.Objective
         public ObjectiveSpec Spec => spec;
         private readonly ObjectiveSpec spec;
 
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 실제 원자 커밋이 성공한 뒤에만 발생하는 변경 알림.
-        /// </summary>
-        // ------------------------------------------------------------
-        public event Action Changed;
+        // 이 Engine이 조회·전파에 쓰는 Directory.
+        internal ObjectiveDirectory Directory => directory;
+        private readonly ObjectiveDirectory directory;
 
-        // ----------------------------------------------------------------------
-        /// <summary>
-        /// <br/>확정으로 Status가 바뀐 뒤 (이전, 이후) 상태와 함께 발생한다.
-        /// <br/>Terminal 전이는 한 번만 발생하며 복원(Bind)은 발생시키지 않는다.
-        /// </summary>
-        // ----------------------------------------------------------------------
-        public event Action<ObjectiveStatus, ObjectiveStatus> StatusChanged;
-
-        // --------------------------------------------------------------------------------
-        /// <summary>
-        /// <br/>확정으로 Entry의 참여·유효 결과·닫힌 사유가 바뀔 때 Entry마다 한 번 (이전, 이후)
-        /// <br/>평가와 함께 발생한다.
-        /// <br/>Spec 평가 순서대로 발행하며, 비교할 이전 평가가 없는 첫 확정과 복원(Bind)은 발행하지
-        /// <br/>않는다.
-        /// </summary>
-        // --------------------------------------------------------------------------------
-        public event Action<TaskEntryTransition> EntryEvaluationChanged;
-
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 영속값 변경 여부와 관계없이 파생 실행 결과가 달라졌을 때 발생한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public event Action<ObjectiveEvaluation> EvaluationChanged;
+        // 외부 Fact의 동일 시점 판정을 맡는 Scope. 없으면 Fact를 쓰지 않는다.
+        private readonly IObjectiveFactScope factScope;
 
     #endregion
 
@@ -133,6 +94,9 @@ namespace inonego.Xeri.Game.Objective
             }
 
             progressOwners = spec.Index.ProgressOwners;
+            evaluator = new ObjectiveEvaluator(spec, directory);
+            stabilizer = new ObjectiveStabilizer(spec, evaluator);
+            planStep = PlanStep;
             instance.Validate();
             ValidateHistory(spec.Index, instance);
         }
@@ -189,7 +153,7 @@ namespace inonego.Xeri.Game.Objective
             foreach (var boundary in instance.SequentialBoundaries)
             {
                 if (!index.HistoryGroups.TryGetValue(boundary.GroupID, out var group)
-                    || FindEntryIndex(group, boundary.EntryID) < 0)
+                    || ObjectiveStabilizer.FindEntryIndex(group, boundary.EntryID) < 0)
                 {
                     throw new InvalidOperationException
                     (
@@ -207,22 +171,19 @@ namespace inonego.Xeri.Game.Objective
             }
         }
 
-        private static int FindEntryIndex(TaskGroupSpec group, string entryID)
-        {
-            for (int index = 0; index < group.Entries.Count; index++)
-            {
-                if (string.Equals(group.Entries[index].EntryID, entryID, StringComparison.Ordinal))
-                {
-                    return index;
-                }
-            }
-
-            return -1;
-        }
-
     #endregion
 
     #region 순수 평가
+
+        // 평가 계산과 후보 안정화. 둘 다 Engine이 소유하며 상태 변경과 확정은 Engine이 맡는다.
+        private readonly ObjectiveEvaluator evaluator;
+        private readonly ObjectiveStabilizer stabilizer;
+
+        // 마지막으로 확정·초기화한 평가. 변경 전파와 알림의 비교 기준이다.
+        private ObjectiveEvaluation lastEvaluation;
+
+        // 마지막으로 확정·초기화한 평가에서 Condition이 읽은 대상. Directory가 변경 전파에 쓴다.
+        internal IReadOnlyCollection<(string Scope, string Name)> Reads => lastEvaluation?.Reads;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -234,7 +195,42 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                return EvaluateInternal(instance);
+                return evaluator.Evaluate(instance);
+            }
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>NonAlloc 평가에 쓸 결과 버퍼를 만든다. 이 Engine의 Spec에만 쓸 수 있다.
+        /// <br/>한 번 만든 버퍼는 EvaluateNonAlloc에 계속 다시 넘겨 쓴다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public ObjectiveEvaluation CreateEvaluationBuffer() => new ObjectiveEvaluation(spec.Index);
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>Evaluate와 같은 평가를 호출자의 버퍼에 채운다.
+        /// <br/>버퍼를 먼저 비우므로 이전 결과는 사라지고 할당은 없다.
+        /// <br/>버퍼는 이 Engine의 CreateEvaluationBuffer로 만든 것이어야 한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public void EvaluateNonAlloc(ObjectiveEvaluation buffer)
+        {
+            if (buffer == null)
+            {
+                throw new ArgumentNullException(nameof(buffer));
+            }
+
+            if (!buffer.IsFor(spec.Index))
+            {
+                throw new ArgumentException("Buffer was created for a different Spec.", nameof(buffer));
+            }
+
+            using (Enter())
+            {
+                using var scope = factScope?.Begin();
+                buffer.Clear();
+                evaluator.Fill(instance, buffer, false);
             }
         }
 
@@ -245,310 +241,17 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                lastEvaluation = EvaluateInternal(instance);
+                lastEvaluation = evaluator.Evaluate(instance);
                 directory?.SyncReads(this);
             }
-        }
-
-        private ObjectiveEvaluation EvaluateInternal(ObjectiveInstance source)
-        {
-            var snapshot = new ObjectiveEvaluation();
-            var reads = directory != null ? new HashSet<(string Scope, string Name)>() : null;
-            var context = source.CreateContext(directory, reads);
-            snapshot.RootResult = EvaluateNode(spec.Root, context, source, true, snapshot);
-            snapshot.Reads = reads;
-            bool active = source.Status == ObjectiveStatus.Active;
-            SetInputGates(spec.Root, snapshot, active);
-            return snapshot;
-        }
-
-        private static TaskResult EvaluateNode
-        (
-            TaskNodeSpec node, ObjectiveContext context, ObjectiveInstance source,
-            bool participating, ObjectiveEvaluation snapshot
-        )
-        {
-            TaskResult result;
-            if (node is TaskSpec task)
-            {
-                if (task.FailureCond?.Check(context) == true)
-                {
-                    result = TaskResult.Failed;
-                }
-                else if (task.SuccessCond.Check(context))
-                {
-                    result = TaskResult.Succeeded;
-                }
-                else
-                {
-                    result = TaskResult.Pending;
-                }
-            }
-            else
-            {
-                var group = (TaskGroupSpec)node;
-                var children = new List<TaskEntryResult>(group.Entries.Count);
-                bool predecessorPassed = participating;
-                foreach (var entry in group.Entries)
-                {
-                    // 닫힌 사유는 부모, 앞 Entry, Eligibility 순서로 첫 번째만 기록한다. 앞이 닫히면 뒤 조건은 호출하지 않는다.
-                    var closedBy = TaskClosedBy.None;
-                    if (!participating)
-                    {
-                        closedBy = TaskClosedBy.Parent;
-                    }
-                    else if (group.ExecutionMode == TaskExecutionMode.Sequential && !predecessorPassed)
-                    {
-                        closedBy = TaskClosedBy.Predecessor;
-                    }
-                    else if (!(entry.EligibilityCond?.Check(context) ?? true))
-                    {
-                        closedBy = TaskClosedBy.Eligibility;
-                    }
-
-                    bool opened = closedBy == TaskClosedBy.None;
-                    TaskResult childRaw = EvaluateNode(entry.Node, context, source, opened, snapshot);
-                    TaskResult effective = opened ? childRaw : TaskResult.Pending;
-                    if (opened && group.ExecutionMode == TaskExecutionMode.Sequential
-                        && entry.RevalidationMode == TaskRevalidationMode.OncePassed
-                        && childRaw != TaskResult.Failed && source.HasPassed(entry.EntryID))
-                    {
-                        effective = TaskResult.Succeeded;
-                    }
-
-                    snapshot.SetEntry(entry.EntryID, entry.Node.NodeID, opened, effective, closedBy);
-                    children.Add(new TaskEntryResult(entry.EntryID, opened, effective));
-                    if (group.ExecutionMode == TaskExecutionMode.Sequential)
-                    {
-                        predecessorPassed = opened && effective == TaskResult.Succeeded;
-                    }
-                }
-
-                var groupContext = new TaskGroupContext(context, children);
-                if (group.FailureCond?.Check(groupContext) == true)
-                {
-                    result = TaskResult.Failed;
-                }
-                else if (group.SuccessCond.Check(groupContext))
-                {
-                    result = TaskResult.Succeeded;
-                }
-                else
-                {
-                    result = TaskResult.Pending;
-                }
-            }
-
-            snapshot.SetNode(node.NodeID, participating, result);
-            return result;
-        }
-
-        private static void SetInputGates(TaskNodeSpec node, ObjectiveEvaluation snapshot, bool ancestorAllows)
-        {
-            snapshot.TryGetNode(node.NodeID, out var current);
-            bool allowed = current.Participating && ancestorAllows;
-            if (node is TaskGroupSpec group)
-            {
-                if (current.RawResult == TaskResult.Succeeded
-                    && group.ContinuationMode == TaskContinuationMode.StopOnSucceeded)
-                {
-                    allowed = false;
-                }
-
-                snapshot.SetNodeInput(node.NodeID, allowed);
-                foreach (var entry in group.Entries)
-                {
-                    snapshot.TryGetEntry(entry.EntryID, out var child);
-                    SetInputGates(entry.Node, snapshot, allowed && child.Participating);
-                    snapshot.TryGetNode(entry.Node.NodeID, out var childNode);
-                    snapshot.SetEntryInput(entry.EntryID, childNode.CanAcceptInput);
-                }
-            }
-            else
-            {
-                snapshot.SetNodeInput(node.NodeID, allowed);
-            }
-        }
-
-    #endregion
-
-    #region Sequential 통과·후퇴
-
-        // 후보가 더는 바뀌지 않을 때까지 맞추고, 그 상태의 평가를 돌려준다.
-        // 호출자는 같은 후보를 다시 평가하지 않고 이 결과를 쓴다.
-        private ObjectiveEvaluation Stabilize(ObjectiveInstance candidate)
-        {
-            // 복원 직후의 조회·바인딩은 이 메서드를 실행하지 않는다.
-            // Active 명령/명시 Refresh에서만 영속 개방 이력을 확정한다.
-            int maximum = spec.Index.EntryCount * 4 + 8;
-            for (int round = 0; round < maximum; round++)
-            {
-                var evaluation = EvaluateInternal(candidate);
-                if (candidate.Status != ObjectiveStatus.Active)
-                {
-                    return evaluation;
-                }
-
-                // 순차 개방이 바뀌면 참여 여부가 달라지므로 시각 기록은 개방이 안정된 평가에서만 맞춘다.
-                if (ReconcileSequential(spec.Root, evaluation, candidate)
-                    || ReconcileOpenings(spec.Root, evaluation, candidate))
-                {
-                    continue;
-                }
-
-                return evaluation;
-            }
-
-            throw new InvalidOperationException("Objective state did not converge.");
-        }
-
-        private static bool ReconcileSequential
-        (
-            TaskNodeSpec node, ObjectiveEvaluation evaluation, ObjectiveInstance candidate
-        )
-        {
-            if (node is not TaskGroupSpec group)
-            {
-                return false;
-            }
-
-            evaluation.TryGetNode(node.NodeID, out var groupState);
-            if (!groupState.Participating)
-            {
-                return false;
-            }
-
-            if (group.ExecutionMode == TaskExecutionMode.Sequential)
-            {
-                int previous = -1;
-                if (candidate.TryGetBoundary(group.NodeID, out string boundaryID))
-                {
-                    previous = FindEntryIndex(group, boundaryID);
-                }
-
-                int reached = -1;
-                for (int index = 0; index < group.Entries.Count; index++)
-                {
-                    var entry = group.Entries[index];
-                    evaluation.TryGetEntry(entry.EntryID, out var current);
-                    if (!current.Participating)
-                    {
-                        // Eligibility=false는 입력만 정지한다. 통과·경계·Progress는 보존한다.
-                        break;
-                    }
-
-                    reached = index;
-                    if (index < previous && current.EffectiveResult != TaskResult.Succeeded)
-                    {
-                        // 실제 참여 중인 선행 Entry가 유효 통과를 잃었을 때만 후퇴한다.
-                        for (int later = previous; later > index; later--)
-                        {
-                            var rolledBack = group.Entries[later];
-                            if (rolledBack.RollbackMode == TaskRollbackMode.ResetOnRollback)
-                            {
-                                ResetEntryTree(rolledBack, candidate);
-                            }
-                        }
-
-                        candidate.SetBoundary(group.NodeID, entry.EntryID);
-                        return true;
-                    }
-
-                    evaluation.TryGetNode(entry.Node.NodeID, out var child);
-                    if (entry.RevalidationMode == TaskRevalidationMode.OncePassed
-                        && child.RawResult == TaskResult.Succeeded
-                        && !candidate.HasPassed(entry.EntryID))
-                    {
-                        candidate.MarkPassed(entry.EntryID);
-                        return true;
-                    }
-                }
-
-                if (reached > previous)
-                {
-                    candidate.SetBoundary(group.NodeID, group.Entries[reached].EntryID);
-                    return true;
-                }
-            }
-
-            foreach (var entry in group.Entries)
-            {
-                evaluation.TryGetEntry(entry.EntryID, out var state);
-                if (state.Participating && ReconcileSequential(entry.Node, evaluation, candidate))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static void ResetEntryTree(TaskChildEntry entry, ObjectiveInstance candidate)
-        {
-            // 후퇴하는 Entry 자체의 통과도 subtree Reset 대상에 포함한다.
-            candidate.ClearPassed(entry.EntryID);
-            ResetNodeTree(entry.Node, candidate);
-        }
-
-        private static void ResetNodeTree(TaskNodeSpec node, ObjectiveInstance candidate)
-        {
-            if (node is TaskSpec task)
-            {
-                foreach (var progressID in task.LocalProgressIDs)
-                {
-                    candidate.ResetProgress(progressID);
-                }
-
-                return;
-            }
-
-            var group = (TaskGroupSpec)node;
-            if (group.ExecutionMode == TaskExecutionMode.Sequential)
-            {
-                candidate.ClearBoundary(group.NodeID);
-            }
-
-            foreach (var entry in group.Entries)
-            {
-                ResetEntryTree(entry, candidate);
-            }
-        }
-
-    #endregion
-
-    #region 참여 시각 기록
-
-        // 시간을 재는 Entry의 참여 시작 시각을 참여 여부에 맞춘다. 참여를 멈추면 지워서 다시 열릴 때 새로 잰다.
-        private static bool ReconcileOpenings
-        (
-            TaskNodeSpec node, ObjectiveEvaluation evaluation, ObjectiveInstance candidate
-        )
-        {
-            if (node is not TaskGroupSpec group)
-            {
-                return false;
-            }
-
-            bool changed = false;
-            foreach (var entry in group.Entries)
-            {
-                if (entry.TracksOpenTime)
-                {
-                    evaluation.TryGetEntry(entry.EntryID, out var state);
-                    changed |= state.Participating
-                        ? candidate.MarkOpened(entry.EntryID)
-                        : candidate.ClearOpened(entry.EntryID);
-                }
-
-                changed |= ReconcileOpenings(entry.Node, evaluation, candidate);
-            }
-
-            return changed;
         }
 
     #endregion
 
     #region 입력 명령
+
+        // Progress를 소유한 Task를 찾는 표. Spec이 정해 두며 입력 Gate 판정에 쓴다.
+        private readonly IReadOnlyDictionary<string, string> progressOwners;
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -584,24 +287,40 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentNullException(nameof(edit));
             }
 
-            return ExecuteProgress(progressID, candidate => candidate.EditProgress(progressID, edit));
+            // 재진입이면 바깥 명령의 인수를 덮어쓰기 전에 거부한다.
+            RequireNotExecuting();
+            cached.ProgressID = progressID;
+            cached.Edit = edit;
+            try
+            {
+                return ExecuteProgress(progressID, cached.EditProgress);
+            }
+            finally
+            {
+                cached.ProgressID = null;
+                cached.Edit = null;
+            }
         }
 
-        // --------------------------------------------------------------------------------
+        // ------------------------------------------------------------
         /// <summary>
-        /// <br/>관리자 권한으로 입력 Gate와 Task 소유 Key 제한 없이 Progress를 바꾼다.
-        /// <br/>일반 명령과 같은 계획·확정·알림을 거치므로 순차 안정화와 최종 Status 확정도 따른다.
-        /// <br/>Active가 아닌 실행은 구조 불변식을 지키기 위해 거부한다.
+        /// 외부 Time Owner가 전달한 유한 양수 시간만 누적한다.
         /// </summary>
-        // --------------------------------------------------------------------------------
-        public bool ForceProgress(Action<ValueRegistry> edit)
+        // ------------------------------------------------------------
+        public bool AdvanceTime(double delta)
         {
-            if (edit == null)
+            if (double.IsNaN(delta) || double.IsInfinity(delta) || delta <= 0)
             {
-                throw new ArgumentNullException(nameof(edit));
+                throw new ArgumentOutOfRangeException(nameof(delta));
             }
 
-            return Execute(candidate => candidate.ForceProgress(edit));
+            if (instance.Status != ObjectiveStatus.Active)
+            {
+                return false;
+            }
+
+            cached.Delta = delta;
+            return Execute(cached.Advance);
         }
 
         // ------------------------------------------------------------
@@ -641,29 +360,9 @@ namespace inonego.Xeri.Game.Objective
             };
         }
 
-        // ------------------------------------------------------------
-        /// <summary>
-        /// 외부 Time Owner가 전달한 유한 양수 시간만 누적한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public bool AdvanceTime(double delta)
-        {
-            if (double.IsNaN(delta) || double.IsInfinity(delta) || delta <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(delta));
-            }
-
-            if (instance.Status != ObjectiveStatus.Active)
-            {
-                return false;
-            }
-
-            return Execute(candidate => candidate.AdvanceTime(delta));
-        }
-
     #endregion
 
-    #region 강제 종료
+    #region 관리자 강제
 
         // ------------------------------------------------------------
         /// <summary>
@@ -690,7 +389,8 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 // 강제 명령은 외부 Condition 대신 Instance 전이 불변식만 확인한다.
-                changed = instance.Apply(candidate => candidate.ChangeStatus(terminalStatus));
+                cached.Status = terminalStatus;
+                changed = instance.Apply(cached.ForceStatus);
                 if (changed)
                 {
                     QueueStatusTransition(before);
@@ -699,6 +399,32 @@ namespace inonego.Xeri.Game.Objective
 
             FlushNotifications();
             return changed;
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>관리자 권한으로 입력 Gate와 Task 소유 Key 제한 없이 Progress를 바꾼다.
+        /// <br/>일반 명령과 같은 계획·확정·알림을 거치므로 순차 안정화와 최종 Status 확정도 따른다.
+        /// <br/>Active가 아닌 실행은 구조 불변식을 지키기 위해 거부한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public bool ForceProgress(Action<ValueRegistry> edit)
+        {
+            if (edit == null)
+            {
+                throw new ArgumentNullException(nameof(edit));
+            }
+
+            RequireNotExecuting();
+            cached.Edit = edit;
+            try
+            {
+                return Execute(cached.ForceProgress);
+            }
+            finally
+            {
+                cached.Edit = null;
+            }
         }
 
     #endregion
@@ -766,6 +492,9 @@ namespace inonego.Xeri.Game.Objective
 
     #region Flow 연동
 
+        // 이 Engine을 실행하는 살아 있는 Flow. 한 Engine은 Flow 하나에만 속한다.
+        internal ObjectiveFlow Flow { get; set; }
+
         // Flow의 시작 조건을 이 Engine의 현재 상태로 평가한다. 평가 규칙(Fact Scope·재진입 거부)은 일반 평가와 같다.
         // reads를 주면 조건이 읽은 다른 Objective·Fact 소스를 기록한다.
         internal bool CheckActivation(ICond<ObjectiveContext> condition, HashSet<(string Scope, string Name)> reads)
@@ -800,6 +529,21 @@ namespace inonego.Xeri.Game.Objective
 
     #region 원자 실행
 
+        // 재진입을 막는 실행 구간 표시.
+        private bool executing;
+
+        // 명령 실행 중에만 쓰는 계획 상태. 재진입이 막혀 있어 Engine마다 하나면 충분하다.
+        private readonly Action<ObjectiveInstance> planStep;
+        private Func<ObjectiveInstance, bool> planCommand;
+        private bool planSubmit;
+        private ObjectiveEvaluation planned;
+
+        // 명령마다 클로저를 만들지 않도록 한 번 만들어 두는 명령과 그 인자.
+        private readonly CachedCommands cached = new();
+
+        // 입력 Gate 판정에만 쓰고 버리는 재사용 평가 결과.
+        private ObjectiveEvaluation gateBuffer;
+
         private bool ExecuteProgress(string progressID, Func<ObjectiveInstance, bool> command)
         {
             RequireNotExecuting();
@@ -819,8 +563,10 @@ namespace inonego.Xeri.Game.Objective
                 // Scope 닫기까지 끝나야 확정하므로 닫기 실패는 변경 없는 실패다.
                 using (factScope?.Begin())
                 {
-                    var before = EvaluateInternal(instance);
-                    before.TryGetNode(taskID, out var task);
+                    gateBuffer ??= new ObjectiveEvaluation(spec.Index);
+                    gateBuffer.Clear();
+                    evaluator.Fill(instance, gateBuffer, false);
+                    gateBuffer.TryGetNode(taskID, out var task);
                     accepted = task.CanAcceptInput;
                     if (accepted)
                     {
@@ -870,38 +616,47 @@ namespace inonego.Xeri.Game.Objective
             Func<ObjectiveInstance, bool> command, bool submit, out ObjectiveEvaluation next
         )
         {
-            ObjectiveEvaluation planned = null;
-
-            // 명령을 적용한 뒤 후보를 안정화하고 최종 Status까지 계획한다.
-            void PlanStep(ObjectiveInstance candidate)
+            planCommand = command;
+            planSubmit = submit;
+            planned = null;
+            try
             {
-                command(candidate);
-                if (candidate.Status != ObjectiveStatus.Active)
-                {
-                    planned = EvaluateInternal(candidate);
-                    return;
-                }
+                var result = instance.Plan(planStep);
+                next = planned;
+                return result;
+            }
+            finally
+            {
+                planCommand = null;
+                planned = null;
+            }
+        }
 
-                // 안정된 평가가 곧 계획 평가다. 최종 Status를 바꾼 때만 다시 평가한다.
-                planned = Stabilize(candidate);
-                var root = planned.RootResult;
-                if (root == TaskResult.Failed
-                    && (submit || spec.FailureCommitMode == ObjectiveCommitMode.Automatic))
-                {
-                    candidate.ChangeStatus(ObjectiveStatus.Failed);
-                    planned = EvaluateInternal(candidate);
-                }
-                else if (root == TaskResult.Succeeded
-                    && (submit || spec.SuccessCommitMode == ObjectiveCommitMode.Automatic))
-                {
-                    candidate.ChangeStatus(ObjectiveStatus.Succeeded);
-                    planned = EvaluateInternal(candidate);
-                }
+        // 명령을 적용한 뒤 후보를 안정화하고 최종 Status까지 계획한다.
+        private void PlanStep(ObjectiveInstance candidate)
+        {
+            planCommand(candidate);
+            if (candidate.Status != ObjectiveStatus.Active)
+            {
+                planned = evaluator.Evaluate(candidate);
+                return;
             }
 
-            var result = instance.Plan(PlanStep);
-            next = planned;
-            return result;
+            // 안정된 평가가 곧 계획 평가다. 최종 Status를 바꾼 때만 다시 평가한다.
+            planned = stabilizer.Stabilize(candidate);
+            var root = planned.RootResult;
+            if (root == TaskResult.Failed
+                && (planSubmit || spec.FailureCommitMode == ObjectiveCommitMode.Automatic))
+            {
+                candidate.ChangeStatus(ObjectiveStatus.Failed);
+                planned = evaluator.Evaluate(candidate);
+            }
+            else if (root == TaskResult.Succeeded
+                && (planSubmit || spec.SuccessCommitMode == ObjectiveCommitMode.Automatic))
+            {
+                candidate.ChangeStatus(ObjectiveStatus.Succeeded);
+                planned = evaluator.Evaluate(candidate);
+            }
         }
 
         // 계획한 후보를 확정하고 그 뒤에만 알림을 대기열에 둔다.
@@ -949,9 +704,72 @@ namespace inonego.Xeri.Game.Objective
             }
         }
 
+        // ================================================================================
+        /// <summary>
+        /// <br/>입력 명령이 Plan에 넘기는 delegate를 한 번만 만들어 두고, 명령마다 인자만 바꿔 쓴다.
+        /// <br/>재진입이 막혀 있어 Engine마다 하나면 충분하며, 인자는 명령이 끝나면 호출자가 비운다.
+        /// </summary>
+        // ================================================================================
+        private sealed class CachedCommands
+        {
+            internal double Delta;
+            internal string ProgressID;
+            internal Action<ValueRegistry> Edit;
+            internal ObjectiveStatus Status;
+
+            internal readonly Func<ObjectiveInstance, bool> Advance;
+            internal readonly Func<ObjectiveInstance, bool> EditProgress;
+            internal readonly Func<ObjectiveInstance, bool> ForceProgress;
+            internal readonly Action<ObjectiveInstance> ForceStatus;
+
+            internal CachedCommands()
+            {
+                Advance = candidate => candidate.AdvanceTime(Delta);
+                EditProgress = candidate => candidate.EditProgress(ProgressID, Edit);
+                ForceProgress = candidate => candidate.ForceProgress(Edit);
+                ForceStatus = candidate => candidate.ChangeStatus(Status);
+            }
+        }
+
     #endregion
 
     #region 알림
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 실제 원자 커밋이 성공한 뒤에만 발생하는 변경 알림.
+        /// </summary>
+        // ------------------------------------------------------------
+        public event Action Changed;
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>확정으로 Status가 바뀐 뒤 (이전, 이후) 상태와 함께 발생한다.
+        /// <br/>Terminal 전이는 한 번만 발생하며 복원(Bind)은 발생시키지 않는다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public event Action<ObjectiveStatus, ObjectiveStatus> StatusChanged;
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>확정으로 Entry의 참여·유효 결과·닫힌 사유가 바뀔 때 Entry마다 한 번 (이전, 이후)
+        /// <br/>평가와 함께 발생한다.
+        /// <br/>Spec 평가 순서대로 발행하며, 비교할 이전 평가가 없는 첫 확정과 복원(Bind)은 발행하지
+        /// <br/>않는다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public event Action<TaskEntryTransition> EntryEvaluationChanged;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 영속값 변경 여부와 관계없이 파생 실행 결과가 달라졌을 때 발생한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public event Action<ObjectiveEvaluation> EvaluationChanged;
+
+        // 확정 뒤 전달할 알림 대기열과 전달 중 표시. 전달 중 재진입한 명령의 알림도 순서대로 전달한다.
+        private readonly Queue<Action> notifications = new();
+        private bool notifying;
 
         // Status만 바꾸는 확정(강제 종료·Choice 취소)의 알림을 대기열에 둔다. 파생 평가는 다음 확정에서 다시 만든다.
         private void QueueStatusTransition(ObjectiveStatus before)

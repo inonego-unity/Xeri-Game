@@ -15,6 +15,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 using inonego;
 using inonego.Xeri;
 using inonego.Xeri.Serializable;
@@ -493,55 +496,76 @@ namespace inonego.Xeri.Game.Objective
         // --------------------------------------------------------------------------------
         public int RefreshDirty()
         {
-            int refreshed = 0;
-            int maximum = (order.Count + flows.Count) * 4 + 8;
-            var failedEngines = new HashSet<ObjectiveEngine>();
-            var failedFlows = new HashSet<ObjectiveFlow>();
-            var failures = new ExceptionBuffer();
-            for (int round = 0; round < maximum; round++)
+            // 대부분의 프레임은 갱신할 대상이 없으므로 할당 없이 돌아간다.
+            if (dirty.Count == 0 && dirtyFlows.Count == 0)
             {
-                if (dirty.Count == 0 && dirtyFlows.Count == 0)
-                {
-                    if (failures.Count > 0)
-                    {
-                        dirty.UnionWith(failedEngines);
-                        dirtyFlows.UnionWith(failedFlows);
-                        failures.ThrowWhenAny("Objective refresh failed for one or more targets.");
-                    }
-
-                    return refreshed;
-                }
-
-                // 등록 순서로 이번 회차 대상을 정하고, 갱신 중 새로 생기는 dirty는 다음 회차에서 처리한다.
-                var batch = new List<ObjectiveEngine>(dirty.Count);
-                foreach (var engine in order)
-                {
-                    if (dirty.Contains(engine))
-                    {
-                        batch.Add(engine);
-                    }
-                }
-
-                var flowBatch = new List<ObjectiveFlow>(dirtyFlows.Count);
-                foreach (var flow in flows)
-                {
-                    if (dirtyFlows.Contains(flow))
-                    {
-                        flowBatch.Add(flow);
-                    }
-                }
-
-                dirty.Clear();
-                dirtyFlows.Clear();
-                refreshed += RefreshBatch(batch, flowBatch, failedEngines, failedFlows, ref failures);
+                return 0;
             }
 
-            dirty.UnionWith(failedEngines);
-            dirtyFlows.UnionWith(failedFlows);
-            throw new InvalidOperationException
-            (
-                $"Objective refresh did not converge after {maximum} rounds; {dirty.Count + dirtyFlows.Count} target(s) are still dirty."
-            );
+            int refreshed = 0;
+            int maximum = (order.Count + flows.Count) * 4 + 8;
+
+            var failedEngines = HashSetPool<ObjectiveEngine>.Get();
+            var failedFlows = HashSetPool<ObjectiveFlow>.Get();
+            var batch = ListPool<ObjectiveEngine>.Get();
+            var flowBatch = ListPool<ObjectiveFlow>.Get();
+
+            var failures = new ExceptionBuffer();
+            
+            try
+            {
+                for (int round = 0; round < maximum; round++)
+                {
+                    if (dirty.Count == 0 && dirtyFlows.Count == 0)
+                    {
+                        if (failures.Count > 0)
+                        {
+                            dirty.UnionWith(failedEngines);
+                            dirtyFlows.UnionWith(failedFlows);
+                            failures.ThrowWhenAny("Objective refresh failed for one or more targets.");
+                        }
+
+                        return refreshed;
+                    }
+
+                    // 등록 순서로 이번 회차 대상을 정하고, 갱신 중 새로 생기는 dirty는 다음 회차에서 처리한다.
+                    batch.Clear();
+                    foreach (var engine in order)
+                    {
+                        if (dirty.Contains(engine))
+                        {
+                            batch.Add(engine);
+                        }
+                    }
+
+                    flowBatch.Clear();
+                    foreach (var flow in flows)
+                    {
+                        if (dirtyFlows.Contains(flow))
+                        {
+                            flowBatch.Add(flow);
+                        }
+                    }
+
+                    dirty.Clear();
+                    dirtyFlows.Clear();
+                    refreshed += RefreshBatch(batch, flowBatch, failedEngines, failedFlows, ref failures);
+                }
+
+                dirty.UnionWith(failedEngines);
+                dirtyFlows.UnionWith(failedFlows);
+                throw new InvalidOperationException
+                (
+                    $"Objective refresh did not converge after {maximum} rounds; {dirty.Count + dirtyFlows.Count} target(s) are still dirty."
+                );
+            }
+            finally
+            {
+                ListPool<ObjectiveFlow>.Release(flowBatch);
+                ListPool<ObjectiveEngine>.Release(batch);
+                HashSetPool<ObjectiveFlow>.Release(failedFlows);
+                HashSetPool<ObjectiveEngine>.Release(failedEngines);
+            }
         }
 
         // 이번 회차의 Engine과 Flow를 갱신한다. 실패한 대상은 목록에 모으고 예외를 쌓으며 나머지는 계속 갱신한다.
@@ -611,21 +635,32 @@ namespace inonego.Xeri.Game.Objective
             }
 
             var failures = new ExceptionBuffer();
-            foreach (var engine in order.ToArray())
-            {
-                if (engine.Instance.Status != ObjectiveStatus.Active)
-                {
-                    continue;
-                }
 
-                try
+            // 순회 중 등록이 바뀌어도 안전하도록 풀에서 빌린 목록에 복사해 돈다.
+            var targets = ListPool<ObjectiveEngine>.Get();
+            try
+            {
+                targets.AddRange(order);
+                foreach (var engine in targets)
                 {
-                    engine.AdvanceTime(delta);
+                    if (engine.Instance.Status != ObjectiveStatus.Active)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        engine.AdvanceTime(delta);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
                 }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
+            }
+            finally
+            {
+                ListPool<ObjectiveEngine>.Release(targets);
             }
 
             try

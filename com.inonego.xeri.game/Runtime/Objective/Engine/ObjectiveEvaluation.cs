@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveEvaluation.cs
-수정일 : 2026-11-23
+수정일 : 2026-11-25
 
 # 설명
 한 번의 Composite 평가에서 계산된 Node 결과와 Entry 참여·입력 허용·닫힌 사유를 노출한다.
@@ -210,9 +210,22 @@ namespace inonego.Xeri.Game.Objective
 
     #region 필드
 
-        private readonly Dictionary<string, TaskNodeEvaluation> nodes = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, TaskEntryEvaluation> entries = new(StringComparer.Ordinal);
-        private readonly List<string> entryOrder = new();
+        // Spec의 번호표. Node와 Entry의 자리를 정하며 같은 Spec의 모든 평가가 공유한다.
+        private readonly SpecIndex index;
+        private readonly TaskNodeEvaluation[] nodes;
+        private readonly TaskEntryEvaluation[] entries;
+
+    #endregion
+
+    #region 생성자
+
+        // 번호표 크기에 맞춘 배열 둘만 만든다. 평가마다 딕셔너리나 목록을 늘리지 않아 쓰레기가 적다.
+        internal ObjectiveEvaluation(SpecIndex index)
+        {
+            this.index = index;
+            nodes = new TaskNodeEvaluation[index.NodeCount];
+            entries = new TaskEntryEvaluation[index.EntryCount];
+        }
 
     #endregion
 
@@ -235,9 +248,10 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         public bool TryGetNode(string nodeID, out TaskNodeEvaluation result)
         {
-            if (nodeID != null)
+            if (nodeID != null && index.TryGetNodeNumber(nodeID, out int number) && nodes[number].NodeID != null)
             {
-                return nodes.TryGetValue(nodeID, out result);
+                result = nodes[number];
+                return true;
             }
 
             result = default;
@@ -251,9 +265,10 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         public bool TryGetEntry(string entryID, out TaskEntryEvaluation result)
         {
-            if (entryID != null)
+            if (entryID != null && index.TryGetEntryNumber(entryID, out int number) && entries[number].EntryID != null)
             {
-                return entries.TryGetValue(entryID, out result);
+                result = entries[number];
+                return true;
             }
 
             result = default;
@@ -264,9 +279,21 @@ namespace inonego.Xeri.Game.Objective
 
     #region 내부 평가 작성
 
+        // 같은 Spec의 평가에 다시 쓸 수 있도록 결과를 비운다. 배열은 그대로 두므로 할당이 없다.
+        internal void Clear()
+        {
+            Array.Clear(nodes, 0, nodes.Length);
+            Array.Clear(entries, 0, entries.Length);
+            RootResult = default;
+            Reads = null;
+        }
+
+        // 이 평가가 그 Spec의 번호표로 만들어졌는지 확인한다.
+        internal bool IsFor(SpecIndex other) => ReferenceEquals(index, other);
+
         internal void SetNode(string nodeID, bool participating, TaskResult result)
         {
-            nodes[nodeID] = new TaskNodeEvaluation(nodeID, participating, result, false);
+            nodes[NodeNumber(nodeID)] = new TaskNodeEvaluation(nodeID, participating, result, false);
         }
 
         internal void SetEntry
@@ -274,44 +301,14 @@ namespace inonego.Xeri.Game.Objective
             string entryID, string nodeID, bool participating, TaskResult result, TaskClosedBy closedBy
         )
         {
-            if (!entries.ContainsKey(entryID))
-            {
-                entryOrder.Add(entryID);
-            }
-
-            entries[entryID] = new TaskEntryEvaluation(entryID, nodeID, participating, result, false, closedBy);
-        }
-
-        // 이전 평가와 비교해 참여·유효 결과·닫힌 사유가 바뀐 Entry를 평가 순서대로 돌려준다. 입력 허용만 바뀐 Entry는 제외한다.
-        internal List<TaskEntryTransition> DiffEntries(ObjectiveEvaluation previous)
-        {
-            var result = new List<TaskEntryTransition>();
-            if (previous == null)
-            {
-                return result;
-            }
-
-            foreach (var entryID in entryOrder)
-            {
-                if (previous.entries.TryGetValue(entryID, out var before))
-                {
-                    var after = entries[entryID];
-                    if (before.Participating != after.Participating
-                        || before.EffectiveResult != after.EffectiveResult
-                        || before.ClosedBy != after.ClosedBy)
-                    {
-                        result.Add(new TaskEntryTransition(entryID, before, after));
-                    }
-                }
-            }
-
-            return result;
+            entries[EntryNumber(entryID)] = new TaskEntryEvaluation(entryID, nodeID, participating, result, false, closedBy);
         }
 
         internal void SetNodeInput(string nodeID, bool allowed)
         {
-            var current = nodes[nodeID];
-            nodes[nodeID] = new TaskNodeEvaluation
+            int number = NodeNumber(nodeID);
+            var current = nodes[number];
+            nodes[number] = new TaskNodeEvaluation
             (
                 current.NodeID, current.Participating, current.RawResult, allowed
             );
@@ -319,40 +316,93 @@ namespace inonego.Xeri.Game.Objective
 
         internal void SetEntryInput(string entryID, bool allowed)
         {
-            var current = entries[entryID];
-            entries[entryID] = new TaskEntryEvaluation
+            int number = EntryNumber(entryID);
+            var current = entries[number];
+            entries[number] = new TaskEntryEvaluation
             (
                 current.EntryID, current.NodeID, current.Participating,
                 current.EffectiveResult, allowed, current.ClosedBy
             );
         }
 
+        private int NodeNumber(string nodeID)
+        {
+            if (!index.TryGetNodeNumber(nodeID, out int number))
+            {
+                throw new KeyNotFoundException($"Unknown Node in this Spec: '{nodeID}'.");
+            }
+
+            return number;
+        }
+
+        private int EntryNumber(string entryID)
+        {
+            if (!index.TryGetEntryNumber(entryID, out int number))
+            {
+                throw new KeyNotFoundException($"Unknown Entry in this Spec: '{entryID}'.");
+            }
+
+            return number;
+        }
+
+    #endregion
+
+    #region 비교
+
+        // 이전 평가와 비교해 참여·유효 결과·닫힌 사유가 바뀐 Entry를 평가 순서대로 돌려준다. 입력 허용만 바뀐 Entry는 제외한다.
+        internal List<TaskEntryTransition> DiffEntries(ObjectiveEvaluation previous)
+        {
+            var result = new List<TaskEntryTransition>();
+            if (previous == null || !ReferenceEquals(previous.index, index))
+            {
+                return result;
+            }
+
+            for (int number = 0; number < entries.Length; number++)
+            {
+                var before = previous.entries[number];
+                var after = entries[number];
+                if (before.EntryID != null && after.EntryID != null
+                    && (before.Participating != after.Participating
+                        || before.EffectiveResult != after.EffectiveResult
+                        || before.ClosedBy != after.ClosedBy))
+                {
+                    result.Add(new TaskEntryTransition(after.EntryID, before, after));
+                }
+            }
+
+            return result;
+        }
+
         internal bool IsEquivalentTo(ObjectiveEvaluation other)
         {
-            if (other == null || RootResult != other.RootResult
-                || nodes.Count != other.nodes.Count || entries.Count != other.entries.Count)
+            if (other == null || !ReferenceEquals(index, other.index) || RootResult != other.RootResult)
             {
                 return false;
             }
 
-            foreach (var item in nodes)
+            for (int number = 0; number < nodes.Length; number++)
             {
-                if (!other.nodes.TryGetValue(item.Key, out var value)
-                    || item.Value.Participating != value.Participating
-                    || item.Value.RawResult != value.RawResult
-                    || item.Value.CanAcceptInput != value.CanAcceptInput)
+                var left = nodes[number];
+                var right = other.nodes[number];
+                if ((left.NodeID == null) != (right.NodeID == null)
+                    || left.Participating != right.Participating
+                    || left.RawResult != right.RawResult
+                    || left.CanAcceptInput != right.CanAcceptInput)
                 {
                     return false;
                 }
             }
 
-            foreach (var item in entries)
+            for (int number = 0; number < entries.Length; number++)
             {
-                if (!other.entries.TryGetValue(item.Key, out var value)
-                    || item.Value.Participating != value.Participating
-                    || item.Value.EffectiveResult != value.EffectiveResult
-                    || item.Value.CanAcceptInput != value.CanAcceptInput
-                    || item.Value.ClosedBy != value.ClosedBy)
+                var left = entries[number];
+                var right = other.entries[number];
+                if ((left.EntryID == null) != (right.EntryID == null)
+                    || left.Participating != right.Participating
+                    || left.EffectiveResult != right.EffectiveResult
+                    || left.CanAcceptInput != right.CanAcceptInput
+                    || left.ClosedBy != right.ClosedBy)
                 {
                     return false;
                 }
