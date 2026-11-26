@@ -15,6 +15,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
 
 namespace inonego.Xeri.Game.Objective
 {
@@ -55,32 +57,40 @@ namespace inonego.Xeri.Game.Objective
             }
 
             var values = new List<ObjectiveInstance>();
-            var ids = new HashSet<(string ScopeID, string InstanceID)>();
-            foreach (var saved in savedInstances)
+            var ids = HashSetPool<(string ScopeID, string InstanceID)>.Get();
+
+            try
             {
-                // 정확한 Version이 없으면 등록된 변환 체인으로 옮긴 새 Instance를 쓴다. 원본 저장 데이터는 바꾸지 않는다.
-                var instance = saved;
-                if (saved != null && resolver is IObjectiveInstanceMigrator migrator
-                    && migrator.TryMigrate(saved, out var migrated))
+                foreach (var saved in savedInstances)
                 {
-                    instance = migrated;
-                }
+                    // 정확한 Version이 없으면 등록된 변환 체인으로 옮긴 새 Instance를 쓴다. 원본 저장 데이터는 바꾸지 않는다.
+                    var instance = saved;
+                    if (saved != null && resolver is IObjectiveInstanceMigrator migrator
+                        && migrator.TryMigrate(saved, out var migrated))
+                    {
+                        instance = migrated;
+                    }
 
-                if (instance == null || string.IsNullOrWhiteSpace(instance.ScopeID)
-                    || string.IsNullOrWhiteSpace(instance.InstanceID))
-                {
-                    throw new InvalidOperationException("Saved Objective instance is missing or invalid.");
-                }
+                    if (instance == null || string.IsNullOrWhiteSpace(instance.ScopeID)
+                        || string.IsNullOrWhiteSpace(instance.InstanceID))
+                    {
+                        throw new InvalidOperationException("Saved Objective instance is missing or invalid.");
+                    }
 
-                if (!ids.Add((instance.ScopeID, instance.InstanceID)))
-                {
-                    throw new InvalidOperationException
-                    (
-                        $"Duplicate Objective InstanceID '{instance.InstanceID}' in Scope '{instance.ScopeID}'."
-                    );
-                }
+                    if (!ids.Add((instance.ScopeID, instance.InstanceID)))
+                    {
+                        throw new InvalidOperationException
+                        (
+                            $"Duplicate Objective InstanceID '{instance.InstanceID}' in Scope '{instance.ScopeID}'."
+                        );
+                    }
 
-                values.Add(instance);
+                    values.Add(instance);
+                }
+            }
+            finally
+            {
+                HashSetPool<(string ScopeID, string InstanceID)>.Release(ids);
             }
 
             // 배치 전체의 명세·Progress·이력을 확인한 뒤 초기 파생 평가를 구성한다.

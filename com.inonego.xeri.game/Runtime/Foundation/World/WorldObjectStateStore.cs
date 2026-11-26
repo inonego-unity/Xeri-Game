@@ -11,6 +11,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 namespace inonego.Xeri.Game
 {
     // ============================================================
@@ -164,24 +167,32 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         internal void CommitNewStates(IEnumerable<WorldObjectState> newStates)
         {
-            var pending = new List<WorldObjectState>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var pending = ListPool<WorldObjectState>.Get();
+            var seen = HashSetPool<string>.Get();
 
-            foreach (var state in newStates)
+            try
             {
-                Validate(state, nameof(newStates));
-
-                if (!reservedIDs.Contains(state.ID) || states.ContainsKey(state.ID) || !seen.Add(state.ID))
+                foreach (var state in newStates)
                 {
-                    throw new InvalidOperationException($"새 WorldObject 상태를 확정할 수 없습니다:{state.ID}");
+                    Validate(state, nameof(newStates));
+
+                    if (!reservedIDs.Contains(state.ID) || states.ContainsKey(state.ID) || !seen.Add(state.ID))
+                    {
+                        throw new InvalidOperationException($"새 WorldObject 상태를 확정할 수 없습니다:{state.ID}");
+                    }
+
+                    pending.Add(state);
                 }
 
-                pending.Add(state);
+                foreach (var state in pending)
+                {
+                    states.Add(state.ID, state);
+                }
             }
-
-            foreach (var state in pending)
+            finally
             {
-                states.Add(state.ID, state);
+                ListPool<WorldObjectState>.Release(pending);
+                HashSetPool<string>.Release(seen);
             }
         }
 

@@ -18,6 +18,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 using inonego;
 using inonego.Xeri;
 
@@ -430,35 +433,43 @@ namespace inonego.Xeri.Game.Objective
             }
 
             // 모든 취소를 먼저 계획한다. 하나라도 실패하면 선택도 취소도 반영하지 않는다.
-            var plans = new List<(ObjectiveEngine Engine, ObjectiveInstance Candidate)>();
-            foreach (var id in choice.ObjectiveIDs)
-            {
-                if (id != objectiveID && engines[id].Instance.Status != ObjectiveStatus.Cancelled)
-                {
-                    var engine = engines[id];
-                    plans.Add((engine, engine.PlanCancelForChoice()));
-                }
-            }
-
-            // 계획이 모두 끝난 뒤 선택 기록과 취소를 함께 확정한다. 확정은 실패하지 않는 대입이다.
-            state.Select(choiceID, objectiveID);
-            foreach (var plan in plans)
-            {
-                plan.Engine.CommitCancelForChoice(plan.Candidate);
-            }
-
-            // 모든 확정 뒤에 알린다. 한 대안의 구독자가 실패해도 다른 대안의 알림은 전달하고, 실패는 모아 마지막에 던진다.
+            var plans = ListPool<(ObjectiveEngine Engine, ObjectiveInstance Candidate)>.Get();
             var failures = new ExceptionBuffer();
-            foreach (var plan in plans)
+
+            try
             {
-                try
+                foreach (var id in choice.ObjectiveIDs)
                 {
-                    plan.Engine.FlushChoiceNotifications();
+                    if (id != objectiveID && engines[id].Instance.Status != ObjectiveStatus.Cancelled)
+                    {
+                        var engine = engines[id];
+                        plans.Add((engine, engine.PlanCancelForChoice()));
+                    }
                 }
-                catch (Exception exception)
+
+                // 계획이 모두 끝난 뒤 선택 기록과 취소를 함께 확정한다. 확정은 실패하지 않는 대입이다.
+                state.Select(choiceID, objectiveID);
+                foreach (var plan in plans)
                 {
-                    failures.Add(exception);
+                    plan.Engine.CommitCancelForChoice(plan.Candidate);
                 }
+
+                // 모든 확정 뒤에 알린다. 한 대안의 구독자가 실패해도 다른 대안의 알림은 전달하고, 실패는 모아 마지막에 던진다.
+                foreach (var plan in plans)
+                {
+                    try
+                    {
+                        plan.Engine.FlushChoiceNotifications();
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
+                }
+            }
+            finally
+            {
+                ListPool<(ObjectiveEngine Engine, ObjectiveInstance Candidate)>.Release(plans);
             }
 
             failures.ThrowWhenAny("Choice alternative notification handlers failed.");
@@ -535,25 +546,34 @@ namespace inonego.Xeri.Game.Objective
                 cancellation = chosen.PlanCancelForChoice();
             }
 
-            var replacements = new List<(string ObjectiveID, ObjectiveEngine Engine)>(choice.ObjectiveIDs.Count);
-            foreach (var id in choice.ObjectiveIDs)
-            {
-                replacements.Add((id, engines[id].NewRun(newInstanceID(id))));
-            }
+            var replacements = ListPool<(string ObjectiveID, ObjectiveEngine Engine)>.Get();
+            List<ObjectiveEngine> result = null;
 
-            // 선택 기록, 선택한 대안의 종료, 회차 교체를 함께 확정한다. 확정은 실패하지 않는 대입이다.
-            if (cancellation != null)
+            try
             {
-                chosen.CommitCancelForChoice(cancellation);
-            }
+                foreach (var id in choice.ObjectiveIDs)
+                {
+                    replacements.Add((id, engines[id].NewRun(newInstanceID(id))));
+                }
 
-            state.ClearSelection(choiceID);
-            var result = new List<ObjectiveEngine>(replacements.Count);
-            foreach (var replacement in replacements)
+                // 선택 기록, 선택한 대안의 종료, 회차 교체를 함께 확정한다. 확정은 실패하지 않는 대입이다.
+                if (cancellation != null)
+                {
+                    chosen.CommitCancelForChoice(cancellation);
+                }
+
+                state.ClearSelection(choiceID);
+                result = new List<ObjectiveEngine>(replacements.Count);
+                foreach (var replacement in replacements)
+                {
+                    Replace(replacement.ObjectiveID, replacement.Engine);
+                    replacement.Engine.Publish();
+                    result.Add(replacement.Engine);
+                }
+            }
+            finally
             {
-                Replace(replacement.ObjectiveID, replacement.Engine);
-                replacement.Engine.Publish();
-                result.Add(replacement.Engine);
+                ListPool<(string ObjectiveID, ObjectiveEngine Engine)>.Release(replacements);
             }
 
             // 확정이 끝난 뒤에 알린다. 알림 예외는 확정을 되돌리지 않는다.

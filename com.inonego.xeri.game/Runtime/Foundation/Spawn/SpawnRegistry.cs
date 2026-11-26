@@ -19,6 +19,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 using UnityEngine;
+using UnityEngine.Pool;
 
 namespace inonego.Xeri.Game
 {
@@ -354,7 +355,8 @@ namespace inonego.Xeri.Game
                 throw new InvalidOperationException("동일 SpawnRegistry Binding을 중복 연결할 수 없습니다.");
             }
 
-            var existing = new List<KeyValuePair<TKey, T>>(_Registered);
+            var existing = ListPool<KeyValuePair<TKey, T>>.Get();
+            existing.AddRange(_Registered);
 
             var attachedCount = 0;
             isUpdatingBindings = true;
@@ -403,6 +405,7 @@ namespace inonego.Xeri.Game
             finally
             {
                 isUpdatingBindings = false;
+                ListPool<KeyValuePair<TKey, T>>.Release(existing);
             }
         }
 
@@ -427,7 +430,8 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            var existing = new List<KeyValuePair<TKey, T>>(_Registered);
+            var existing = ListPool<KeyValuePair<TKey, T>>.Get();
+            existing.AddRange(_Registered);
             var failures = new ExceptionBuffer();
 
             isUpdatingBindings = true;
@@ -454,6 +458,7 @@ namespace inonego.Xeri.Game
             finally
             {
                 isUpdatingBindings = false;
+                ListPool<KeyValuePair<TKey, T>>.Release(existing);
             }
 
             if (failures.Count > 0)
@@ -1466,7 +1471,8 @@ namespace inonego.Xeri.Game
                 }
             }
 
-            var snapshot = new List<KeyValuePair<TKey, T>>(_Registered);
+            var snapshot = ListPool<KeyValuePair<TKey, T>>.Get();
+            snapshot.AddRange(_Registered);
             var failures = new ExceptionBuffer();
 
             isDespawningAll = true;
@@ -1501,6 +1507,7 @@ namespace inonego.Xeri.Game
             finally
             {
                 isDespawningAll = false;
+                ListPool<KeyValuePair<TKey, T>>.Release(snapshot);
             }
 
             if (failures.Count > 0)

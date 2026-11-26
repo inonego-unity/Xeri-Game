@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using UnityEngine;
+using UnityEngine.Pool;
 
 using inonego;
 using inonego.Xeri;
@@ -795,35 +796,45 @@ namespace inonego.Xeri.Game.Objective
                 }
             }
 
-            var passed = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var entryID in passedEntryIDs)
+            var passed = HashSetPool<string>.Get();
+            var groups = HashSetPool<string>.Get();
+            var opened = HashSetPool<string>.Get();
+
+            try
             {
-                if (string.IsNullOrWhiteSpace(entryID) || !passed.Add(entryID))
+                foreach (var entryID in passedEntryIDs)
                 {
-                    throw new InvalidOperationException("OncePassed entry history is invalid.");
+                    if (string.IsNullOrWhiteSpace(entryID) || !passed.Add(entryID))
+                    {
+                        throw new InvalidOperationException("OncePassed entry history is invalid.");
+                    }
+                }
+
+                foreach (var boundary in sequentialBoundaries)
+                {
+                    if (boundary == null || string.IsNullOrWhiteSpace(boundary.GroupID)
+                        || string.IsNullOrWhiteSpace(boundary.EntryID) || !groups.Add(boundary.GroupID))
+                    {
+                        throw new InvalidOperationException("Sequential boundary history is invalid.");
+                    }
+                }
+
+                foreach (var opening in entryOpenings)
+                {
+                    // 참여 시작 시각은 현재 경과 시간을 넘을 수 없다.
+                    if (opening == null || string.IsNullOrWhiteSpace(opening.EntryID) || !opened.Add(opening.EntryID)
+                        || double.IsNaN(opening.OpenTime) || double.IsInfinity(opening.OpenTime)
+                        || opening.OpenTime < 0 || opening.OpenTime > elapsedTime)
+                    {
+                        throw new InvalidOperationException("Entry opening history is invalid.");
+                    }
                 }
             }
-
-            var groups = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var boundary in sequentialBoundaries)
+            finally
             {
-                if (boundary == null || string.IsNullOrWhiteSpace(boundary.GroupID)
-                    || string.IsNullOrWhiteSpace(boundary.EntryID) || !groups.Add(boundary.GroupID))
-                {
-                    throw new InvalidOperationException("Sequential boundary history is invalid.");
-                }
-            }
-
-            var opened = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var opening in entryOpenings)
-            {
-                // 참여 시작 시각은 현재 경과 시간을 넘을 수 없다.
-                if (opening == null || string.IsNullOrWhiteSpace(opening.EntryID) || !opened.Add(opening.EntryID)
-                    || double.IsNaN(opening.OpenTime) || double.IsInfinity(opening.OpenTime)
-                    || opening.OpenTime < 0 || opening.OpenTime > elapsedTime)
-                {
-                    throw new InvalidOperationException("Entry opening history is invalid.");
-                }
+                HashSetPool<string>.Release(passed);
+                HashSetPool<string>.Release(groups);
+                HashSetPool<string>.Release(opened);
             }
         }
 

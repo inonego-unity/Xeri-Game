@@ -11,6 +11,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 using UnityEngine;
+using UnityEngine.Pool;
 
 namespace inonego.Xeri.Game
 {
@@ -207,11 +208,19 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void RemoveTileAll()
         {
-            var vectors = new List<TVector>(tileMap.Views.Keys);
+            var vectors = ListPool<TVector>.Get();
+            vectors.AddRange(tileMap.Views.Keys);
 
-            foreach (var vector in vectors)
+            try
             {
-                RemoveTile(vector);
+                foreach (var vector in vectors)
+                {
+                    RemoveTile(vector);
+                }
+            }
+            finally
+            {
+                ListPool<TVector>.Release(vectors);
             }
         }
 

@@ -17,6 +17,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 namespace inonego.Xeri.Game
 {
     // ================================================================================
@@ -255,22 +258,31 @@ namespace inonego.Xeri.Game
             var failures = new ExceptionBuffer();
 
             // 반환마다 추적을 제거하므로 snapshot을 순회한다.
-            var snapshot = new List<KeyValuePair<TEntity, TEntityActor>>(actorsByEntity);
+            var snapshot = ListPool<KeyValuePair<TEntity, TEntityActor>>.Get();
 
-            foreach (var (entity, actor) in snapshot)
+            try
             {
-                try
+                snapshot.AddRange(actorsByEntity);
+
+                foreach (var (entity, actor) in snapshot)
                 {
-                    runtime.ReleaseRegistryOwned(actor, reason);
+                    try
+                    {
+                        runtime.ReleaseRegistryOwned(actor, reason);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
+                    finally
+                    {
+                        PruneReleasedActor(entity, actor);
+                    }
                 }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-                finally
-                {
-                    PruneReleasedActor(entity, actor);
-                }
+            }
+            finally
+            {
+                ListPool<KeyValuePair<TEntity, TEntityActor>>.Release(snapshot);
             }
 
             if (failures.Count > 0)

@@ -17,6 +17,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 namespace inonego.Xeri.Game
 {
     // ================================================================================
@@ -428,31 +431,37 @@ namespace inonego.Xeri.Game
         private void ReleaseActors(IEnumerable<TEntityActor> source, DespawnReason reason)
         {
             // 원본은 반환 중 바뀌는 View이므로 참조와 등록 수명 번호를 먼저 고정한다.
-            var targets = new List<(TEntityActor actor, Revision generation)>();
-
-            foreach (var actor in source)
-            {
-                targets.Add((actor, registry.GetRegistrationGeneration(actor)));
-            }
-
+            var targets = ListPool<(TEntityActor actor, Revision generation)>.Get();
             var failures = new ExceptionBuffer();
 
-            foreach (var (actor, generation) in targets)
+            try
             {
-                try
+                foreach (var actor in source)
                 {
-                    // 중첩 호출이 이미 반환했거나 새 수명으로 다시 등록된 Actor는 건너뛴다.
-                    if (registry.GetRegistrationGeneration(actor) != generation)
-                    {
-                        continue;
-                    }
+                    targets.Add((actor, registry.GetRegistrationGeneration(actor)));
+                }
 
-                    ReleaseGuarded(actor, reason);
-                }
-                catch (Exception exception)
+                foreach (var (actor, generation) in targets)
                 {
-                    failures.Add(exception);
+                    try
+                    {
+                        // 중첩 호출이 이미 반환했거나 새 수명으로 다시 등록된 Actor는 건너뛴다.
+                        if (registry.GetRegistrationGeneration(actor) != generation)
+                        {
+                            continue;
+                        }
+
+                        ReleaseGuarded(actor, reason);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
                 }
+            }
+            finally
+            {
+                ListPool<(TEntityActor actor, Revision generation)>.Release(targets);
             }
 
             failures.ThrowWhenAny("일부 Entity Actor 반환에 실패했습니다.");

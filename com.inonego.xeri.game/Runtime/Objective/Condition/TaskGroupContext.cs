@@ -13,6 +13,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 namespace inonego.Xeri.Game.Objective
 {
     // ============================================================
@@ -141,27 +144,35 @@ namespace inonego.Xeri.Game.Objective
             }
 
             var values = new List<TaskEntryResult>();
-            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var ids = HashSetPool<string>.Get();
             int completed = 0;
             int failed = 0;
-            foreach (var entry in entryResults)
+
+            try
             {
-                if (string.IsNullOrWhiteSpace(entry.EntryID) || !ids.Add(entry.EntryID)
-                    || !Enum.IsDefined(typeof(TaskResult), entry.Result))
+                foreach (var entry in entryResults)
                 {
-                    throw new ArgumentException("Duplicate or invalid Entry result.", nameof(entryResults));
-                }
+                    if (string.IsNullOrWhiteSpace(entry.EntryID) || !ids.Add(entry.EntryID)
+                        || !Enum.IsDefined(typeof(TaskResult), entry.Result))
+                    {
+                        throw new ArgumentException("Duplicate or invalid Entry result.", nameof(entryResults));
+                    }
 
-                values.Add(entry);
-                if (entry.Participating && entry.Result == TaskResult.Succeeded)
-                {
-                    completed++;
-                }
+                    values.Add(entry);
+                    if (entry.Participating && entry.Result == TaskResult.Succeeded)
+                    {
+                        completed++;
+                    }
 
-                if (entry.Participating && entry.Result == TaskResult.Failed)
-                {
-                    failed++;
+                    if (entry.Participating && entry.Result == TaskResult.Failed)
+                    {
+                        failed++;
+                    }
                 }
+            }
+            finally
+            {
+                HashSetPool<string>.Release(ids);
             }
 
             entries = values.AsReadOnly();

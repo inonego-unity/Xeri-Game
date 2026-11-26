@@ -11,6 +11,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using UnityEngine;
+using UnityEngine.Pool;
+
 namespace inonego.Xeri.Game
 {
     // ============================================================
@@ -92,31 +95,38 @@ namespace inonego.Xeri.Game
             {
                 var targets = new List<Entry>();
                 var newStates = new List<WorldObjectState>();
-                var seen = new HashSet<string>(StringComparer.Ordinal);
+                var seen = HashSetPool<string>.Get();
 
                 // ID 유효성과 중복을 우선 검사하여 불필요한 Factory 호출을 방지한다.
-                foreach (var obj in objects)
+                try
                 {
-                    if (IsMissing(obj))
+                    foreach (var obj in objects)
                     {
-                        throw new ArgumentException("WorldObject에는 유효한 ID가 필요합니다.", nameof(objects));
-                    }
+                        if (IsMissing(obj))
+                        {
+                            throw new ArgumentException("WorldObject에는 유효한 ID가 필요합니다.", nameof(objects));
+                        }
 
-                    var id = obj.ID;
-                    if (string.IsNullOrWhiteSpace(id))
-                    {
-                        throw new ArgumentException("WorldObject에는 유효한 ID가 필요합니다.", nameof(objects));
-                    }
+                        var id = obj.ID;
+                        if (string.IsNullOrWhiteSpace(id))
+                        {
+                            throw new ArgumentException("WorldObject에는 유효한 ID가 필요합니다.", nameof(objects));
+                        }
 
-                    if (!seen.Add(id))
-                    {
-                        throw new InvalidOperationException($"Scene에 중복된 WorldObject ID가 있습니다:{id}");
-                    }
+                        if (!seen.Add(id))
+                        {
+                            throw new InvalidOperationException($"Scene에 중복된 WorldObject ID가 있습니다:{id}");
+                        }
 
-                    var entry = new Entry();
-                    entry.Object = obj;
-                    entry.ID = id;
-                    targets.Add(entry);
+                        var entry = new Entry();
+                        entry.Object = obj;
+                        entry.ID = id;
+                        targets.Add(entry);
+                    }
+                }
+                finally
+                {
+                    HashSetPool<string>.Release(seen);
                 }
 
                 if (targets.Count == 0)
@@ -204,19 +214,26 @@ namespace inonego.Xeri.Game
                         : WorldObjectBindingStatus.CleanupPending;
 
                     // 실패한 객체의 예약은 반환하지 않아 다른 Binding이 접근하지 못하게 한다.
-                    var pendingIDs = new HashSet<string>(StringComparer.Ordinal);
+                    var pendingIDs = HashSetPool<string>.Get();
 
-                    foreach (var entry in pending)
+                    try
                     {
-                        pendingIDs.Add(entry.ID);
-                    }
-
-                    foreach (var id in reserved)
-                    {
-                        if (!pendingIDs.Contains(id))
+                        foreach (var entry in pending)
                         {
-                            store.Release(id);
+                            pendingIDs.Add(entry.ID);
                         }
+
+                        foreach (var id in reserved)
+                        {
+                            if (!pendingIDs.Contains(id))
+                            {
+                                store.Release(id);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        HashSetPool<string>.Release(pendingIDs);
                     }
 
                     reserved.Clear();
