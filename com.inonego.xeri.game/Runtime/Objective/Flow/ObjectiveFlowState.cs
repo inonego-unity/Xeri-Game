@@ -200,8 +200,7 @@ namespace inonego.Xeri.Game.Objective
         /// 저장용 원본을 노출하지 않는 확정 Choice 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ObjectiveFlowSelection> Selections =>
-            selections == null ? null : selections.ToArray();
+        public ReadOnlyListView<ObjectiveFlowSelection> Selections => selections == null ? default : new(selections);
 
     #endregion
 

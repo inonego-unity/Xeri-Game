@@ -259,11 +259,12 @@ namespace inonego.Xeri.Game.Objective
         private abstract class ScopedCond : ICond<TaskGroupContext>, IValidatableCond
         {
             // 지정한 직접 자식 ID. 비어 있으면 모든 직접 자식이 대상이다.
-            protected IReadOnlyList<string> EntryIDs { get; }
+            protected ReadOnlyListView<string> EntryIDs => new(entryIDs);
+            private readonly string[] entryIDs;
 
             protected ScopedCond(string[] entryIDs)
             {
-                EntryIDs = Array.AsReadOnly(entryIDs);
+                this.entryIDs = entryIDs;
             }
 
             // ------------------------------------------------------------

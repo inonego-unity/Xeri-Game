@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveInstance.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Objective의 직접 영속 원본과 원자 변경을 소유한다.
@@ -262,14 +262,14 @@ namespace inonego.Xeri.Game.Objective
         /// 저장된 OncePassed EntryID의 읽기 전용 목록. 확정한 목록은 바뀌지 않으므로 복사하지 않는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        public IReadOnlyList<string> PassedEntryIDs => passedEntryIDs?.AsReadOnly();
+        public ReadOnlyListView<string> PassedEntryIDs => passedEntryIDs == null ? default : new(passedEntryIDs);
 
         // --------------------------------------------------------------------------------
         /// <summary>
         /// 저장된 Sequential 경계 항목의 읽기 전용 목록. 확정한 목록은 바뀌지 않으므로 복사하지 않는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        public IReadOnlyList<SequentialBoundary> SequentialBoundaries => sequentialBoundaries?.AsReadOnly();
+        public ReadOnlyListView<SequentialBoundary> SequentialBoundaries => sequentialBoundaries == null ? default : new(sequentialBoundaries);
 
         // ------------------------------------------------------------
         /// <summary>
@@ -277,7 +277,7 @@ namespace inonego.Xeri.Game.Objective
         /// <br/>확정한 목록은 바뀌지 않으므로 복사하지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<EntryOpening> EntryOpenings => entryOpenings?.AsReadOnly();
+        public ReadOnlyListView<EntryOpening> EntryOpenings => entryOpenings == null ? default : new(entryOpenings);
 
         // ------------------------------------------------------------
         /// <summary>
@@ -794,7 +794,7 @@ namespace inonego.Xeri.Game.Objective
                 || specVersion <= 0
                 || string.IsNullOrWhiteSpace(instanceID)
                 || string.IsNullOrWhiteSpace(scopeID)
-                || !Enum.IsDefined(typeof(ObjectiveStatus), status)
+                || !status.IsDefined()
                 || double.IsNaN(elapsedTime) || double.IsInfinity(elapsedTime)
                 || elapsedTime < 0
                 || progress == null || passedEntryIDs == null || sequentialBoundaries == null

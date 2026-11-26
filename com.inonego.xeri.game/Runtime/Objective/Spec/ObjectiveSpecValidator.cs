@@ -78,13 +78,13 @@ namespace inonego.Xeri.Game.Objective
                 walk.Add("spec", $"Version must be positive but was {spec.Version}.");
             }
 
-            if (!Enum.IsDefined(typeof(ObjectiveCommitMode), spec.SuccessCommitMode)
-                || !Enum.IsDefined(typeof(ObjectiveCommitMode), spec.FailureCommitMode))
+            if (!spec.SuccessCommitMode.IsDefined()
+                || !spec.FailureCommitMode.IsDefined())
             {
                 walk.Add("spec", "Commit mode is not a defined value.");
             }
 
-            if (!Enum.IsDefined(typeof(ObjectiveRepeatMode), spec.RepeatMode))
+            if (!spec.RepeatMode.IsDefined())
             {
                 walk.Add("spec", "Repeat mode is not a defined value.");
             }
@@ -174,8 +174,8 @@ namespace inonego.Xeri.Game.Objective
                     Add(path, "Group needs at least one Entry.");
                 }
 
-                if (!Enum.IsDefined(typeof(TaskExecutionMode), group.ExecutionMode)
-                    || !Enum.IsDefined(typeof(TaskContinuationMode), group.ContinuationMode))
+                if (!group.ExecutionMode.IsDefined()
+                    || !group.ContinuationMode.IsDefined())
                 {
                     Add(path, "Group execution or continuation mode is not a defined value.");
                 }
@@ -208,8 +208,8 @@ namespace inonego.Xeri.Game.Objective
                     Add(entryPath, $"EntryID '{entry.EntryID}' is duplicated.");
                 }
 
-                if (!Enum.IsDefined(typeof(TaskRevalidationMode), entry.RevalidationMode)
-                    || !Enum.IsDefined(typeof(TaskRollbackMode), entry.RollbackMode))
+                if (!entry.RevalidationMode.IsDefined()
+                    || !entry.RollbackMode.IsDefined())
                 {
                     Add(entryPath, "Entry revalidation or rollback mode is not a defined value.");
                 }

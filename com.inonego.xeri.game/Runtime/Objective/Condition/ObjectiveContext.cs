@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveContext.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-26
 
 # 설명
 Task 및 Entry Eligibility Condition에 전달할 Objective 평가 Context.
@@ -97,7 +97,7 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentOutOfRangeException(nameof(elapsedTime));
             }
 
-            if (!Enum.IsDefined(typeof(ObjectiveStatus), status))
+            if (!status.IsDefined())
             {
                 throw new ArgumentOutOfRangeException(nameof(status));
             }

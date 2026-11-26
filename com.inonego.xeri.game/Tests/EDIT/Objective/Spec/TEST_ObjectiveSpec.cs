@@ -127,7 +127,7 @@ namespace inonego.Xeri.Game.TEST.Objective
             entries.Clear();
 
             Assert.That(group.Entries.Count, Is.EqualTo(1));
-            Assert.Throws<NotSupportedException>(() => ((IList<TaskChildEntry>)group.Entries).Clear());
+            Assert.That((object)group.Entries, Is.Not.InstanceOf<IList<TaskChildEntry>>());
             ObjectiveSpecValidator.Validate(spec);
         }
 

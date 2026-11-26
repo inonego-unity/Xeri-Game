@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveEngine.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Objective Composite 평가, 순차 통과, 최종 상태 확정과 변경 알림을 조정한다.
@@ -81,6 +81,7 @@ namespace inonego.Xeri.Game.Objective
             this.instance = instance ?? throw new ArgumentNullException(nameof(instance));
             this.factScope = factScope;
             this.directory = directory;
+            changes = directory?.ChangeQueue ?? new ObjectiveChangeQueue();
 
             ObjectiveSpecValidator.Validate(spec);
             if (!string.Equals(spec.SpecID, instance.SpecID, StringComparison.Ordinal)
@@ -183,7 +184,7 @@ namespace inonego.Xeri.Game.Objective
         private ObjectiveEvaluation lastEvaluation;
 
         // 마지막으로 확정·초기화한 평가에서 Condition이 읽은 대상. Directory가 변경 전파에 쓴다.
-        internal IReadOnlyCollection<(string Scope, string Name)> Reads => lastEvaluation?.Reads;
+        internal ReadOnlySetView<(string Scope, string Name)> Reads => lastEvaluation?.Reads == null ? default : new(lastEvaluation.Reads);
 
         // ------------------------------------------------------------
         /// <summary>
@@ -335,7 +336,7 @@ namespace inonego.Xeri.Game.Objective
                 return false;
             }
 
-            return Execute(NoCommand);
+            return Execute(noCommand);
         }
 
         // ------------------------------------------------------------
@@ -351,7 +352,7 @@ namespace inonego.Xeri.Game.Objective
                 return ObjectiveSubmitResult.None;
             }
 
-            Execute(NoCommand, submit: true);
+            Execute(noCommand, submit: true);
             return instance.Status switch
             {
                 ObjectiveStatus.Succeeded => ObjectiveSubmitResult.Succeeded,
@@ -397,7 +398,7 @@ namespace inonego.Xeri.Game.Objective
                 }
             }
 
-            FlushNotifications();
+            FlushChanges();
             return changed;
         }
 
@@ -513,7 +514,7 @@ namespace inonego.Xeri.Game.Objective
             return instance.Plan(candidate => candidate.ChangeStatus(ObjectiveStatus.Cancelled));
         }
 
-        // 계획한 Choice 취소를 확정하고 알림을 대기열에 둔다. 전달은 Flow가 모든 확정 뒤에 한다.
+        // 계획한 Choice 취소를 확정하고 변경을 대기열에 둔다. 발행은 Flow가 모든 확정 뒤에 한다.
         internal void CommitCancelForChoice(ObjectiveInstance candidate)
         {
             var before = instance.Status;
@@ -523,7 +524,7 @@ namespace inonego.Xeri.Game.Objective
             }
         }
 
-        internal void FlushChoiceNotifications() => FlushNotifications();
+        internal void FlushChoiceChanges() => FlushChanges();
 
     #endregion
 
@@ -582,12 +583,14 @@ namespace inonego.Xeri.Game.Objective
                 changed = CommitCandidate(candidate, next);
             }
 
-            FlushNotifications();
+            FlushChanges();
             return changed;
         }
 
-        // 상태를 바꾸지 않고 평가와 확정만 하는 명령.
+        // 상태를 바꾸지 않고 평가와 확정만 하는 명령. 호출마다 대리자를 만들지 않도록 한 번만 만든다.
         private static bool NoCommand(ObjectiveInstance candidate) => false;
+
+        private static readonly Func<ObjectiveInstance, bool> noCommand = NoCommand;
 
         private bool Execute(Func<ObjectiveInstance, bool> command, bool submit = false)
         {
@@ -606,7 +609,7 @@ namespace inonego.Xeri.Game.Objective
                 changed = CommitCandidate(candidate, next);
             }
 
-            FlushNotifications();
+            FlushChanges();
             return changed;
         }
 
@@ -659,12 +662,12 @@ namespace inonego.Xeri.Game.Objective
             }
         }
 
-        // 계획한 후보를 확정하고 그 뒤에만 알림을 대기열에 둔다.
+        // 계획한 후보를 확정하고 그 뒤에만 변경을 대기열에 둔다.
         private bool CommitCandidate(ObjectiveInstance candidate, ObjectiveEvaluation next)
         {
             var before = instance.Status;
             bool changed = instance.Commit(candidate);
-            QueueNotifications(changed, next, before);
+            QueueChanges(changed, next, before);
             return changed;
         }
 
@@ -767,19 +770,18 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         public event Action<ObjectiveEvaluation> EvaluationChanged;
 
-        // 확정 뒤 전달할 알림 대기열과 전달 중 표시. 전달 중 재진입한 명령의 알림도 순서대로 전달한다.
-        private readonly Queue<Action> notifications = new();
-        private bool notifying;
+        // 확정 뒤 발행할 변경 대기열. 발행 중 재진입한 명령의 변경도 순서대로 발행한다.
+        private readonly ObjectiveChangeQueue changes;
 
-        // Status만 바꾸는 확정(강제 종료·Choice 취소)의 알림을 대기열에 둔다. 파생 평가는 다음 확정에서 다시 만든다.
+        // Status만 바꾸는 확정(강제 종료·Choice 취소)의 변경을 대기열에 둔다. 파생 평가는 다음 확정에서 다시 만든다.
         private void QueueStatusTransition(ObjectiveStatus before)
         {
             lastEvaluation = null;
-            QueueNotifications(true, null, before);
+            QueueChanges(true, null, before);
         }
 
-        // 확정 뒤의 알림을 Changed → StatusChanged → EntryEvaluationChanged → EvaluationChanged 순서로 대기열에 둔다.
-        private void QueueNotifications(bool changed, ObjectiveEvaluation next, ObjectiveStatus before)
+        // 확정 뒤의 변경을 Changed → StatusChanged → EntryEvaluationChanged → EvaluationChanged 순서로 대기열에 둔다.
+        private void QueueChanges(bool changed, ObjectiveEvaluation next, ObjectiveStatus before)
         {
             var previous = lastEvaluation;
             bool viewChanged = next != null && !next.IsEquivalentTo(previous);
@@ -790,7 +792,7 @@ namespace inonego.Xeri.Game.Objective
                 Action handler = Changed;
                 if (handler != null)
                 {
-                    notifications.Enqueue(handler);
+                    changes.Enqueue(handler);
                 }
             }
 
@@ -800,7 +802,7 @@ namespace inonego.Xeri.Game.Objective
                 Action<ObjectiveStatus, ObjectiveStatus> handler = StatusChanged;
                 if (handler != null)
                 {
-                    notifications.Enqueue(() => handler(before, after));
+                    changes.Enqueue(handler, before, after);
                 }
             }
 
@@ -809,53 +811,30 @@ namespace inonego.Xeri.Game.Objective
                 Action<TaskEntryTransition> entryHandler = EntryEvaluationChanged;
                 if (entryHandler != null)
                 {
-                    foreach (var transition in next.DiffEntries(previous))
+                    var transitions = ListPool<TaskEntryTransition>.Get();
+                    try
                     {
-                        var current = transition;
-                        notifications.Enqueue(() => entryHandler(current));
+                        next.DiffEntries(previous, transitions);
+                        foreach (var transition in transitions)
+                        {
+                            changes.Enqueue(entryHandler, transition);
+                        }
+                    }
+                    finally
+                    {
+                        ListPool<TaskEntryTransition>.Release(transitions);
                     }
                 }
 
                 Action<ObjectiveEvaluation> handler = EvaluationChanged;
                 if (handler != null)
                 {
-                    notifications.Enqueue(() => handler(next));
+                    changes.Enqueue(handler, next);
                 }
             }
         }
 
-        private void FlushNotifications()
-        {
-            if (notifying)
-            {
-                return;
-            }
-
-            notifying = true;
-            var failures = new ExceptionBuffer();
-            try
-            {
-                // 알림에서 새로운 명령이 실행돼도 다음 알림은 순서대로 전달된다.
-                // 확정된 변경의 알림은 구독자 하나가 실패해도 모두 전달하고, 실패는 모아 마지막에 던진다.
-                while (notifications.Count > 0)
-                {
-                    try
-                    {
-                        notifications.Dequeue()();
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                    }
-                }
-            }
-            finally
-            {
-                notifying = false;
-            }
-
-            failures.ThrowWhenAny("Objective notification handlers failed.");
-        }
+        private void FlushChanges() => changes.Flush();
 
     #endregion
 

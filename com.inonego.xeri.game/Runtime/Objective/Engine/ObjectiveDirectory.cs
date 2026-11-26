@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveDirectory.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Objective Engine과 Flow가 함께 실행되는 비영속 환경. 현재 회차 Engine 조회, 이름 붙은 Fact 소스, 변경 전파를 맡는다.
@@ -42,7 +42,7 @@ namespace inonego.Xeri.Game.Objective
 
         // 읽기 대상(다른 Objective의 (Scope, Spec) 또는 Fact 소스의 (null, 이름)) → 그것을 읽은 Engine들.
         private readonly Dictionary<(string Scope, string Name), HashSet<ObjectiveEngine>> readers = new();
-        private readonly Dictionary<ObjectiveEngine, IReadOnlyCollection<(string Scope, string Name)>> reading = new();
+        private readonly Dictionary<ObjectiveEngine, ReadOnlySetView<(string Scope, string Name)>> reading = new();
         private readonly HashSet<ObjectiveEngine> dirty = new();
 
         // Flow도 시작 조건이 읽은 대상을 같은 방식으로 기록한다.
@@ -50,6 +50,9 @@ namespace inonego.Xeri.Game.Objective
         private readonly Dictionary<(string Scope, string Name), HashSet<ObjectiveFlow>> flowReaders = new();
         private readonly Dictionary<ObjectiveFlow, HashSet<(string Scope, string Name)>> flowReading = new();
         private readonly HashSet<ObjectiveFlow> dirtyFlows = new();
+
+        // 이 Directory의 Engine들이 함께 쓰는 변경 대기열. 일괄 처리는 이 대기열의 발행을 미뤘다가 한 번에 푼다.
+        internal ObjectiveChangeQueue ChangeQueue { get; } = new();
 
     #endregion
 
@@ -410,7 +413,7 @@ namespace inonego.Xeri.Game.Objective
 
             ClearReads(engine);
             var current = engine.Reads;
-            if (current == null || current.Count == 0)
+            if (current.Count == 0)
             {
                 return;
             }
@@ -480,6 +483,34 @@ namespace inonego.Xeri.Game.Objective
 
                 flowReading.Remove(flow);
             }
+        }
+
+        // 두 읽기 집합이 같은지 비교한다. null은 빈 집합으로 본다. 개수가 같으면 한쪽이 다른 쪽을 모두 포함할 때 같다.
+        internal static bool HasSameReads
+        (
+            HashSet<(string Scope, string Name)> left, HashSet<(string Scope, string Name)> right
+        )
+        {
+            int count = left?.Count ?? 0;
+            if (count != (right?.Count ?? 0))
+            {
+                return false;
+            }
+
+            if (count == 0)
+            {
+                return true;
+            }
+
+            foreach (var key in left)
+            {
+                if (!right.Contains(key))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         // --------------------------------------------------------------------------------
@@ -576,42 +607,52 @@ namespace inonego.Xeri.Game.Objective
         )
         {
             int refreshed = 0;
-            foreach (var engine in batch)
+
+            // 이번 회차의 Engine과 Flow가 모두 확정된 뒤에 알린다. 알림이 만든 dirty는 다음 회차에서 처리한다.
+            ChangeQueue.BeginBatch();
+            try
             {
-                if (engine.Instance.Status != ObjectiveStatus.Active)
+                foreach (var engine in batch)
                 {
-                    continue;
+                    if (engine.Instance.Status != ObjectiveStatus.Active)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        engine.Refresh();
+                        refreshed++;
+                    }
+                    catch (Exception exception)
+                    {
+                        failedEngines.Add(engine);
+                        failures.Add(exception);
+                    }
                 }
 
-                try
+                foreach (var flow in flowBatch)
                 {
-                    engine.Refresh();
-                    refreshed++;
-                }
-                catch (Exception exception)
-                {
-                    failedEngines.Add(engine);
-                    failures.Add(exception);
+                    if (flow.IsDisposed)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        flow.Refresh();
+                        refreshed++;
+                    }
+                    catch (Exception exception)
+                    {
+                        failedFlows.Add(flow);
+                        failures.Add(exception);
+                    }
                 }
             }
-
-            foreach (var flow in flowBatch)
+            finally
             {
-                if (flow.IsDisposed)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    flow.Refresh();
-                    refreshed++;
-                }
-                catch (Exception exception)
-                {
-                    failedFlows.Add(flow);
-                    failures.Add(exception);
-                }
+                ChangeQueue.EndBatch(ref failures);
             }
 
             return refreshed;
@@ -637,7 +678,9 @@ namespace inonego.Xeri.Game.Objective
             var failures = new ExceptionBuffer();
 
             // 순회 중 등록이 바뀌어도 안전하도록 풀에서 빌린 목록에 복사해 돈다.
+            // 모든 Engine에 시간을 더한 뒤에 알려, 구독자가 갱신이 끝난 상태를 보게 한다.
             var targets = ListPool<ObjectiveEngine>.Get();
+            ChangeQueue.BeginBatch();
             try
             {
                 targets.AddRange(order);
@@ -661,6 +704,7 @@ namespace inonego.Xeri.Game.Objective
             finally
             {
                 ListPool<ObjectiveEngine>.Release(targets);
+                ChangeQueue.EndBatch(ref failures);
             }
 
             try

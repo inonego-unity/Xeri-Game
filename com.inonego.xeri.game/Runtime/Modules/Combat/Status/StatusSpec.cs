@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StatusSpec.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-25
 
 # 설명
 Status 한 종류의 스택·지속 시간·출처·최대치 도달 규칙을 정의한다.
@@ -208,12 +208,7 @@ namespace inonego.Xeri.Game
                 throw new ArgumentException("지속 시간은 0보다 큰 유한한 값이어야 합니다.");
             }
 
-            // 적용마다 검사하므로 박싱하는 Enum.IsDefined 대신 값을 직접 비교한다.
-            var isStackingDefined = stacking is StatusStacking.Independent or StatusStacking.SharedRenew or StatusStacking.SharedKeep;
-            var isSourcingDefined = sourcing is StatusSourcing.PerOrigin or StatusSourcing.PerKey;
-            var isOverflowDefined = overflow is StatusOverflow.Reject or StatusOverflow.ReplaceEarliest or StatusOverflow.Renew;
-
-            if (!isStackingDefined || !isSourcingDefined || !isOverflowDefined)
+            if (!stacking.IsDefined() || !sourcing.IsDefined() || !overflow.IsDefined())
             {
                 throw new ArgumentException("정의되지 않은 Status 규칙 값입니다.");
             }

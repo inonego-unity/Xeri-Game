@@ -38,7 +38,8 @@ namespace inonego.Xeri.Game.Objective
         /// 이 Objective가 시작하기 전에 성공해야 하는 선행 ID.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<string> PredecessorIDs { get; }
+        public ReadOnlyListView<string> PredecessorIDs => new(predecessorIDs);
+        private readonly string[] predecessorIDs;
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -69,9 +70,8 @@ namespace inonego.Xeri.Game.Objective
         )
         {
             ObjectiveID = objectiveID;
-            var values = predecessorIDs == null
+            this.predecessorIDs = predecessorIDs == null
                 ? Array.Empty<string>() : new List<string>(predecessorIDs).ToArray();
-            PredecessorIDs = Array.AsReadOnly(values);
             ActivationCond = activationCond;
             Auto = auto;
         }
@@ -96,7 +96,8 @@ namespace inonego.Xeri.Game.Objective
         /// 배타적으로 선택할 수 있는 Objective의 ID.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<string> ObjectiveIDs { get; }
+        public ReadOnlyListView<string> ObjectiveIDs => new(objectiveIDs);
+        private readonly string[] objectiveIDs;
 
         // 소속 조회용 집합. ObjectiveIDs와 같은 대안을 담는다.
         private readonly HashSet<string> members;
@@ -109,10 +110,9 @@ namespace inonego.Xeri.Game.Objective
         public ObjectiveFlowChoice(string choiceID, IEnumerable<string> objectiveIDs)
         {
             ChoiceID = choiceID;
-            var values = objectiveIDs == null
+            this.objectiveIDs = objectiveIDs == null
                 ? Array.Empty<string>() : new List<string>(objectiveIDs).ToArray();
-            ObjectiveIDs = Array.AsReadOnly(values);
-            members = new HashSet<string>(values, StringComparer.Ordinal);
+            members = new HashSet<string>(this.objectiveIDs, StringComparer.Ordinal);
         }
 
         // ------------------------------------------------------------
@@ -155,14 +155,16 @@ namespace inonego.Xeri.Game.Objective
         /// Flow에서 참조하는 Objective들의 정적 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ObjectiveFlowEntry> Entries { get; }
+        public ReadOnlyListView<ObjectiveFlowEntry> Entries => new(entries);
+        private readonly ObjectiveFlowEntry[] entries;
 
         // ------------------------------------------------------------
         /// <summary>
         /// 한 실행에서 각각 한 번 선택할 수 있는 Choice 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<ObjectiveFlowChoice> Choices { get; }
+        public ReadOnlyListView<ObjectiveFlowChoice> Choices => new(choices);
+        private readonly ObjectiveFlowChoice[] choices;
 
     #endregion
 
@@ -203,12 +205,10 @@ namespace inonego.Xeri.Game.Objective
         {
             FlowID = flowID;
             Version = version;
-            var entryValues = entries == null
+            this.entries = entries == null
                 ? Array.Empty<ObjectiveFlowEntry>() : new List<ObjectiveFlowEntry>(entries).ToArray();
-            var choiceValues = choices == null
+            this.choices = choices == null
                 ? Array.Empty<ObjectiveFlowChoice>() : new List<ObjectiveFlowChoice>(choices).ToArray();
-            Entries = Array.AsReadOnly(entryValues);
-            Choices = Array.AsReadOnly(choiceValues);
             Validate();
 
             // 검증이 한 Objective는 한 Choice에만 속함을 보장하므로 소속 조회표를 만든다.

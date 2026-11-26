@@ -1392,6 +1392,57 @@ namespace inonego.Xeri.Game.TEST.Objective
             Assert.That(engine.Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>같은 이벤트의 구독자 하나가 실패해도 뒤의 구독자는 모두 호출된다.
+        /// <br/>실패는 모아서 마지막에 한 번 던진다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveEngine_같은이벤트의구독자는하나가실패해도모두호출된다()
+        {
+            var engine = CreateSample(new ToggleCond(false));
+            int later = 0;
+            engine.Changed += () => throw new InvalidOperationException("first");
+            engine.Changed += () => later++;
+            engine.StatusChanged += (before, after) => throw new InvalidOperationException("status");
+            engine.StatusChanged += (before, after) => later += 10;
+
+            var thrown = Assert.Throws<AggregateException>(() => engine.Activate());
+
+            Assert.That(thrown.InnerExceptions.Count, Is.EqualTo(2));
+            Assert.That(later, Is.EqualTo(11));
+            Assert.That(engine.Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>Entry 전이 알림도 구독자마다 격리되고 전이마다 전달된다.
+        /// <br/>한 구독자가 첫 전이에서 실패해도 같은 구독자는 다음 전이를 계속 받는다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveEngine_Entry전이알림도구독자마다격리된다()
+        {
+            var gate = new ToggleCond(false);
+            var engine = CreateRace(gate);
+            engine.Activate();
+            int failing = 0;
+            int later = 0;
+            engine.EntryEvaluationChanged += transition =>
+            {
+                failing++;
+                throw new InvalidOperationException("first");
+            };
+            engine.EntryEvaluationChanged += transition => later++;
+
+            gate.Value = true;
+            Assert.Catch<Exception>(() => engine.Refresh());
+
+            Assert.That(later, Is.GreaterThan(0));
+            Assert.That(later, Is.EqualTo(failing));
+        }
+
         // ------------------------------------------------------------
         /// <summary>
         /// <br/>Fact Scope 닫기가 실패하면 명령은 변경 없이 실패한다.

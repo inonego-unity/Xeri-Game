@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TaskNodeSpec.cs
-수정일 : 2026-11-14
+수정일 : 2026-11-25
 
 # 설명
 Objective의 단일 Task와 재귀 TaskGroup 정적 실행 정의를 제공한다.
@@ -77,7 +77,8 @@ namespace inonego.Xeri.Game.Objective
         /// 후퇴 시 독점 소유로 초기화할 수 있는 로컬 Progress ID.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<string> LocalProgressIDs { get; }
+        public ReadOnlyListView<string> LocalProgressIDs => new(localProgressIDs);
+        private readonly string[] localProgressIDs;
 
     #endregion
 
@@ -97,9 +98,8 @@ namespace inonego.Xeri.Game.Objective
         {
             SuccessCond = successCond;
             FailureCond = failureCond;
-            var owned = localProgressIDs == null
+            this.localProgressIDs = localProgressIDs == null
                 ? Array.Empty<string>() : new List<string>(localProgressIDs).ToArray();
-            LocalProgressIDs = Array.AsReadOnly(owned);
         }
 
     #endregion
@@ -149,7 +149,8 @@ namespace inonego.Xeri.Game.Objective
         /// 정의한 순서를 보존한 직접 자식 Entry 목록.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyList<TaskChildEntry> Entries { get; }
+        public ReadOnlyListView<TaskChildEntry> Entries => new(entries);
+        private readonly TaskChildEntry[] entries;
 
     #endregion
 
@@ -172,9 +173,8 @@ namespace inonego.Xeri.Game.Objective
             ContinuationMode = continuationMode;
             SuccessCond = successCond;
             FailureCond = failureCond;
-            var values = entries == null
+            this.entries = entries == null
                 ? Array.Empty<TaskChildEntry>() : new List<TaskChildEntry>(entries).ToArray();
-            Entries = Array.AsReadOnly(values);
         }
 
     #endregion

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveEvaluation.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 한 번의 Composite 평가에서 계산된 Node 결과와 Entry 참여·입력 허용·닫힌 사유를 노출한다.
@@ -349,13 +349,13 @@ namespace inonego.Xeri.Game.Objective
 
     #region 비교
 
-        // 이전 평가와 비교해 참여·유효 결과·닫힌 사유가 바뀐 Entry를 평가 순서대로 돌려준다. 입력 허용만 바뀐 Entry는 제외한다.
-        internal List<TaskEntryTransition> DiffEntries(ObjectiveEvaluation previous)
+        // 이전 평가와 비교해 참여·유효 결과·닫힌 사유가 바뀐 Entry를 평가 순서대로 호출자의 목록에 더한다.
+        // 입력 허용만 바뀐 Entry는 제외한다. 목록을 비우지 않으므로 호출자가 비워서 넘긴다.
+        internal void DiffEntries(ObjectiveEvaluation previous, List<TaskEntryTransition> result)
         {
-            var result = new List<TaskEntryTransition>();
             if (previous == null || !ReferenceEquals(previous.index, index))
             {
-                return result;
+                return;
             }
 
             for (int number = 0; number < entries.Length; number++)
@@ -370,8 +370,6 @@ namespace inonego.Xeri.Game.Objective
                     result.Add(new TaskEntryTransition(after.EntryID, before, after));
                 }
             }
-
-            return result;
         }
 
         internal bool IsEquivalentTo(ObjectiveEvaluation other)

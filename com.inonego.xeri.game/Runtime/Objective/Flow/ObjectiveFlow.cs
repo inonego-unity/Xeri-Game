@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveFlow.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Objective 선행 성공, Scope 경계, 단회 Choice와 새 회차 교체의 실행을 조정한다.
@@ -44,6 +44,10 @@ namespace inonego.Xeri.Game.Objective
 
         // 이 Flow를 변경 전파 대상으로 등록한 Directory. 등록하지 않았으면 null이다.
         internal ObjectiveDirectory Directory { get; private set; }
+
+        // 시작 조건이 읽은 대상의 두 집합. 하나는 Directory에 넘긴 마지막 기록이고, 다른 하나에 다음 확인을 모은다.
+        private HashSet<(string Scope, string Name)> syncedReads;
+        private HashSet<(string Scope, string Name)> spareReads;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -233,11 +237,13 @@ namespace inonego.Xeri.Game.Objective
             }
 
             Directory = directory;
+            syncedReads = null;
         }
 
         internal void Detach()
         {
             Directory = null;
+            syncedReads = null;
         }
 
         internal bool IsDisposed => disposed;
@@ -352,7 +358,13 @@ namespace inonego.Xeri.Game.Objective
 
             advancing = true;
             int started = 0;
-            var reads = Directory != null ? new HashSet<(string Scope, string Name)>() : null;
+            HashSet<(string Scope, string Name)> reads = null;
+            if (Directory != null)
+            {
+                reads = spareReads ??= new HashSet<(string Scope, string Name)>();
+                reads.Clear();
+            }
+
             try
             {
                 int maximum = entries.Count + 1;
@@ -380,7 +392,14 @@ namespace inonego.Xeri.Game.Objective
             }
 
             // 마지막 확인에서 시작 조건이 읽은 대상을 Directory가 변경 전파에 쓰도록 넘긴다.
-            Directory?.SyncFlowReads(this, reads);
+            // 지난번과 같으면 역색인을 그대로 두고, 바뀌었으면 넘긴 뒤 Directory가 놓은 이전 집합을 다음 확인에 쓴다.
+            if (Directory != null && !ObjectiveDirectory.HasSameReads(reads, syncedReads))
+            {
+                Directory.SyncFlowReads(this, reads);
+                spareReads = syncedReads;
+                syncedReads = reads;
+            }
+
             return started;
         }
 
@@ -459,7 +478,7 @@ namespace inonego.Xeri.Game.Objective
                 {
                     try
                     {
-                        plan.Engine.FlushChoiceNotifications();
+                        plan.Engine.FlushChoiceChanges();
                     }
                     catch (Exception exception)
                     {
@@ -472,7 +491,7 @@ namespace inonego.Xeri.Game.Objective
                 ListPool<(ObjectiveEngine Engine, ObjectiveInstance Candidate)>.Release(plans);
             }
 
-            failures.ThrowWhenAny("Choice alternative notification handlers failed.");
+            failures.ThrowWhenAny("Choice alternative change handlers failed.");
             Advance();
             return true;
         }
@@ -577,7 +596,7 @@ namespace inonego.Xeri.Game.Objective
             }
 
             // 확정이 끝난 뒤에 알린다. 알림 예외는 확정을 되돌리지 않는다.
-            chosen.FlushChoiceNotifications();
+            chosen.FlushChoiceChanges();
             Advance();
             return result;
         }

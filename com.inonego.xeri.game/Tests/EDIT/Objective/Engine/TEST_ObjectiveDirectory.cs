@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_ObjectiveDirectory.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 ObjectiveDirectory의 등록·조회, 읽기 기록 기반 변경 전파, 일괄 갱신·시간, 복원·반복과의 연결을 검증한다.
@@ -739,6 +739,95 @@ namespace inonego.Xeri.Game.TEST.Objective
 
             Assert.That(first.Instance.ElapsedTime, Is.EqualTo(2));
             Assert.That(second.Instance.ElapsedTime, Is.EqualTo(2));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/>AdvanceTime의 알림은 모든 Engine에 시간을 더한 뒤 전달된다.
+        /// <br/>구독자는 다른 Engine도 갱신이 끝난 상태를 본다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveDirectory_AdvanceTime알림은모든Engine에시간을더한뒤전달된다()
+        {
+            var directory = new ObjectiveDirectory();
+            var first = CreateRegistered(directory, "first", new ToggleCond());
+            var second = CreateRegistered(directory, "second", new ToggleCond());
+            first.Activate();
+            second.Activate();
+            double secondSeen = -1;
+            double firstSeen = -1;
+            first.Changed += () => secondSeen = second.Instance.ElapsedTime;
+            second.Changed += () => firstSeen = first.Instance.ElapsedTime;
+
+            directory.AdvanceTime(1);
+
+            Assert.That(secondSeen, Is.EqualTo(1));
+            Assert.That(firstSeen, Is.EqualTo(1));
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>RefreshDirty의 알림은 한 회차의 모든 Engine을 갱신한 뒤 전달된다.
+        /// <br/>같은 회차의 다른 Engine도 갱신이 끝난 상태로 보인다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveDirectory_RefreshDirty알림은한회차를모두갱신한뒤전달된다()
+        {
+            var directory = new ObjectiveDirectory();
+            var source = CreateRegistered(directory, "source", new ToggleCond());
+            var first = CreateRegistered(directory, "first", ObjectiveCond.DependsOn("source", ObjectiveStatus.Succeeded));
+            var second = CreateRegistered(directory, "second", ObjectiveCond.DependsOn("source", ObjectiveStatus.Succeeded));
+            source.Activate();
+            first.Activate();
+            second.Activate();
+            var secondSeen = ObjectiveStatus.Inactive;
+            first.Changed += () => secondSeen = second.Instance.Status;
+            source.Force(ObjectiveStatus.Succeeded);
+
+            directory.RefreshDirty();
+
+            Assert.That(first.Instance.Status, Is.EqualTo(ObjectiveStatus.Succeeded));
+            Assert.That(secondSeen, Is.EqualTo(ObjectiveStatus.Succeeded));
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>일괄 처리 중 구독자가 새 명령을 내려도 알림은 순서대로 전달된다.
+        /// <br/>새 명령의 알림은 대기열 끝에 붙고, 전달을 미루는 동안에는 나가지 않는다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveDirectory_일괄알림중새명령의알림도순서대로전달된다()
+        {
+            var directory = new ObjectiveDirectory();
+            var first = CreateRegistered(directory, "first", new ToggleCond());
+            var second = CreateRegistered(directory, "second", new ToggleCond());
+            first.Activate();
+            second.Activate();
+            var order = new List<string>();
+            bool nested = false;
+            first.Changed += () =>
+            {
+                order.Add("first");
+                if (!nested)
+                {
+                    nested = true;
+                    second.AdvanceTime(1);
+                }
+            };
+            second.Changed += () => order.Add("second");
+
+            directory.AdvanceTime(1);
+
+            var expected = new string[]
+            {
+                "first",
+                "second",
+                "second"
+            };
+            Assert.That(order, Is.EqualTo(expected));
         }
 
     #endregion

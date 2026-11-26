@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TaskGroupContext.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Group Condition이 현재 참여하는 하위 Entry 결과를 조회하는 읽기 전용 Context.
@@ -72,7 +72,7 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentException("Entry ID is required.", nameof(entryID));
             }
 
-            if (!Enum.IsDefined(typeof(TaskResult), result))
+            if (!result.IsDefined())
             {
                 throw new ArgumentOutOfRangeException(nameof(result));
             }
@@ -153,7 +153,7 @@ namespace inonego.Xeri.Game.Objective
                 foreach (var entry in entryResults)
                 {
                     if (string.IsNullOrWhiteSpace(entry.EntryID) || !ids.Add(entry.EntryID)
-                        || !Enum.IsDefined(typeof(TaskResult), entry.Result))
+                        || !entry.Result.IsDefined())
                     {
                         throw new ArgumentException("Duplicate or invalid Entry result.", nameof(entryResults));
                     }

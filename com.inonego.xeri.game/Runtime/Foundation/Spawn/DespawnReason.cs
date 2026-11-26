@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : DespawnReason.cs
-수정일 : 2026-07-28
+수정일 : 2026-11-25
 
 # 설명
 디스폰의 공통 분류와 선택적인 세부 식별자를 함께 전달하는 직렬화 가능 값 계약.
@@ -104,7 +104,7 @@ namespace inonego.Xeri.Game
             {
                 return
                     kind != DespawnKind.Invalid &&
-                    Enum.IsDefined(typeof(DespawnKind), kind) &&
+                    kind.IsDefined() &&
                     !(!string.IsNullOrEmpty(Code) && string.IsNullOrWhiteSpace(Code));
             }
         }

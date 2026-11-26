@@ -53,21 +53,24 @@ namespace inonego.Xeri.Game.Objective
         /// Progress 키 이름 변경(이전 → 새). 값이 null이면 그 키를 버린다.
         /// </summary>
         // ------------------------------------------------------------
-        public IReadOnlyDictionary<string, string> ProgressKeys { get; }
+        public ReadOnlyDictionaryView<string, string> ProgressKeys => new(progressKeys);
+        private readonly Dictionary<string, string> progressKeys;
 
         // --------------------------------------------------------------------------------
         /// <summary>
         /// EntryID 변경(이전 → 새). 값이 null이면 그 Entry의 통과·경계·시각 기록을 버린다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        public IReadOnlyDictionary<string, string> EntryIDs { get; }
+        public ReadOnlyDictionaryView<string, string> EntryIDs => new(entryIDs);
+        private readonly Dictionary<string, string> entryIDs;
 
         // --------------------------------------------------------------------------------
         /// <summary>
         /// 순차 Group의 NodeID 변경(이전 → 새). 값이 null이면 그 Group의 경계를 버린다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        public IReadOnlyDictionary<string, string> GroupIDs { get; }
+        public ReadOnlyDictionaryView<string, string> GroupIDs => new(groupIDs);
+        private readonly Dictionary<string, string> groupIDs;
 
     #endregion
 
@@ -102,12 +105,12 @@ namespace inonego.Xeri.Game.Objective
             SpecID = specID;
             FromVersion = fromVersion;
             ToVersion = toVersion;
-            ProgressKeys = Copy(progressKeys, nameof(progressKeys));
-            EntryIDs = Copy(entryIDs, nameof(entryIDs));
-            GroupIDs = Copy(groupIDs, nameof(groupIDs));
+            this.progressKeys = Copy(progressKeys, nameof(progressKeys));
+            this.entryIDs = Copy(entryIDs, nameof(entryIDs));
+            this.groupIDs = Copy(groupIDs, nameof(groupIDs));
         }
 
-        private static IReadOnlyDictionary<string, string> Copy(IReadOnlyDictionary<string, string> source, string name)
+        private static Dictionary<string, string> Copy(IReadOnlyDictionary<string, string> source, string name)
         {
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             var targets = new HashSet<string>(StringComparer.Ordinal);
@@ -151,7 +154,7 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         internal bool TryMapGroupID(string groupID, out string mapped) => TryMap(GroupIDs, groupID, out mapped);
 
-        private static bool TryMap(IReadOnlyDictionary<string, string> map, string name, out string mapped)
+        private static bool TryMap(ReadOnlyDictionaryView<string, string> map, string name, out string mapped)
         {
             if (map.TryGetValue(name, out mapped))
             {

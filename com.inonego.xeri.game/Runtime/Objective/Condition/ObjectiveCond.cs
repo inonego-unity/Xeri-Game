@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveCond.cs
-수정일 : 2026-11-24
+수정일 : 2026-11-25
 
 # 설명
 Task·Eligibility에서 자주 쓰는 Objective용 표준 Condition을 선언형으로 제공한다.
@@ -263,7 +263,7 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentException("Spec ID must be specified.", nameof(specID));
             }
 
-            if (!Enum.IsDefined(typeof(ObjectiveStatus), status))
+            if (!status.IsDefined())
             {
                 throw new ArgumentOutOfRangeException(nameof(status));
             }

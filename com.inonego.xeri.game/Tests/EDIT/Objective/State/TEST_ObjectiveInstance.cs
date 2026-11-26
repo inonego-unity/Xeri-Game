@@ -404,10 +404,7 @@ namespace inonego.Xeri.Game.TEST.Objective
 
             var passed = source.PassedEntryIDs;
             Assert.That(passed, Is.Not.Empty);
-            if (passed is string[] copied)
-            {
-                copied[0] = "changed";
-            }
+            Assert.That((object)passed, Is.Not.InstanceOf<IList<string>>());
 
             Assert.That(source.HasPassed("entry-a"), Is.True);
             Assert.That(typeof(ObjectiveInstance).GetProperty("Status").CanWrite, Is.False);

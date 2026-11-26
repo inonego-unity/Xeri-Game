@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : PhysicsDelivery3D.cs
-수정일 : 2026-11-02
+수정일 : 2026-11-25
 
 # 설명
 PhysicsQuery3D의 raw Collider/Hit를 게임 도메인과 독립된 DeliveryContact3D로 정규화한다.
@@ -98,7 +98,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         public PhysicsDelivery3D(QueryTriggerInteraction triggerInteraction = QueryTriggerInteraction.Collide)
         {
-            if (!Enum.IsDefined(typeof(QueryTriggerInteraction), triggerInteraction))
+            if (!triggerInteraction.IsDefined())
             {
                 throw new ArgumentOutOfRangeException(nameof(triggerInteraction));
             }
