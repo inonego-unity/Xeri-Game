@@ -674,7 +674,7 @@ namespace inonego.Xeri.Game
                 return;
             }
 
-            foreach (Action<ExecutionSession> handler in handlers.GetInvocationList())
+            foreach (var handler in handlers.Handlers())
             {
                 if (!IsActive)
                 {
@@ -826,23 +826,7 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void NotifyEnded(ExecutionEndReason reason, ref ExceptionBuffer failures)
         {
-            var handlers = OnEnded;
-            if (handlers == null)
-            {
-                return;
-            }
-
-            foreach (Action<ExecutionSession, ExecutionEndReason> handler in handlers.GetInvocationList())
-            {
-                try
-                {
-                    handler(this, reason);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-            }
+            OnEnded.InvokeEach(this, reason, ref failures);
         }
 
         // ------------------------------------------------------------

@@ -175,10 +175,8 @@ namespace inonego.Xeri.Game
                 }
                 catch (Exception bindError)
                 {
-                    var failures = new List<Exception>
-                    {
-                        bindError
-                    };
+                    var failures = new ExceptionBuffer();
+                    failures.Add(bindError);
                     var pending = new List<Entry>();
 
                     for (var index = attempted - 1; index >= 0; index--)
@@ -225,7 +223,7 @@ namespace inonego.Xeri.Game
 
                     if (failures.Count != 1)
                     {
-                        throw new AggregateException("WorldObject 연결과 정리가 모두 실패했습니다.", failures);
+                        throw failures.CreateAggregateException("WorldObject 연결과 정리가 모두 실패했습니다.");
                     }
 
                     throw;

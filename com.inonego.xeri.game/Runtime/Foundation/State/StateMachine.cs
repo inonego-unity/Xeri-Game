@@ -229,25 +229,9 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void NotifyStateChanged(IState previous, IState next)
         {
-            var callbacks = OnStateChanged?.GetInvocationList();
-            if (callbacks == null)
-            {
-                return;
-            }
-
             var failures = new ExceptionBuffer();
 
-            foreach (Action<IState, IState> callback in callbacks)
-            {
-                try
-                {
-                    callback(previous, next);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-            }
+            OnStateChanged.InvokeEach(previous, next, ref failures);
 
             failures.ThrowWhenAny("StateMachine 상태 변경 알림 중 일부 구독자가 실패했습니다.");
         }

@@ -339,34 +339,14 @@ namespace inonego.Xeri.Game
         {
             var failures = new ExceptionBuffer();
 
-            if (cooldownEnded && OnCooldownEnded != null)
+            if (cooldownEnded)
             {
-                foreach (Action<AbilityState> observer in OnCooldownEnded.GetInvocationList())
-                {
-                    try
-                    {
-                        observer(this);
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                    }
-                }
+                OnCooldownEnded.InvokeEach(this, ref failures);
             }
 
-            if (recharged > 0 && OnChargeRecharged != null)
+            if (recharged > 0)
             {
-                foreach (Action<AbilityState, int> observer in OnChargeRecharged.GetInvocationList())
-                {
-                    try
-                    {
-                        observer(this, recharged);
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                    }
-                }
+                OnChargeRecharged.InvokeEach(this, recharged, ref failures);
             }
 
             failures.ThrowWhenAny("Ability 상태 알림 중 복수의 오류가 발생했습니다.");

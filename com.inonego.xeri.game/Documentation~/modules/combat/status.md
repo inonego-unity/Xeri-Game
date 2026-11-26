@@ -60,6 +60,7 @@ statuses.Advance(deltaTime);                        // Ability State와 같은 T
 - `Advance` 진행 중에는 외부 코드를 호출하지 않습니다. 한 번의 `Advance`에서 여러 스택이 끝나면 남은 시간, 같으면 적용 순서대로 알립니다.
 - 알림 안에서 `Apply`·`Remove`를 호출할 수 있습니다. 구독자 하나가 실패해도 나머지에게 보낸 뒤 예외를 전달합니다.
 - 내부 임시 목록은 Unity `ListPool`에서 빌려 쓰므로 갱신 적용(`Renewed`)·거절·소비·만료를 반복해도 목록을 할당하지 않습니다. 새 Status·새 스택을 만들 때와, 구독자가 있을 때 알림마다 호출 목록을 만들 때는 할당합니다.
+- `Statuses`는 구조체 열거자를 가진 뷰라 `var`로 받아 `foreach`로 읽어도 할당하지 않습니다.
 
 ## Revision·복제·저장
 

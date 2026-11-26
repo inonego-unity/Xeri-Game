@@ -15,7 +15,8 @@ Status 효과(피해·회복·행동 제한)는 게임이 알림과 조회로 �
 CloneFrom은 컨테이너 인스턴스와 OnChanged 구독을 유지한 채 변경 알림 없이 복제하며 Status 항목은 새로 만든다.
 항목 복제는 Core List.CloneFrom에 맡겨 실패하면 컨테이너가 바뀌지 않는다. 복제 전에 읽어 둔 IReadOnlyStatus는 복제 뒤 낡은 값이다.
 변경 목록과 계산용 목록은 Unity ListPool에서 빌려 쓰므로 반복 호출이 목록을 할당하지 않는다.
-새 Status·새 스택 생성과 구독자가 있을 때 알림마다 만드는 호출 목록은 할당한다.
+새 Status·새 스택 생성은 할당한다.
+알림은 Core InvokeEach로 보내므로 구독이 바뀐 뒤 첫 알림만 호출 목록을 할당한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -1057,22 +1058,12 @@ namespace inonego.Xeri.Game
                 return;
             }
 
-            var invocationList = handlers.GetInvocationList();
+            // 한 번에 보내는 모든 변경은 같은 구독자 목록으로 알린다.
             var failures = new ExceptionBuffer();
 
             foreach (var change in changes)
             {
-                foreach (Action<StatusContainer<TOrigin>, StatusChange<TOrigin>> handler in invocationList)
-                {
-                    try
-                    {
-                        handler(this, change);
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                    }
-                }
+                handlers.InvokeEach(this, change, ref failures);
             }
 
             // 구독자 예외 하나는 원래 스택 추적을 유지한 채 다시 던진다.

@@ -14,8 +14,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-using UnityEngine;
-
 namespace inonego.Xeri.Game
 {
     // ======================================================================
@@ -476,29 +474,21 @@ namespace inonego.Xeri.Game
             registered.Clear();
 
             // Clear도 commit 이후 handler 실패를 격리해 모든 소비자의 정리가 진행되게 한다.
-            var handlers = OnClear?.GetInvocationList();
-            if (handlers == null) return;
+            var failures = new ExceptionBuffer();
 
             isPublishing = true;
 
             try
             {
-                for (var index = 0; index < handlers.Length; index++)
-                {
-                    try
-                    {
-                        ((EventHandler)handlers[index]).Invoke(this, EventArgs.Empty);
-                    }
-                    catch (Exception exception)
-                    {
-                        Debug.LogException(exception);
-                    }
-                }
+                OnClear.InvokeEach(this, EventArgs.Empty, ref failures);
             }
             finally
             {
                 isPublishing = false;
             }
+
+            // 표현 계층 handler의 실패는 흐름을 끊지 않고 모두 남긴다.
+            failures.LogAll();
         }
 
     #endregion
@@ -637,33 +627,21 @@ namespace inonego.Xeri.Game
             EntityPresentationRegistryEventArgs<TOwner, TPresentation> args
         )
         {
-            var handlers = handler?.GetInvocationList();
-            if (handlers == null) return;
+            var failures = new ExceptionBuffer();
 
             isPublishing = true;
 
             try
             {
-                for (var index = 0; index < handlers.Length; index++)
-                {
-                    try
-                    {
-                        ((EntityPresentationRegistryEventHandler<TOwner, TPresentation>)handlers[index]).Invoke
-                        (
-                            this,
-                            args
-                        );
-                    }
-                    catch (Exception exception)
-                    {
-                        Debug.LogException(exception);
-                    }
-                }
+                handler.InvokeEach(this, args, static (each, sender, e) => each(sender, e), ref failures);
             }
             finally
             {
                 isPublishing = false;
             }
+
+            // 표현 계층 handler의 실패는 흐름을 끊지 않고 모두 남긴다.
+            failures.LogAll();
         }
 
     #endregion

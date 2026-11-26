@@ -209,6 +209,7 @@ Bindings.TryResolve(entry) → AbilityActivationContext
 
 - **변경 신호로 갱신합니다.** 사용 가능 여부는 `AbilityState.Revision`(시간 외 변경), `OnCooldownEnded`·`OnChargeRecharged`(시간 진행으로 끝난 Cooldown·재충전), `AbilityBindings.Revision`(연결 변경)이 바뀔 때만 달라집니다. 이 신호를 받은 Tick에만 `TrySelect` 후 `Evaluate()`를 호출해 결과를 보관합니다. 자원처럼 State 밖의 값이 바뀌는 경우의 신호는 그 자원 Owner가 제공합니다.
 - **남은 시간 표시는 값을 직접 읽습니다.** Cooldown 진행도와 Charge 수량은 `State.Cooldown`·`State.Charge`의 읽기 전용 값으로 UI가 보간하고, 판정은 위 신호로만 다시 합니다.
+- **목록은 `var`나 뷰 타입으로 읽습니다.** `AbilityStateSet.States`, `StatusContainer.Statuses`, `ExecutionSession.Behaviors`는 구조체 열거자를 가진 `ReadOnlyListView<T>`를 돌려주므로 `foreach`로 읽어도 할당하지 않습니다. `IReadOnlyList<T>` 변수에 담으면 뷰가 박싱되어 호출마다 할당하니 `var`로 받으세요. 인덱서와 `Count`로 읽는 `for` 루프도 할당하지 않습니다.
 
 규칙(`Func<...>`)이 돌려주는 `AbilityUseChoice`는 불변이고 사용 상태를 담지 않습니다(시도 여부는 `Selection`이 가집니다). 규칙이 호출마다 `new AbilityUseChoice(...)`와 캡처하는 람다를 만들면 선택할 때마다 할당이 생기므로, **(Instance, Execution)마다 Choice를 한 번 만들어 보관하고 규칙은 그 객체를 돌려주세요.** 보관하는 `isCurrent`·`transition` 델리게이트는 선택 시점의 값을 캡처하지 말고 호출 시점의 현재 값을 읽게 작성합니다. `isCurrent`는 `Evaluate`·`TryActivate` 때마다 평가되기 때문입니다.
 

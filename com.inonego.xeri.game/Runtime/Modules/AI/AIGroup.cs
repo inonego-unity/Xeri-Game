@@ -236,17 +236,7 @@ namespace inonego.Xeri.Game
 
             var failures = new ExceptionBuffer();
 
-            foreach (Action<IReadOnlyAIGroup> callback in callbacks.GetInvocationList())
-            {
-                try
-                {
-                    callback.Invoke(this);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-            }
+            callbacks.InvokeEach<IReadOnlyAIGroup>(this, ref failures);
 
             failures.ThrowWhenAny("일부 AIGroup 종료 callback이 실패했습니다.");
         }
