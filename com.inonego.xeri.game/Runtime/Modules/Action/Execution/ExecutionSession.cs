@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionSession.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Execution의 요청·적용 시간, Flow/Behavior, 독립 Signal·Command, Commit·종료 수명을 소유한다.
@@ -58,12 +58,22 @@ namespace inonego.Xeri.Game
         public ReadOnlyListView<ExecutionBehaviorRuntime> Behaviors => new(behaviors);
         private readonly ExecutionBehaviorRuntime[] behaviors;
 
-        // ------------------------------------------------------------
+        // ----------------------------------------------------------------------
         /// <summary>
-        /// 이 Execution에서만 사용하는 primitive 변수를 보관한다.
+        /// <br/> 이 Execution에서만 사용하는 primitive 변수를 보관한다.
+        /// <br/> 변수를 쓰지 않는 Session은 할당하지 않도록 처음 접근할 때 생성한다.
         /// </summary>
-        // ------------------------------------------------------------
-        public ValueRegistry Variables { get; } = new();
+        // ----------------------------------------------------------------------
+        public ValueRegistry Variables
+        {
+            get
+            {
+                variables ??= new();
+                return variables;
+            }
+        }
+
+        private ValueRegistry variables = null;
 
     #endregion
 
@@ -177,7 +187,10 @@ namespace inonego.Xeri.Game
         private ExecutionEndReason endReason = ExecutionEndReason.None;
 
         private ExecutionSession attachedParent = null;
-        private readonly List<ExecutionSession> attachedChildren = new();
+        private List<ExecutionSession> attachedChildren = null;
+
+        // Child의 종료 이벤트 구독·해제마다 델리게이트를 새로 만들지 않도록 한 번만 만든다.
+        private Action<ExecutionSession, ExecutionEndReason> onChildEnded = null;
 
     #endregion
 
@@ -306,7 +319,7 @@ namespace inonego.Xeri.Game
 
             try
             {
-                InvokeWhileActive(OnBegun);
+                RaiseWhileActive(OnBegun);
             }
             catch (Exception exception)
             {
@@ -361,7 +374,7 @@ namespace inonego.Xeri.Game
             }
 
             EndAttachedChildren(ref failures);
-            NotifyEnded(ExecutionEndReason.Cancelled, ref failures);
+            RaiseEnded(ExecutionEndReason.Cancelled, ref failures);
 
             if (failures.Count == 0)
             {
@@ -466,7 +479,7 @@ namespace inonego.Xeri.Game
             isPublishingSignal = true;
             try
             {
-                NotifyBehaviors(signal);
+                SignalBehaviors(signal);
             }
             catch (Exception exception)
             {
@@ -519,7 +532,7 @@ namespace inonego.Xeri.Game
         /// 활성 Behavior에 동일한 Signal을 순서대로 전달한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void NotifyBehaviors(in ExecutionSignal signal)
+        private void SignalBehaviors(in ExecutionSignal signal)
         {
             for (var index = 0; index < behaviors.Length && IsActive; index++)
             {
@@ -591,8 +604,10 @@ namespace inonego.Xeri.Game
             }
 
             child.attachedParent = this;
+            attachedChildren ??= new();
             attachedChildren.Add(child);
-            child.OnEnded += OnChildEnded;
+            onChildEnded ??= OnChildEnded;
+            child.OnEnded += onChildEnded;
             return true;
         }
 
@@ -608,14 +623,14 @@ namespace inonego.Xeri.Game
                 return false;
             }
 
-            var index = attachedChildren.IndexOf(child);
+            var index = attachedChildren?.IndexOf(child) ?? -1;
             if (index < 0)
             {
                 return false;
             }
 
             attachedChildren.RemoveAt(index);
-            child.OnEnded -= OnChildEnded;
+            child.OnEnded -= onChildEnded;
 
             if (ReferenceEquals(child.attachedParent, this))
             {
@@ -650,7 +665,7 @@ namespace inonego.Xeri.Game
 
             try
             {
-                InvokeWhileActive(OnCommitted);
+                RaiseWhileActive(OnCommitted);
             }
             catch (Exception exception)
             {
@@ -667,7 +682,7 @@ namespace inonego.Xeri.Game
         /// <br/> 알리지 않는다. 종료된 Session의 시작·확정 통지가 종료 통지보다 늦게 가지 않는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        private void InvokeWhileActive(Action<ExecutionSession> handlers)
+        private void RaiseWhileActive(Action<ExecutionSession> handlers)
         {
             if (handlers == null)
             {
@@ -770,7 +785,7 @@ namespace inonego.Xeri.Game
 
             EndAttachedChildren(ref failures);
 
-            NotifyEnded(reason, ref failures);
+            RaiseEnded(reason, ref failures);
 
             failures.ThrowWhenAny("Execution 종료 중 여러 정리 단계가 실패했습니다.");
 
@@ -824,7 +839,7 @@ namespace inonego.Xeri.Game
         /// 종료 handler 하나가 실패해도 나머지를 통지한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void NotifyEnded(ExecutionEndReason reason, ref ExceptionBuffer failures)
+        private void RaiseEnded(ExecutionEndReason reason, ref ExceptionBuffer failures)
         {
             OnEnded.InvokeEach(this, reason, ref failures);
         }
@@ -837,11 +852,11 @@ namespace inonego.Xeri.Game
         // ------------------------------------------------------------
         private void EndAttachedChildren(ref ExceptionBuffer failures)
         {
-            while (attachedChildren.Count > 0)
+            while (attachedChildren != null && attachedChildren.Count > 0)
             {
                 var child = attachedChildren[attachedChildren.Count - 1];
                 attachedChildren.RemoveAt(attachedChildren.Count - 1);
-                child.OnEnded -= OnChildEnded;
+                child.OnEnded -= onChildEnded;
 
                 if (ReferenceEquals(child.attachedParent, this))
                 {
@@ -870,7 +885,7 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// Behavior 실행 인스턴스를 복사하고 null 항목을 검증한다.
+        /// Behavior 실행 인스턴스를 복사하고 null과 중복 항목을 검증한다.
         /// </summary>
         // ------------------------------------------------------------
         private static ExecutionBehaviorRuntime[] CopyBehavior

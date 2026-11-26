@@ -225,7 +225,7 @@ Bindings.TryResolve(entry) → AbilityActivationContext
 
 ## Cost 환급과 게임 Host 책임
 
-비용은 영수증으로 되돌립니다. `IAbilityActivationCost<TSpec>.Pay`는 `AbilityCostReceipt`를 반환합니다. 상태를 바꾸지 않았다면 `AbilityCostReceipt.NoChange`, 되돌려야 한다면 `new AbilityCostReceipt(refund)`를 반환합니다. `AbilityChargeCost<TSpec>(amount)`의 영수증은 소비 직전의 Charge 상태(수량과 충전 시계)를 정확히 복원합니다. 환급은 복원이므로 `CloneFrom`과 같이 알림을 보내지 않고 `Revision`만 1 올립니다. 진행 중인 충전 시계의 경과 시간도 그대로 이어집니다. 검사 이후 수량이 바뀌어 소비에 실패하면 예외를 던집니다.
+비용은 영수증으로 되돌립니다. `IAbilityActivationCost<TSpec>.Pay`는 `AbilityCostReceipt`를 반환합니다. 상태를 바꾸지 않았다면 `AbilityCostReceipt.NoChange`, 되돌려야 한다면 `AbilityCostReceipt.From(refund)`를 반환합니다. 지불마다 할당을 피하려면 지불 기록을 직접 보관하는 `IAbilityCostRefund`를 구현하고 `new AbilityCostReceipt(owner, token)`을 반환합니다. `From`은 어댑터와 delegate를 할당하는 편의 경로입니다. `AbilityChargeCost<TSpec>(amount)`의 영수증은 소비 직전의 Charge 상태(수량과 충전 시계)를 정확히 복원합니다. 환급은 복원이므로 `CloneFrom`과 같이 알림을 보내지 않고 `Revision`만 1 올립니다. 진행 중인 충전 시계의 경과 시간도 그대로 이어집니다. 검사 이후 수량이 바뀌어 소비에 실패하면 예외를 던집니다.
 
 검사·지불·시작·환급은 모두 `Selection.TryActivate` 하나로 진행합니다. `AbilityActivationPolicy`는 Requirement·Cost 구성만 공개하고, 검사(`Selection.Evaluate`)와 지불은 Selection이 내부에서 수행합니다.
 

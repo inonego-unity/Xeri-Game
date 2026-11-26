@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivationTestBase.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-26
 
 # 설명
 Activation 테스트가 공유하는 콜백 Requirement·Cost, 외부 Resource Owner와 선택 도우미를 제공한다.
@@ -66,7 +66,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
                 pay();
                 return refund == null
                     ? AbilityCostReceipt.NoChange
-                    : new AbilityCostReceipt(refund);
+                    : AbilityCostReceipt.From(refund);
             }
         }
 
@@ -164,7 +164,7 @@ namespace inonego.Xeri.Game.TEST._Ability.Fixture
             )
             {
                 owner.Pay(amount);
-                return new AbilityCostReceipt(() => owner.Refund(amount));
+                return AbilityCostReceipt.From(() => owner.Refund(amount));
             }
         }
 

@@ -1,13 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityChargeState.cs
-수정일 : 2026-11-23
+수정일 : 2026-11-26
 
 # 설명
-Charge의 충전 시간 진행과 ChargeState 복원·경계 계약, 운영 중 구성 변경과 충전 단축, 지불 영수증 환급이 수량과 충전 시계를 지불 전 상태로 되돌리는지 검증한다.
+Charge의 충전 시간 진행과 ChargeState 복원·경계 계약, 운영 중 구성 변경과 충전 단축, 지불 영수증 환급이 수량과 충전 시계를 지불 전 상태로 되돌리는지, 사용 구간의 지불 기록이 만료·중복·구간 교체를 거부하고 거부된 환급의 기록을 남기는지, 유효하지 않은 스냅샷 복원을 거부하는지 검증한다.
 
 # 테스트 구성
  C: Charge 충전 진행·복원·운영 중 구성 변경과 충전 단축
- R: 지불 영수증 환급
+ R: 지불 영수증 환급과 사용 구간의 지불 기록
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -255,6 +255,24 @@ namespace inonego.Xeri.Game.TEST._Ability
             Assert.AreEqual(1f, negative.Recharge.RemainingTime, 0.0001f);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 기록하지 않은 기본 스냅샷으로는 복원할 수 없고 상태가 그대로인지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityChargeState_기본스냅샷복원은거부하고상태를유지()
+        {
+            var charge = new AbilityChargeState(3, 2f);
+            var beforeJson = JsonUtility.ToJson(charge);
+
+            Assert.Throws<ArgumentException>(() => charge.RestoreFrom(default));
+
+            Assert.AreEqual(beforeJson, JsonUtility.ToJson(charge));
+            Assert.AreEqual(3, charge.Capacity);
+            Assert.AreEqual(2f, charge.RechargeDuration);
+        }
+
     #endregion
 
     #region C-3: 운영 중 구성 변경과 충전 단축
@@ -386,14 +404,23 @@ namespace inonego.Xeri.Game.TEST._Ability
 
     #endregion
 
-    #region R-1: 지불 영수증 환급
+    #region R-0: 지불 테스트 도우미
 
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 가득 찬 Charge를 가진 AbilityState를 생성한다.
+        /// </summary>
+        // ------------------------------------------------------------
         private static AbilityState CreateState(int capacity = 3)
         {
             var state = new AbilityState(new AbilityKey("Burst"));
             state.ConfigureCharge(capacity, 1f);
             return state;
         }
+
+    #endregion
+
+    #region R-1: 지불 영수증 환급
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -512,6 +539,135 @@ namespace inonego.Xeri.Game.TEST._Ability
             var empty = new AbilityState(new AbilityKey("None"));
             Assert.Throws<InvalidOperationException>(() => empty.PayCharge(1));
             Assert.AreEqual(Revision.None, empty.Revision);
+        }
+
+    #endregion
+
+    #region R-2: 사용 구간의 지불 기록
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 사용 구간이 끝난 뒤 영수증을 환급하면 예외를 던지고 Charge를 바꾸지 않는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_사용구간종료후영수증환급은거부()
+        {
+            var state = CreateState(3);
+            state.EnterUse();
+            var receipt = state.PayCharge(1);
+            state.ExitUse();
+            var beforeJson = JsonUtility.ToJson(state.Charge);
+            var revision = state.Revision;
+
+            Assert.Throws<InvalidOperationException>(() => receipt.Refund());
+
+            Assert.AreEqual(beforeJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(2, state.Charge.Current);
+            Assert.AreEqual(revision, state.Revision);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 사용 구간 안에서 같은 영수증을 두 번 환급하면 두 번째가 예외를 던지는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_같은영수증의두번째환급은거부()
+        {
+            var state = CreateState(3);
+            state.EnterUse();
+            var receipt = state.PayCharge(1);
+
+            receipt.Refund();
+            var beforeJson = JsonUtility.ToJson(state.Charge);
+            var revision = state.Revision;
+
+            Assert.Throws<InvalidOperationException>(() => receipt.Refund());
+
+            Assert.AreEqual(beforeJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(3, state.Charge.Current);
+            Assert.AreEqual(revision, state.Revision);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 이전 사용 구간의 영수증이 새 구간의 지불 기록을 건드리지 않는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_이전구간영수증은새구간기록을침범하지않음()
+        {
+            var state = CreateState(3);
+            state.EnterUse();
+            var stale = state.PayCharge(1);
+            state.ExitUse();
+
+            state.EnterUse();
+            var current = state.PayCharge(1);
+            var beforeJson = JsonUtility.ToJson(state.Charge);
+
+            Assert.Throws<InvalidOperationException>(() => stale.Refund());
+            Assert.AreEqual(beforeJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(1, state.Charge.Current);
+
+            current.Refund();
+
+            Assert.AreEqual(2, state.Charge.Current);
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// 한 사용 구간의 여러 지불을 역순으로 환급하면 처음 상태까지 되돌아가는지 검증한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_여러지불을역순으로환급하면처음상태로복원()
+        {
+            var state = CreateState(3);
+            var initialJson = JsonUtility.ToJson(state.Charge);
+            state.EnterUse();
+
+            var first = state.PayCharge(1);
+            var afterFirstJson = JsonUtility.ToJson(state.Charge);
+            var second = state.PayCharge(1);
+            Assert.AreEqual(1, state.Charge.Current);
+
+            second.Refund();
+
+            Assert.AreEqual(afterFirstJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(2, state.Charge.Current);
+
+            first.Refund();
+
+            Assert.AreEqual(initialJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(3, state.Charge.Current);
+            Assert.IsFalse(state.Charge.Recharge.IsRunning);
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// 뒤 지불 때문에 거부된 환급이 기록을 남겨 두어 상태가 맞아진 뒤 다시 환급되는지 검증한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        [Test]
+        public void TEST_AbilityState_거부된환급은기록을남겨두어나중에다시환급()
+        {
+            var state = CreateState(3);
+            var initialJson = JsonUtility.ToJson(state.Charge);
+            state.EnterUse();
+
+            var first = state.PayCharge(1);
+            var second = state.PayCharge(1);
+
+            Assert.Throws<InvalidOperationException>(() => first.Refund());
+            Assert.AreEqual(1, state.Charge.Current);
+
+            second.Refund();
+            first.Refund();
+
+            Assert.AreEqual(initialJson, JsonUtility.ToJson(state.Charge));
+            Assert.AreEqual(3, state.Charge.Current);
         }
 
     #endregion

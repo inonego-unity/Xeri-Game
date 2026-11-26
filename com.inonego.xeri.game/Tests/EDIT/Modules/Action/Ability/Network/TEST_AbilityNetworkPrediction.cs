@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityNetworkPrediction.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-26
 
 # 설명
 L2 상태 보정 범위를 in-process Fake Server/Client로 검증한다.
@@ -76,7 +76,7 @@ namespace inonego.Xeri.Game.TEST._Ability
             {
                 Paid++;
                 onPay?.Invoke();
-                return new AbilityCostReceipt(() => Refunds++);
+                return AbilityCostReceipt.From(() => Refunds++);
             }
         }
 

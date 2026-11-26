@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StatusContainer.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 대상 하나에 적용된 Status의 스택·만료·소비·제거와 변경 알림을 소유한다.
@@ -15,7 +15,7 @@ Status 효과(피해·회복·행동 제한)는 게임이 알림과 조회로 �
 CloneFrom은 컨테이너 인스턴스와 OnChanged 구독을 유지한 채 변경 알림 없이 복제하며 Status 항목은 새로 만든다.
 항목 복제는 Core List.CloneFrom에 맡겨 실패하면 컨테이너가 바뀌지 않는다. 복제 전에 읽어 둔 IReadOnlyStatus는 복제 뒤 낡은 값이다.
 변경 목록과 계산용 목록은 Unity ListPool에서 빌려 쓰므로 반복 호출이 목록을 할당하지 않는다.
-새 Status·새 스택 생성은 할당한다.
+새 Status·새 스택 생성은 할당한다. 스택별·공유 Timer는 그 시간을 시작하거나 조회할 때만 만든다.
 알림은 Core InvokeEach로 보내므로 구독이 바뀐 뒤 첫 알림만 호출 목록을 할당한다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -46,13 +46,24 @@ namespace inonego.Xeri.Game
     #region 내부 데이터
 
         // 스택 하나의 적용 순번과, Independent일 때만 쓰는 스택별 시간. 공유 시간 Status의 스택은 Timer를 시작하지 않는다.
+        // 스택별 Timer는 시간을 시작하거나 조회할 때 만든다. 공유 시간 Status의 스택은 만들지 않는다.
         [Serializable]
         private sealed class StackRecord
         {
-            internal Timer Timer => timer;
+            internal Timer Timer
+            {
+                get
+                {
+                    timer ??= new();
+                    return timer;
+                }
+            }
 
             [SerializeField]
-            private Timer timer = new();
+            private Timer timer = null;
+
+            // 스택별 시간이 진행 중인지 반환한다. Timer를 만들지 않는다.
+            internal bool IsTimerRunning => timer != null && timer.IsRunning;
 
             internal ulong Sequence => sequence;
 
@@ -71,14 +82,18 @@ namespace inonego.Xeri.Game
 
             internal StackRecord(StackRecord source)
             {
-                timer.CloneFrom(source.timer);
+                if (source.timer != null)
+                {
+                    Timer.CloneFrom(source.timer);
+                }
+
                 sequence = source.sequence;
             }
 
             // 만료가 가까운 순서의 정렬 값. 시간으로 끝나지 않는 스택은 가장 뒤다.
             internal float GetRemainingOrder()
             {
-                return timer.IsRunning || timer.IsPaused
+                return timer != null && (timer.IsRunning || timer.IsPaused)
                     ? timer.RemainingTime
                     : float.PositiveInfinity;
             }
@@ -104,10 +119,21 @@ namespace inonego.Xeri.Game
             private List<StackRecord> stacks = new();
 
             // 스택이 시간을 공유하는 Status(SharedRenew·SharedKeep)의 시간. Independent에서는 쓰지 않는다.
-            internal Timer SharedTimer => sharedTimer;
+            // 시간을 시작하거나 조회할 때 만들므로 Independent Status는 만들지 않는다.
+            internal Timer SharedTimer
+            {
+                get
+                {
+                    sharedTimer ??= new();
+                    return sharedTimer;
+                }
+            }
 
             [SerializeField]
-            private Timer sharedTimer = new();
+            private Timer sharedTimer = null;
+
+            // 공유 시간이 진행 중인지 반환한다. Timer를 만들지 않는다.
+            internal bool IsSharedTimerRunning => sharedTimer != null && sharedTimer.IsRunning;
 
             // 스택이 시간을 공유하는 Status인지 반환한다.
             internal bool IsShared => spec != null && spec.Stacking != StatusStacking.Independent;
@@ -120,7 +146,7 @@ namespace inonego.Xeri.Game
                     return stack.GetRemainingOrder();
                 }
 
-                return sharedTimer.IsRunning || sharedTimer.IsPaused
+                return sharedTimer != null && (sharedTimer.IsRunning || sharedTimer.IsPaused)
                     ? sharedTimer.RemainingTime
                     : float.PositiveInfinity;
             }
@@ -153,7 +179,16 @@ namespace inonego.Xeri.Game
                 spec   = source.spec.Copy();
                 origin = source.origin;
 
-                sharedTimer.CloneFrom(source.sharedTimer);
+                // 원본이 공유 시간을 만들지 않았으면 이 항목도 만들지 않는다.
+                if (source.sharedTimer != null)
+                {
+                    SharedTimer.CloneFrom(source.sharedTimer);
+                }
+                else
+                {
+                    sharedTimer = null;
+                }
+
                 stacks.Clear();
 
                 foreach (var stack in source.stacks)
@@ -862,13 +897,12 @@ namespace inonego.Xeri.Game
                 // 공유 시간 Status는 시간을 한 번만 진행하고 끝나면 모든 스택이 함께 만료된다.
                 if (entry.IsShared)
                 {
-                    var shared = entry.SharedTimer;
-
-                    if (!shared.IsRunning)
+                    if (!entry.IsSharedTimerRunning)
                     {
                         continue;
                     }
 
+                    var shared = entry.SharedTimer;
                     var sharedRemaining = shared.RemainingTime;
                     shared.Tick(deltaTime);
 
@@ -885,13 +919,12 @@ namespace inonego.Xeri.Game
 
                 foreach (var stack in entry.StackList)
                 {
-                    var timer = stack.Timer;
-
-                    if (!timer.IsRunning)
+                    if (!stack.IsTimerRunning)
                     {
                         continue;
                     }
 
+                    var timer = stack.Timer;
                     var remaining = timer.RemainingTime;
                     timer.Tick(deltaTime);
 

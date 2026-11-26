@@ -177,12 +177,29 @@ namespace inonego.Xeri.Game
         private readonly XOrdered<int, AbilityBindingLayer<TSpec>> layer = new();
         private readonly List<AbilityEntryKey> entryKeyScratch = new();
 
+        // Layer 변경 구독·해제마다 델리게이트를 새로 만들지 않도록 한 번만 만든다.
+        private readonly Action onLayerChange = null;
+
         // ----------------------------------------------------------------------
         /// <summary>
         /// Layer 등록·해제와 등록된 Layer의 내용 변경마다 증가하는 변경 번호를 반환한다.
         /// </summary>
         // ----------------------------------------------------------------------
         public Revision Revision { get; private set; } = Revision.None;
+
+    #endregion
+
+    #region 생성자
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 비어 있는 Binding 합성기를 생성한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public AbilityBindings()
+        {
+            onLayerChange = OnLayerChange;
+        }
 
     #endregion
 
@@ -206,7 +223,7 @@ namespace inonego.Xeri.Game
             }
 
             layer.Add(bindingLayer.Priority, bindingLayer);
-            bindingLayer.OnChange += OnLayerChange;
+            bindingLayer.OnChange += onLayerChange;
             Revision = Revision.Inc();
 
             return new Lease
@@ -218,7 +235,7 @@ namespace inonego.Xeri.Game
                         return;
                     }
 
-                    bindingLayer.OnChange -= OnLayerChange;
+                    bindingLayer.OnChange -= onLayerChange;
                     Revision = Revision.Inc();
                 }
             );

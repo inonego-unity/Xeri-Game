@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityActivationPolicy.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-26
 
 # 설명
 Requirement와 Cost를 전부 검사한 뒤 비용을 소비하는 Activation Policy 계약을 검증한다.
@@ -295,7 +295,7 @@ namespace inonego.Xeri.Game.TEST._Ability
         [Test]
         public void TEST_AbilityCostReceipt_환급동작을요구하고NoChange는환급하지않음()
         {
-            Assert.Throws<ArgumentNullException>(() => new AbilityCostReceipt(null));
+            Assert.Throws<ArgumentNullException>(() => AbilityCostReceipt.From(null));
 
             // NoChange만 지불한 사용은 시작이 거부돼도 환급 예외 없이 거부 결과를 반환한다.
             var policy = new AbilityActivationPolicy<TestSpec>

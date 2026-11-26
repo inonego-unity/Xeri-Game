@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : StateMachine.cs
-수정일 : 2026-11-17
+수정일 : 2026-11-26
 
 # 설명
 유한 상태 머신 (FSM). Owner 와 현재 상태를 보유하며 인스턴스/타입 기반 전이를 모두 지원한다.
@@ -213,7 +213,7 @@ namespace inonego.Xeri.Game
                     }
                 }
 
-                NotifyStateChanged(prev, next);
+                RaiseStateChanged(prev, next);
             }
             finally
             {
@@ -227,7 +227,7 @@ namespace inonego.Xeri.Game
         /// <br/> 한 구독자의 예외가 다른 구독자의 알림을 막지 않게 수집한다.
         /// </summary>
         // ------------------------------------------------------------
-        private void NotifyStateChanged(IState previous, IState next)
+        private void RaiseStateChanged(IState previous, IState next)
         {
             var failures = new ExceptionBuffer();
 

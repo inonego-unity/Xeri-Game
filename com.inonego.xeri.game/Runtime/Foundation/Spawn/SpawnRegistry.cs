@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : SpawnRegistry.cs
-수정일 : 2026-11-14
+수정일 : 2026-11-26
 
 # 설명
 스폰 레지스트리 베이스·구현체와 등록 객체 사전, 디스폰 확장 메서드 정의.
@@ -423,7 +423,7 @@ namespace inonego.Xeri.Game
 
             ValidateBindingMutationAllowed();
 
-            var bindingIndex = bindings.FindIndex(item => ReferenceEquals(item, binding));
+            var bindingIndex = IndexOfBinding(binding);
 
             if (bindingIndex < 0)
             {
@@ -474,8 +474,25 @@ namespace inonego.Xeri.Game
         /// 동일 Binding이 현재 Registry에 연결돼 있는지 확인한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal bool IsBindingAttached(ISpawnRegistryBinding<TKey, T> binding) =>
-            bindings.Exists(item => ReferenceEquals(item, binding));
+        internal bool IsBindingAttached(ISpawnRegistryBinding<TKey, T> binding) => IndexOfBinding(binding) >= 0;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 같은 참조의 Binding 위치를 반환하며 없으면 -1이다.
+        /// </summary>
+        // ------------------------------------------------------------
+        private int IndexOfBinding(ISpawnRegistryBinding<TKey, T> binding)
+        {
+            for (var index = 0; index < bindings.Count; index++)
+            {
+                if (ReferenceEquals(bindings[index], binding))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
 
         // ----------------------------------------------------------------------
         /// <summary>

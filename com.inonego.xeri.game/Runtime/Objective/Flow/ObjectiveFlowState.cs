@@ -178,7 +178,18 @@ namespace inonego.Xeri.Game.Objective
         // 확정한 선택을 지운다. Flow가 모든 대안을 새 회차로 교체하면서 Choice를 다시 열 때만 쓴다.
         internal void ClearSelection(string choiceID)
         {
-            if (selections.RemoveAll(value => value.ChoiceID == choiceID) == 0)
+            var removed = false;
+
+            for (var index = selections.Count - 1; index >= 0; index--)
+            {
+                if (selections[index].ChoiceID == choiceID)
+                {
+                    selections.RemoveAt(index);
+                    removed = true;
+                }
+            }
+
+            if (!removed)
             {
                 throw new InvalidOperationException("Flow Choice is not selected.");
             }

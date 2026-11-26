@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ExecutionSpec.cs
-수정일 : 2026-11-19
+수정일 : 2026-11-26
 
 # 설명
 Flow와 Behavior Spec을 한 Execution Spec으로 조립하고 Session factory를 제공한다.
@@ -12,6 +12,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 using UnityEngine;
+using UnityEngine.Pool;
 
 namespace inonego.Xeri.Game
 {
@@ -102,27 +103,34 @@ namespace inonego.Xeri.Game
 
             var flowRuntime = flow.CreateRuntime() ??
                 throw new InvalidOperationException("Execution Flow Runtime을 생성할 수 없습니다.");
-            var behaviorRuntime = new List<ExecutionBehaviorRuntime>(BehaviorCount);
+            var behaviorRuntime = ListPool<ExecutionBehaviorRuntime>.Get();
 
-            for (var index = 0; index < BehaviorCount; index++)
+            try
             {
-                // Inspector에서 항목만 추가하고 타입을 고르지 않은 빈 칸은 실행에 참여하지 않는다.
-                var spec = behaviors[index];
-                if (spec == null) continue;
+                for (var index = 0; index < BehaviorCount; index++)
+                {
+                    // Inspector에서 항목만 추가하고 타입을 고르지 않은 빈 칸은 실행에 참여하지 않는다.
+                    var spec = behaviors[index];
+                    if (spec == null) continue;
 
-                var runtime = spec.CreateRuntime() ??
-                    throw new InvalidOperationException("Execution Behavior Runtime을 생성할 수 없습니다.");
-                behaviorRuntime.Add(runtime);
+                    var runtime = spec.CreateRuntime() ??
+                        throw new InvalidOperationException("Execution Behavior Runtime을 생성할 수 없습니다.");
+                    behaviorRuntime.Add(runtime);
+                }
+
+                return new ExecutionSession
+                (
+                    executionID,
+                    context,
+                    flowRuntime,
+                    behaviorRuntime,
+                    flow.MaximumDuration
+                );
             }
-
-            return new ExecutionSession
-            (
-                executionID,
-                context,
-                flowRuntime,
-                behaviorRuntime,
-                flow.MaximumDuration
-            );
+            finally
+            {
+                ListPool<ExecutionBehaviorRuntime>.Release(behaviorRuntime);
+            }
         }
 
     #endregion

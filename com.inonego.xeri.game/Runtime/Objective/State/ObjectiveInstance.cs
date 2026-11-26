@@ -706,7 +706,18 @@ namespace inonego.Xeri.Game.Objective
             RequireCandidate();
             RequireActive();
             RequireID(groupID, nameof(groupID));
-            return sequentialBoundaries.RemoveAll(value => value.GroupID == groupID) > 0;
+            var removed = false;
+
+            for (var index = sequentialBoundaries.Count - 1; index >= 0; index--)
+            {
+                if (sequentialBoundaries[index].GroupID == groupID)
+                {
+                    sequentialBoundaries.RemoveAt(index);
+                    removed = true;
+                }
+            }
+
+            return removed;
         }
 
         // ----------------------------------------------------------------------
@@ -738,7 +749,18 @@ namespace inonego.Xeri.Game.Objective
             RequireCandidate();
             RequireActive();
             RequireID(entryID, nameof(entryID));
-            return entryOpenings.RemoveAll(value => value.EntryID == entryID) > 0;
+            var removed = false;
+
+            for (var index = entryOpenings.Count - 1; index >= 0; index--)
+            {
+                if (entryOpenings[index].EntryID == entryID)
+                {
+                    entryOpenings.RemoveAt(index);
+                    removed = true;
+                }
+            }
+
+            return removed;
         }
 
     #endregion

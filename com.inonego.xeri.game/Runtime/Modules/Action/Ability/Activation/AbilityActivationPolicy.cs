@@ -1,12 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivationPolicy.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Requirement와 모든 Cost를 상태 변경 없이 검사한 뒤 등록 순서대로 비용을 소비한다.
 Pay는 소비를 되돌리는 AbilityCostReceipt를 반환한다. 소비 도중 예외가 나면 정책이 앞서 소비한 비용을 역순으로 환급하고
 예외를 다시 던지므로 지불 단계의 사후 조건은 호출 경로와 무관하게 같다. 실행 시작 실패의 환급은 Selection이 맡는다.
 영수증으로 되돌리지 않는 소비(NoChange)와 한 Cost 안의 여러 자원 원자성은 Resource Owner가 책임진다.
+영수증은 환급 주체(IAbilityCostRefund)와 기록 번호만 담는다. 내장 Charge 지불은 AbilityState가 직접 구현하고, 그 밖의 환급은 From(Action)으로 감싼다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -31,14 +32,34 @@ namespace inonego.Xeri.Game
         bool IsCurrent { get; }
     }
 
-    // ============================================================
+    // ======================================================================
     /// <summary>
-    /// 소비한 비용을 되돌리는 동작을 담아 호출자에게 전달하는 영수증.
+    /// <br/> 지불 기록을 직접 보관하고 번호(token)로 환급하는 계약.
+    /// <br/> 지불마다 환급 delegate를 만들지 않도록 기록 소유자가 직접 구현한다.
     /// </summary>
-    // ============================================================
+    // ======================================================================
+    public interface IAbilityCostRefund
+    {
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 영수증이 가진 번호에 해당하는 기록으로 소비를 되돌린다.
+        /// </summary>
+        // ------------------------------------------------------------
+        void Refund(int token);
+    }
+
+    // ======================================================================
+    /// <summary>
+    /// 소비한 비용을 되돌릴 환급 주체와 기록 번호를 담아 호출자에게 전달하는 영수증.
+    /// </summary>
+    // ======================================================================
     public readonly struct AbilityCostReceipt
     {
-        private readonly Action refund;
+
+    #region 생성
+
+        private readonly IAbilityCostRefund owner;
+        private readonly int token;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -49,20 +70,65 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 환급 동작을 가진 영수증을 생성한다.
+        /// 환급 주체가 기록 번호로 환급하는 영수증을 생성한다.
         /// </summary>
         // ------------------------------------------------------------
-        public AbilityCostReceipt(Action refund)
+        public AbilityCostReceipt(IAbilityCostRefund owner, int token)
         {
-            this.refund = refund ?? throw new ArgumentNullException(nameof(refund));
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            this.token = token;
         }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 환급 동작을 가진 영수증을 생성한다. 환급 주체를 직접 구현하지 않는
+        /// <br/> 호출자를 위한 편의 경로이며 호출마다 어댑터와 delegate를 할당한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        public static AbilityCostReceipt From(Action refund)
+        {
+            if (refund == null)
+            {
+                throw new ArgumentNullException(nameof(refund));
+            }
+
+            return new AbilityCostReceipt(new ActionRefund(refund), 0);
+        }
+
+        // delegate를 환급 주체로 감싸는 어댑터.
+        private sealed class ActionRefund : IAbilityCostRefund
+        {
+            private readonly Action refund;
+
+            internal ActionRefund(Action refund)
+            {
+                this.refund = refund;
+            }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 감싼 환급 동작을 실행한다. 번호는 쓰지 않는다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public void Refund(int token)
+            {
+                refund();
+            }
+        }
+
+    #endregion
+
+    #region 환급
 
         // ------------------------------------------------------------
         /// <summary>
         /// 소비한 비용을 되돌리며 환급할 내용이 없으면 아무 일도 하지 않는다.
         /// </summary>
         // ------------------------------------------------------------
-        internal void Refund() => refund?.Invoke();
+        internal void Refund()
+        {
+            owner?.Refund(token);
+        }
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -100,6 +166,9 @@ namespace inonego.Xeri.Game
 
             errors.ThrowWhenAny("Ability 사용 비용 환급 중 오류가 발생했습니다.");
         }
+
+    #endregion
+
     }
 
     // ============================================================

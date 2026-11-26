@@ -1,13 +1,13 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityChargeState.cs
-수정일 : 2026-11-23
+수정일 : 2026-11-26
 
 # 설명
 Ability의 Charge 수량과 순차 Recharge를 Cooldown과 독립 관리한다.
 충전 시계의 시작 시점을 Charge 자체가 식별하며 모든 충전 완료를 동일한 경로로 처리한다.
 Spec 사용 의미는 소유하지 않으며 충전량 경계와 수량 복원의 오버플로를 방지한다.
 충전 Timer는 내부 저장소로만 쓰고 값 읽기(ITimerProgress)만 공개하므로 진행 중 외부 코드를 호출하지 않는다.
-복제는 수량·구성·충전 시계를 변경 알림 없이 정확히 덮어쓴다.
+복제는 수량·구성·충전 시계를 변경 알림 없이 정확히 덮어쓴다. 스냅샷 복원도 같되 기록하지 않은 기본값처럼 유효하지 않은 스냅샷은 거부한다.
 Resize는 현재 수량과 충전 경과 시간을 유지한 채 구성을 바꾸고, ReduceRecharge는 현재 주기의 남은 시간만 줄이며 초과분은 다음 주기로 넘기지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -80,8 +80,54 @@ namespace inonego.Xeri.Game
     // ============================================================
     [Serializable]
     public sealed class AbilityChargeState :
-        IReadOnlyAbilityChargeState, ISerializationCallbackReceiver, IDeepCloneable<AbilityChargeState>
+        IReadOnlyAbilityChargeState, ISerializationCallbackReceiver, IDeepCloneable<AbilityChargeState>,
+        ISnapshotable<AbilityChargeState.Snapshot>
     {
+
+    #region 내부 데이터
+
+        // ============================================================
+        /// <summary>
+        /// <br/> 수량·구성·충전 시계의 값 스냅샷.
+        /// <br/> 충전 시계는 Timer가 기록한 스냅샷을 그대로 담는다.
+        /// </summary>
+        // ============================================================
+        public struct Snapshot : IEquatable<Snapshot>
+        {
+            internal int Capacity;
+            internal int Current;
+            internal float RechargeDuration;
+            internal TimerSnapshot Recharge;
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 모든 기록 값이 같은지 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public bool Equals(Snapshot other)
+            {
+                return Capacity == other.Capacity
+                    && Current == other.Current
+                    && RechargeDuration.Equals(other.RechargeDuration)
+                    && Recharge.Equals(other.Recharge);
+            }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 같은 형식이며 모든 기록 값이 같은지 반환한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public override bool Equals(object obj) => obj is Snapshot other && Equals(other);
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 기록 값에서 해시 코드를 계산한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public override int GetHashCode() => HashCode.Combine(Capacity, Current, RechargeDuration, Recharge);
+        }
+
+    #endregion
 
     #region 필드
 
@@ -121,16 +167,6 @@ namespace inonego.Xeri.Game
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 현재 충전 타이머를 읽기 전용으로 제공한다.
-        /// </summary>
-        // ------------------------------------------------------------
-        public ITimerProgress Recharge => recharge;
-
-        [SerializeField]
-        private Timer recharge = new();
-
-        // ------------------------------------------------------------
-        /// <summary>
         /// 설정된 한 회 충전 소요 시간을 반환한다.
         /// </summary>
         // ------------------------------------------------------------
@@ -138,6 +174,16 @@ namespace inonego.Xeri.Game
 
         [SerializeField, Min(0.01f)]
         private float rechargeDuration = 1f;
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 현재 충전 타이머를 읽기 전용으로 제공한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        public ITimerProgress Recharge => recharge;
+
+        [SerializeField]
+        private Timer recharge = new();
 
     #endregion
 
@@ -203,20 +249,40 @@ namespace inonego.Xeri.Game
             recharge.CloneFrom(source.recharge);
         }
 
+    #endregion
+
+    #region 스냅샷
+
         // ------------------------------------------------------------
         /// <summary>
-        /// other와 수량·구성·충전 시계 값이 모두 같은지 반환한다.
+        /// 현재 수량·구성·충전 시계 값을 할당 없이 스냅샷으로 기록한다.
         /// </summary>
         // ------------------------------------------------------------
-        internal bool IsSame(AbilityChargeState other)
+        public Snapshot Capture()
         {
-            return other != null
-                && capacity == other.capacity
-                && current == other.current
-                && rechargeDuration.Equals(other.rechargeDuration)
-                && recharge.Current == other.recharge.Current
-                && recharge.Duration.Equals(other.recharge.Duration)
-                && recharge.ElapsedTime.Equals(other.recharge.ElapsedTime);
+            return new Snapshot
+            {
+                Capacity = capacity,
+                Current = current,
+                RechargeDuration = rechargeDuration,
+                Recharge = recharge.Capture()
+            };
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 기록한 스냅샷의 수량·구성·충전 시계로 변경 알림 없이 되돌린다.
+        /// <br/> Capture가 만들지 않은 기본값처럼 유효하지 않은 스냅샷은 상태를 바꾸지 않고 거부한다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        public void RestoreFrom(in Snapshot snapshot)
+        {
+            ValidateSnapshot(snapshot);
+
+            capacity = snapshot.Capacity;
+            current = snapshot.Current;
+            rechargeDuration = snapshot.RechargeDuration;
+            recharge.RestoreFrom(snapshot.Recharge);
         }
 
     #endregion
@@ -244,6 +310,28 @@ namespace inonego.Xeri.Game
             )
             {
                 throw new ArgumentOutOfRangeException(nameof(rechargeDuration));
+            }
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/> 스냅샷의 구성이 유효하고 현재 수량이 0 이상 용량 이하인지 확인한다.
+        /// <br/> Capture가 만든 스냅샷은 항상 통과하며 기본값(default)은 거부한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        private static void ValidateSnapshot(in Snapshot snapshot)
+        {
+            if
+            (
+                snapshot.Capacity <= 0 ||
+                float.IsNaN(snapshot.RechargeDuration) ||
+                float.IsInfinity(snapshot.RechargeDuration) ||
+                snapshot.RechargeDuration <= 0f ||
+                snapshot.Current < 0 ||
+                snapshot.Current > snapshot.Capacity
+            )
+            {
+                throw new ArgumentException("유효하지 않은 Charge 스냅샷입니다.", nameof(snapshot));
             }
         }
 

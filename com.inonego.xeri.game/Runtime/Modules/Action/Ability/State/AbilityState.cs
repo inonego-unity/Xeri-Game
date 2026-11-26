@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityState.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 Owner별 Ability 지속 상태, Cooldown, Charge와 Values를 독립 관리한다.
@@ -13,6 +13,7 @@ active Execution 상태는 보관하지 않는다.
 구성하지 않은 Charge는 직렬화 왕복 뒤에도 구성하지 않은 채로 복원한다. Unity 직렬화로 복원하면 Revision을 올리고 복원된 Values를 즉시 관찰한다. 같은 Key 데이터만, 사용 중이 아닐 때만 복원한다.
 CloneFrom은 인스턴스와 구독을 유지한 채 변경 알림 없이 복제하고 Key 불일치·사용 중 복제를 거부한다.
 복제 중 Cooldown·Values·Charge 단계가 실패해도 나머지를 끝까지 진행하고 Revision을 올린 뒤 실패를 전달한다(실패한 단계는 이전 상태일 수 있다).
+사용 구간 안의 Charge 지불은 환급 기록을 보관하고 영수증은 기록 번호로 환급한다. 기록은 사용 구간을 시작하고 끝낼 때 비운다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -38,7 +39,8 @@ namespace inonego.Xeri.Game
     /// </summary>
     // ================================================================================
     [Serializable]
-    public class AbilityState : ISerializationCallbackReceiver, IDeepCloneable<AbilityState>, IRevisioned
+    public class AbilityState :
+        ISerializationCallbackReceiver, IDeepCloneable<AbilityState>, IRevisioned, IAbilityCostRefund
     {
 
     #region 필드
@@ -122,6 +124,13 @@ namespace inonego.Xeri.Game
 
         [NonSerialized]
         private bool isInUse = false;
+
+        // 사용 구간 안의 Charge 지불 기록과 마지막 기록 번호. 사용 구간을 시작하고 끝낼 때 기록을 비운다.
+        [NonSerialized]
+        private List<ChargePayment> payments = null;
+
+        [NonSerialized]
+        private int paymentNumber = 0;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -291,16 +300,18 @@ namespace inonego.Xeri.Game
             }
 
             isInUse = true;
+            payments?.Clear();
         }
 
         // ------------------------------------------------------------
         /// <summary>
-        /// 사용 구간을 종료한다.
+        /// 사용 구간을 종료하고 남은 Charge 지불 기록을 버린다.
         /// </summary>
         // ------------------------------------------------------------
         internal void ExitUse()
         {
             isInUse = false;
+            payments?.Clear();
         }
 
     #endregion
@@ -373,7 +384,7 @@ namespace inonego.Xeri.Game
                 return true;
             }
 
-            return MarkChangedIf(cooldown.TryBegin(duration));
+            return MarkChangedWhen(cooldown.TryBegin(duration));
         }
 
         // ------------------------------------------------------------
@@ -381,14 +392,14 @@ namespace inonego.Xeri.Game
         /// 진행 중인 Cooldown을 일시정지하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool PauseCooldown() => MarkChangedIf(cooldown.Pause());
+        public bool PauseCooldown() => MarkChangedWhen(cooldown.Pause());
 
         // ------------------------------------------------------------
         /// <summary>
         /// 일시정지된 Cooldown을 재개하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool ResumeCooldown() => MarkChangedIf(cooldown.Resume());
+        public bool ResumeCooldown() => MarkChangedWhen(cooldown.Resume());
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -401,7 +412,7 @@ namespace inonego.Xeri.Game
         {
             AbilityCooldownState.ValidateReduction(amount);
 
-            return MarkChangedIf(cooldown.Reduce(amount));
+            return MarkChangedWhen(cooldown.Reduce(amount));
         }
 
         // ------------------------------------------------------------
@@ -409,7 +420,7 @@ namespace inonego.Xeri.Game
         /// 진행 중인 Cooldown을 종료하고 실제 변경 여부를 반환한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool ResetCooldown() => MarkChangedIf(cooldown.Reset());
+        public bool ResetCooldown() => MarkChangedWhen(cooldown.Reset());
 
     #endregion
 
@@ -455,7 +466,7 @@ namespace inonego.Xeri.Game
         {
             AbilityChargeState.ValidateConfiguration(capacity, rechargeDuration);
 
-            return charge != null && MarkChangedIf(charge.Resize(capacity, rechargeDuration));
+            return charge != null && MarkChangedWhen(charge.Resize(capacity, rechargeDuration));
         }
 
         // ----------------------------------------------------------------------
@@ -469,7 +480,7 @@ namespace inonego.Xeri.Game
         {
             AbilityChargeState.ValidateAmount(amount);
 
-            return charge != null && MarkChangedIf(charge.TryConsume(amount));
+            return charge != null && MarkChangedWhen(charge.TryConsume(amount));
         }
 
         // --------------------------------------------------------------------------------
@@ -484,7 +495,7 @@ namespace inonego.Xeri.Game
             AbilityChargeState.ValidateAmount(amount);
 
             var added = charge?.Add(amount) ?? 0;
-            MarkChangedIf(added > 0);
+            MarkChangedWhen(added > 0);
 
             return added;
         }
@@ -500,12 +511,39 @@ namespace inonego.Xeri.Game
         {
             AbilityChargeState.ValidateReduction(amount);
 
-            return charge != null && MarkChangedIf(charge.ReduceRecharge(amount));
+            return charge != null && MarkChangedWhen(charge.ReduceRecharge(amount));
         }
 
     #endregion
 
     #region 충전 비용 지불
+
+        // ============================================================
+        /// <summary>
+        /// 사용 구간 안에서 환급을 기다리는 Charge 지불 기록.
+        /// </summary>
+        // ============================================================
+        private readonly struct ChargePayment
+        {
+            internal readonly int Number;
+            internal readonly AbilityChargeState Charge;
+            internal readonly AbilityChargeState.Snapshot Prev;
+            internal readonly AbilityChargeState.Snapshot Next;
+
+            internal ChargePayment
+            (
+                int number,
+                AbilityChargeState charge,
+                in AbilityChargeState.Snapshot prev,
+                in AbilityChargeState.Snapshot next
+            )
+            {
+                Number = number;
+                Charge = charge;
+                Prev = prev;
+                Next = next;
+            }
+        }
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -517,28 +555,93 @@ namespace inonego.Xeri.Game
         internal AbilityCostReceipt PayCharge(int amount)
         {
             var paidCharge = charge;
-            var before = paidCharge?.Clone();
+            var prev = paidCharge != null ? paidCharge.Capture() : default;
 
             if (!TryConsumeCharge(amount))
             {
                 throw new InvalidOperationException("Ability Charge 소비가 승인 후 실패했습니다.");
             }
 
-            var after = paidCharge.Clone();
+            var next = paidCharge.Capture();
 
-            return new AbilityCostReceipt
+            // 사용 구간 밖의 지불은 기록을 비울 시점이 없으므로 환급 동작을 영수증에 담는다.
+            if (!isInUse)
+            {
+                return CreateRefundReceipt(paidCharge, prev, next);
+            }
+
+            // 사용 구간 안의 지불은 기록을 보관하고 영수증에는 기록 번호만 담아 지불마다 할당하지 않는다.
+            paymentNumber++;
+            payments ??= new List<ChargePayment>();
+            payments.Add(new ChargePayment(paymentNumber, paidCharge, prev, next));
+
+            return new AbilityCostReceipt(this, paymentNumber);
+        }
+
+        // 환급 동작을 담은 영수증을 만든다.
+        // 캡처하는 람다를 PayCharge 밖에 두어야 기록 경로에서 클로저를 만들지 않는다.
+        private AbilityCostReceipt CreateRefundReceipt
+        (
+            AbilityChargeState paidCharge,
+            AbilityChargeState.Snapshot prev,
+            AbilityChargeState.Snapshot next
+        )
+        {
+            return AbilityCostReceipt.From
             (
-                () =>
-                {
-                    if (!ReferenceEquals(charge, paidCharge) || !paidCharge.IsSame(after))
-                    {
-                        throw new InvalidOperationException("지불 이후 Charge가 변경되어 환급할 수 없습니다.");
-                    }
-
-                    MarkChanged();
-                    paidCharge.CloneFrom(before);
-                }
+                () => RefundCharge(paidCharge, prev, next)
             );
+        }
+
+        // 기록 번호로 지불을 찾아 되돌린다. 영수증은 한 번만 환급하므로 되돌린 기록은 지운다.
+        // 환급이 거부되면 기록을 남겨 두어 상태가 맞아진 뒤 다시 시도할 수 있다.
+        void IAbilityCostRefund.Refund(int token)
+        {
+            var index = FindPayment(token);
+            if (index < 0)
+            {
+                throw new InvalidOperationException("이미 환급했거나 사용 구간이 끝난 Charge 영수증입니다.");
+            }
+
+            var record = payments[index];
+            RefundCharge(record.Charge, record.Prev, record.Next);
+            payments.RemoveAt(index);
+        }
+
+        // 환급은 보통 지불의 역순이므로 최근 기록부터 찾는다.
+        private int FindPayment(int payment)
+        {
+            if (payments == null)
+            {
+                return -1;
+            }
+
+            for (var index = payments.Count - 1; index >= 0; index--)
+            {
+                if (payments[index].Number == payment)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        // 지불 뒤 Charge가 그대로일 때만 지불 전 상태로 변경 알림 없이 되돌린다.
+        private void RefundCharge
+        (
+            AbilityChargeState paidCharge,
+            in AbilityChargeState.Snapshot prev,
+            in AbilityChargeState.Snapshot next
+        )
+        {
+            if (!ReferenceEquals(charge, paidCharge) || !paidCharge.Capture().Equals(next))
+            {
+                throw new InvalidOperationException("지불 이후 Charge가 변경되어 환급할 수 없습니다.");
+            }
+
+            MarkChanged();
+            paidCharge.RestoreFrom(prev);
         }
 
     #endregion
@@ -560,7 +663,7 @@ namespace inonego.Xeri.Game
         /// 부품이 실제로 바뀌었다고 알린 경우에만 Revision을 올리고 그 값을 그대로 반환한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private bool MarkChangedIf(bool changed)
+        private bool MarkChangedWhen(bool changed)
         {
             if (changed)
             {

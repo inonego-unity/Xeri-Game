@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_AbilityUse.cs
-수정일 : 2026-11-20
+수정일 : 2026-11-26
 
 # 설명
 사용 선택의 현재성, 다중 Cost의 지불·환급, 사용 출처, 독립 결과 수명과 중복 적중을 검증한다.
@@ -248,7 +248,7 @@ namespace inonego.Xeri.Game.TEST._Ability
                 }
 
                 Assert.IsTrue(resource.TryDebit(owner, amount));
-                return new AbilityCostReceipt(() => resource.Credit(owner, amount));
+                return AbilityCostReceipt.From(() => resource.Credit(owner, amount));
             }
         }
 
