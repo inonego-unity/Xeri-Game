@@ -130,7 +130,7 @@ namespace inonego.Xeri.Game
         /// 선택이 여전히 유효한지 확인하는 추가 조건을 반환하며 없으면 null이다.
         /// </summary>
         // ------------------------------------------------------------
-        internal Func<bool> IsCurrent { get; }
+        internal Func<bool> CurrentCheck { get; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -148,13 +148,13 @@ namespace inonego.Xeri.Game
         (
             TExecution execution,
             AbilityActivationPolicy<TSpec> policy,
-            Func<bool> isCurrent = null,
+            Func<bool> currentCheck = null,
             Action transition = null
         )
         {
             Execution = execution;
             Policy = policy ?? throw new ArgumentNullException(nameof(policy));
-            IsCurrent = isCurrent;
+            CurrentCheck = currentCheck;
             Transition = transition;
         }
     }
@@ -297,7 +297,7 @@ namespace inonego.Xeri.Game
     /// 선택한 실행과 정책을 한 번 사용하며 실행 시작 후 상태 전이를 적용한다.
     /// </summary>
     // ============================================================
-    public sealed class AbilityUseSelection<TSpec, TExecution>
+    public sealed class AbilityUseSelection<TSpec, TExecution> : IAbilityUseCurrency
     where TSpec : class
     {
 
@@ -364,7 +364,7 @@ namespace inonego.Xeri.Game
                     reason: "이미 시도한 사용 선택입니다.",
                     code: AbilityActivationCodes.SelectionAttempted
                 )
-                : choice.Policy.Evaluate(Context, IsCurrent);
+                : choice.Policy.Evaluate(Context, this);
         }
 
         // ----------------------------------------------------------------------
@@ -412,7 +412,7 @@ namespace inonego.Xeri.Game
                 attempted = true;
 
                 // 지불 단계의 실패와 그 환급은 정책이 맡는다. 여기서는 시작 단계의 환급만 맡는다.
-                if (!choice.Policy.TryActivate(Context, IsCurrent, receipt, out result))
+                if (!choice.Policy.TryActivate(Context, this, receipt, out result))
                 {
                     return false;
                 }
@@ -466,11 +466,14 @@ namespace inonego.Xeri.Game
         /// 선택 당시의 Binding·State Revision과 추가 현재성 조건이 유지되는지 반환한다.
         /// </summary>
         // ----------------------------------------------------------------------
-        private bool IsCurrent()
+        bool IAbilityUseCurrency.IsCurrent
         {
-            return bindingsMark.IsCurrent
-                && stateMark.IsCurrent
-                && (choice.IsCurrent == null || choice.IsCurrent());
+            get
+            {
+                return bindingsMark.IsCurrent
+                    && stateMark.IsCurrent
+                    && (choice.CurrentCheck == null || choice.CurrentCheck());
+            }
         }
 
     #endregion

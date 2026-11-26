@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : AbilityActivationPolicy.cs
-수정일 : 2026-11-23
+수정일 : 2026-11-25
 
 # 설명
 Requirement와 모든 Cost를 상태 변경 없이 검사한 뒤 등록 순서대로 비용을 소비한다.
@@ -15,6 +15,22 @@ using System.Collections.Generic;
 
 namespace inonego.Xeri.Game
 {
+    // ======================================================================
+    /// <summary>
+    /// <br/> 선택이 아직 현재인지 확인하는 내부 계약.
+    /// <br/> 검사마다 delegate를 만들지 않도록 Func 대신 선택이 직접 구현한다.
+    /// </summary>
+    // ======================================================================
+    internal interface IAbilityUseCurrency
+    {
+        // ------------------------------------------------------------
+        /// <summary>
+        /// 선택 당시의 조건이 유지되고 있는지 반환한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        bool IsCurrent { get; }
+    }
+
     // ============================================================
     /// <summary>
     /// 소비한 비용을 되돌리는 동작을 담아 호출자에게 전달하는 영수증.
@@ -231,10 +247,10 @@ namespace inonego.Xeri.Game
         internal AbilityActivationResult Evaluate
         (
             in AbilityActivationContext<TSpec> context,
-            Func<bool> isCurrent
+            IAbilityUseCurrency current
         )
         {
-            if (context.Ability?.State == null || (isCurrent != null && !isCurrent()))
+            if (context.Ability?.State == null || (current != null && !current.IsCurrent))
             {
                 return AbilityActivationResult.Reject
                 (
@@ -268,7 +284,7 @@ namespace inonego.Xeri.Game
                 }
             }
 
-            if (isCurrent != null && !isCurrent())
+            if (current != null && !current.IsCurrent)
             {
                 return AbilityActivationResult.Reject
                 (
@@ -293,12 +309,12 @@ namespace inonego.Xeri.Game
         internal bool TryActivate
         (
             in AbilityActivationContext<TSpec> context,
-            Func<bool> isCurrent,
+            IAbilityUseCurrency current,
             List<AbilityCostReceipt> receipt,
             out AbilityActivationResult result
         )
         {
-            result = Evaluate(context, isCurrent);
+            result = Evaluate(context, current);
             if (!result.Succeeded)
             {
                 return false;
