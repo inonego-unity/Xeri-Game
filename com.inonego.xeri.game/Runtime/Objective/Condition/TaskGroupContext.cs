@@ -7,6 +7,7 @@ Group Condition이 현재 참여하는 하위 Entry 결과를 조회하는 읽�
 
 # 특이사항, 제약사항
 참여하지 않는 Entry는 완료·실패에 집계되지 않는다. 입력 허용 여부는 Engine 책임이다.
+Engine은 평가마다 같은 Context를 다시 채워 쓰므로 Condition은 Context를 그 판정 밖으로 보관하지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -101,7 +102,7 @@ namespace inonego.Xeri.Game.Objective
         /// 동일 평가 시점의 Objective 정보.
         /// </summary>
         // ------------------------------------------------------------
-        public ObjectiveContext Objective { get; }
+        public ObjectiveContext Objective { get; private set; }
 
         // ------------------------------------------------------------
         /// <summary>
@@ -115,16 +116,16 @@ namespace inonego.Xeri.Game.Objective
         /// 실제 참여하며 완료된 자식 수.
         /// </summary>
         // ------------------------------------------------------------
-        public int SucceededCount { get; }
+        public int SucceededCount { get; private set; }
 
         // ------------------------------------------------------------
         /// <summary>
         /// 실제 참여하며 실패한 자식 수.
         /// </summary>
         // ------------------------------------------------------------
-        public int FailedCount { get; }
+        public int FailedCount { get; private set; }
 
-        private readonly IReadOnlyList<TaskEntryResult> entries;
+        private IReadOnlyList<TaskEntryResult> entries = Array.Empty<TaskEntryResult>();
 
     #endregion
 
@@ -180,22 +181,19 @@ namespace inonego.Xeri.Game.Objective
             FailedCount = failed;
         }
 
-        // 이미 검증된 결과를 그대로 보관하는 생성자. ForEvaluation만 쓴다.
-        private TaskGroupContext(ObjectiveContext objective, IReadOnlyList<TaskEntryResult> trusted, int completed, int failed)
+        // 평가마다 Prepare로 다시 채워 쓰는 빈 문맥. 소유자가 Prepare하기 전에는 쓰지 않는다.
+        internal TaskGroupContext()
         {
-            Objective = objective;
-            entries = trusted;
-            SucceededCount = completed;
-            FailedCount = failed;
+            // NONE
         }
 
         // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/>Engine이 방금 중복 없이 만든 결과 목록을 복사·검증 없이 그대로 보는 문맥을 만든다.
-        /// <br/>목록은 평가가 끝나면 비워지므로 이 문맥은 그 평가 동안만 쓴다.
+        /// <br/>Engine이 방금 중복 없이 만든 결과 목록을 복사·검증 없이 그대로 보도록 채운다.
+        /// <br/>목록은 판정이 끝나면 풀로 돌아가므로 소유자는 그 전에 Clear로 놓는다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        internal static TaskGroupContext ForEvaluation(ObjectiveContext objective, List<TaskEntryResult> results)
+        internal void Prepare(ObjectiveContext objective, List<TaskEntryResult> results)
         {
             int completed = 0;
             int failed = 0;
@@ -213,7 +211,19 @@ namespace inonego.Xeri.Game.Objective
                 }
             }
 
-            return new TaskGroupContext(objective, results, completed, failed);
+            Objective = objective;
+            entries = results;
+            SucceededCount = completed;
+            FailedCount = failed;
+        }
+
+        // Prepare로 빌려 본 결과 목록과 Objective 문맥을 놓아 빈 문맥으로 되돌린다.
+        internal void Clear()
+        {
+            Objective = null;
+            entries = Array.Empty<TaskEntryResult>();
+            SucceededCount = 0;
+            FailedCount = 0;
         }
 
     #endregion

@@ -7,10 +7,11 @@ Objective의 직접 영속 원본과 원자 변경을 소유한다.
 
 # 특이사항, 제약사항
 평가와 UI/Save I/O는 외부 책임이며, 변경은 동일 타입 임시 후보에 계획·검증(Plan)한 뒤 한 번에 반영(Commit)한다.
+예외로 경과 시간만 더하는 확정(CommitTimeAdvance)은 평가가 그대로임을 Engine이 확인한 뒤 후보 없이 원본에 반영한다.
 복원된 Inactive에는 시간·진행·통과 및 Sequential 경계 이력을 허용하지 않는다.
 Progress·이력 복제는 Core IDeepCloneable·컬렉션 CloneFrom을 쓰고, 비교·유무 확인·키 이름 변경은 Core ValueRegistry의 IsSameAs·HasAny·Rename을 쓴다.
 후보는 쓰기 전까지 원본의 Progress를 공유하고, 평가가 본 Registry는 이후 쓰기 때 복사해 바꾸지 않는다(쓰기 시 복사).
-후보는 확정하면 폐기되며 이후 변경을 거부한다. 원본은 후보를 통해서만 바뀐다.
+후보는 확정하면 폐기되며 이후 변경을 거부한다. 원본은 후보 확정과 시간만 더하는 확정으로만 바뀐다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -335,27 +336,21 @@ namespace inonego.Xeri.Game.Objective
 
         // --------------------------------------------------------------------------------
         /// <summary>
-        /// <br/>현재 상태의 평가 Context를 만든다.
+        /// <br/>현재 상태로 평가 Context를 채운다. 경과 시간은 호출자가 정한 평가 시점이다.
         /// <br/>Progress는 복사하지 않고 조회 전용으로 노출한다.
         /// <br/>노출한 Registry는 이후 쓰기에서 복사해 바꾸지 않으므로 Context가 보는 값은 변하지
         /// <br/>않는다.
-        /// <br/>Entry 참여 시각은 Context에 복사해 넘기고, Directory 조회는 reads에 기록한다.
+        /// <br/>Entry 참여 기록은 목록을 그대로 넘기고, Directory 조회는 reads에 기록한다.
         /// </summary>
         // --------------------------------------------------------------------------------
-        internal ObjectiveContext CreateContext(ObjectiveDirectory directory, HashSet<(string Scope, string Name)> reads)
+        internal void PrepareContext
+        (
+            ObjectiveContext context, ObjectiveDirectory directory,
+            ObjectiveReads reads, double evaluatedTime
+        )
         {
             progressShared = true;
-            Dictionary<string, double> opened = null;
-            if (entryOpenings.Count > 0)
-            {
-                opened = new Dictionary<string, double>(entryOpenings.Count, StringComparer.Ordinal);
-                foreach (var opening in entryOpenings)
-                {
-                    opened.Add(opening.EntryID, opening.OpenTime);
-                }
-            }
-
-            return new ObjectiveContext(progress.Values, elapsedTime, status, scopeID, opened, directory, reads);
+            context.Prepare(progress.Values, evaluatedTime, status, scopeID, entryOpenings, directory, reads);
         }
 
     #endregion
@@ -382,22 +377,58 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentNullException(nameof(edit));
             }
 
+            using var plan = BeginPlan();
+            edit(plan.Candidate);
+            return plan.Finish();
+        }
+
+        // 원본을 바꾸지 않을 후보를 열고 계획 구간을 시작한다. 구간이 열린 동안 이 원본의 다른 계획은 거부한다.
+        // 호출자는 후보를 고친 뒤 Finish로 검증하고, 반환한 구간을 using으로 닫는다.
+        internal PlanScope BeginPlan()
+        {
             if (applying)
             {
                 throw new InvalidOperationException("Reentrant ObjectiveInstance mutation is not allowed.");
             }
 
+            var candidate = new ObjectiveInstance(this);
             applying = true;
-            try
+            return new PlanScope(this, candidate);
+        }
+
+        // ============================================================
+        /// <summary>
+        /// 원본에서 연 후보 하나의 계획 구간.
+        /// </summary>
+        // ============================================================
+        internal readonly struct PlanScope : IDisposable
+        {
+            private readonly ObjectiveInstance origin;
+
+            // 이 구간에서 고칠 후보.
+            internal ObjectiveInstance Candidate { get; }
+
+            internal PlanScope(ObjectiveInstance origin, ObjectiveInstance candidate)
             {
-                var candidate = new ObjectiveInstance(this);
-                edit(candidate);
-                candidate.ValidateStructure();
-                return IsSameAs(candidate) ? null : candidate;
+                this.origin = origin;
+                Candidate = candidate;
             }
-            finally
+
+            // 고친 후보를 검증하고 돌려준다. 원본과 같으면 확정할 것이 없으므로 null을 돌려준다.
+            internal ObjectiveInstance Finish()
             {
-                applying = false;
+                Candidate.ValidateStructure();
+                return origin.IsSameAs(Candidate) ? null : Candidate;
+            }
+
+            // ------------------------------------------------------------
+            /// <summary>
+            /// 계획 구간을 닫아 원본이 다음 계획을 받게 한다.
+            /// </summary>
+            // ------------------------------------------------------------
+            public void Dispose()
+            {
+                origin.applying = false;
             }
         }
 
@@ -436,6 +467,31 @@ namespace inonego.Xeri.Game.Objective
             revision = revision.Inc();
             candidate.committed = true;
             return true;
+        }
+
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>후보 없이 Active 원본의 경과 시간만 더하고 확정한다.
+        /// <br/>시간만 바뀌어도 평가·순차 경계·참여 기록이 그대로임을 호출자(Engine)가 확인한
+        /// <br/>경우에만 쓴다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        internal void CommitTimeAdvance(double delta)
+        {
+            if (origin != null || applying)
+            {
+                throw new InvalidOperationException("Time can only be committed on an idle source Instance.");
+            }
+
+            RequireActive();
+            if (double.IsNaN(delta) || double.IsInfinity(delta) || delta <= 0
+                || double.IsInfinity(elapsedTime + delta))
+            {
+                throw new ArgumentOutOfRangeException(nameof(delta));
+            }
+
+            elapsedTime += delta;
+            revision = revision.Inc();
         }
 
         private bool IsSameAs(ObjectiveInstance other)

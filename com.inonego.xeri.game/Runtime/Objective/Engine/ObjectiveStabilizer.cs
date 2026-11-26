@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveStabilizer.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 후보 Instance를 순차 개방·참여 시각 기록과 맞춰 더는 바뀌지 않을 때까지 안정화한다.
@@ -50,6 +50,7 @@ namespace inonego.Xeri.Game.Objective
 
         // 후보가 더는 바뀌지 않을 때까지 맞추고, 그 상태의 평가를 돌려준다.
         // 호출자는 같은 후보를 다시 평가하지 않고 이 결과를 쓴다.
+        // 결과는 Evaluator의 재사용 결과이므로 다음 EvaluateScratch 전까지만 유효하다.
         internal ObjectiveEvaluation Stabilize(ObjectiveInstance candidate)
         {
             // 복원 직후의 조회·바인딩은 이 메서드를 실행하지 않는다.
@@ -57,7 +58,7 @@ namespace inonego.Xeri.Game.Objective
             int maximum = spec.Index.EntryCount * 4 + 8;
             for (int round = 0; round < maximum; round++)
             {
-                var evaluation = evaluator.Evaluate(candidate);
+                var evaluation = evaluator.EvaluateScratch(candidate, candidate.ElapsedTime);
                 if (candidate.Status != ObjectiveStatus.Active)
                 {
                     return evaluation;

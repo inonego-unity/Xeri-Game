@@ -6,7 +6,8 @@
 한 번의 Composite 평가에서 계산된 Node 결과와 Entry 참여·입력 허용·닫힌 사유를 노출한다.
 
 # 특이사항, 제약사항
-영속 원본이 아니라 호출마다 생성되는 읽기 전용 결과이며 별도 Snapshot DTO가 아니다.
+영속 원본이 아니라 평가 결과를 읽기 전용으로 보여 주며 별도 Snapshot DTO가 아니다.
+Engine이 알림·조회로 내보낸 결과는 이후 바뀌지 않는다. 내부 재사용 결과는 Engine 밖으로 나가지 않는다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -238,9 +239,6 @@ namespace inonego.Xeri.Game.Objective
         // ------------------------------------------------------------
         public TaskResult RootResult { get; internal set; }
 
-        // 이 평가에서 Condition이 읽은 다른 Objective와 Fact 소스. Directory가 변경 전파에 쓴다.
-        internal HashSet<(string Scope, string Name)> Reads { get; set; }
-
         // ------------------------------------------------------------
         /// <summary>
         /// 안정 NodeID로 해당 Node의 이번 평가 결과를 읽는다.
@@ -285,7 +283,16 @@ namespace inonego.Xeri.Game.Objective
             Array.Clear(nodes, 0, nodes.Length);
             Array.Clear(entries, 0, entries.Length);
             RootResult = default;
-            Reads = null;
+        }
+
+        // 같은 Spec의 새 결과로 복사해 재사용 결과와 분리한다.
+        internal ObjectiveEvaluation Copy()
+        {
+            var copy = new ObjectiveEvaluation(index);
+            Array.Copy(nodes, copy.nodes, nodes.Length);
+            Array.Copy(entries, copy.entries, entries.Length);
+            copy.RootResult = RootResult;
+            return copy;
         }
 
         // 이 평가가 그 Spec의 번호표로 만들어졌는지 확인한다.

@@ -10,6 +10,7 @@ Objective Composite 평가, 순차 통과, 최종 상태 확정과 변경 알림
 명령은 Scope 안에서 후보를 계획하고, Scope를 닫은 뒤 확정하고, 확정 뒤에만 알린다. 계획·닫기 실패는 변경도 알림도 없다.
 확정된 변경의 알림은 구독자 예외와 관계없이 모두 전달하고, 실패는 모아 마지막에 던진다.
 Entry 참여 시각은 순차 안정화와 같은 후보에서 기록하고, 다른 Objective 조회는 주입한 ObjectiveDirectory로 한다.
+시간 진행과 Refresh는 다시 평가한 결과와 읽은 대상이 확정 평가와 같으면 후보를 만들지 않는다(시간 진행은 시간만 확정).
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -97,7 +98,6 @@ namespace inonego.Xeri.Game.Objective
             progressOwners = spec.Index.ProgressOwners;
             evaluator = new ObjectiveEvaluator(spec, directory);
             stabilizer = new ObjectiveStabilizer(spec, evaluator);
-            planStep = PlanStep;
             instance.Validate();
             ValidateHistory(spec.Index, instance);
         }
@@ -180,12 +180,6 @@ namespace inonego.Xeri.Game.Objective
         private readonly ObjectiveEvaluator evaluator;
         private readonly ObjectiveStabilizer stabilizer;
 
-        // 마지막으로 확정·초기화한 평가. 변경 전파와 알림의 비교 기준이다.
-        private ObjectiveEvaluation lastEvaluation;
-
-        // 마지막으로 확정·초기화한 평가에서 Condition이 읽은 대상. Directory가 변경 전파에 쓴다.
-        internal ReadOnlySetView<(string Scope, string Name)> Reads => lastEvaluation?.Reads == null ? default : new(lastEvaluation.Reads);
-
         // ------------------------------------------------------------
         /// <summary>
         /// Composite 결과와 신규 입력 Gate를 읽기 전용으로 평가한다.
@@ -196,7 +190,7 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                return evaluator.Evaluate(instance);
+                return evaluator.EvaluateScratch(instance, instance.ElapsedTime).Copy();
             }
         }
 
@@ -230,9 +224,31 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                buffer.Clear();
-                evaluator.Fill(instance, buffer, false);
+                evaluator.Fill(instance, buffer, instance.ElapsedTime, default);
             }
+        }
+
+    #endregion
+
+    #region 확정 평가 기준
+
+        // 마지막으로 확정·초기화한 평가. 변경 전파와 알림의 비교 기준이다.
+        private ObjectiveEvaluation lastEvaluation;
+
+        // 마지막으로 확정·초기화한 평가에서 Condition이 읽은 대상. Directory 역색인에 넘긴 집합이므로 고치지 않고 바뀌면 새로 복사한다.
+        internal ObjectiveReads Reads => lastReads;
+        private ObjectiveReads lastReads;
+
+        // 읽은 대상이 달라졌을 때만 새 집합으로 바꾸고 Directory 역색인에 알린다.
+        private void UpdateReads(ObjectiveReads current)
+        {
+            if (lastReads.IsEquivalentTo(current))
+            {
+                return;
+            }
+
+            lastReads = current.Copy();
+            directory?.SyncReads(this, lastReads);
         }
 
         // 복원 시 외부 Fact가 준비된 뒤 파생 평가의 기준만 설정한다.
@@ -242,8 +258,10 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                lastEvaluation = evaluator.Evaluate(instance);
-                directory?.SyncReads(this);
+                lastEvaluation = evaluator.EvaluateScratch(instance, instance.ElapsedTime).Copy();
+                // 복원 직후 평가는 순차 안정화를 거치지 않았으므로 빠른 경로의 기준이 아니다.
+                settledMark = default;
+                UpdateReads(evaluator.ScratchReads);
             }
         }
 
@@ -273,7 +291,7 @@ namespace inonego.Xeri.Game.Objective
         }
 
         // Flow 소유 여부를 확인하지 않는 시작. ObjectiveFlow가 게이트를 확인한 뒤 부른다.
-        internal bool ActivateCore() => Execute(candidate => candidate.ChangeStatus(ObjectiveStatus.Active));
+        internal bool ActivateCore() => Execute(Command.Activate());
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -288,19 +306,42 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentNullException(nameof(edit));
             }
 
-            // 재진입이면 바깥 명령의 인수를 덮어쓰기 전에 거부한다.
             RequireNotExecuting();
-            cached.ProgressID = progressID;
-            cached.Edit = edit;
-            try
+            if (progressID == null || !progressOwners.TryGetValue(progressID, out var taskID))
             {
-                return ExecuteProgress(progressID, cached.EditProgress);
+                throw new ArgumentException($"Unknown or nonlocal Progress ID: '{progressID}'.", nameof(progressID));
             }
-            finally
+
+            bool changed;
+            using (Enter())
             {
-                cached.ProgressID = null;
-                cached.Edit = null;
+                ObjectiveInstance candidate = null;
+                ObjectiveEvaluation next = null;
+                bool accepted;
+
+                // 입력 Gate 판정과 후보 계획은 같은 Fact 시점에서 한다.
+                // Scope 닫기까지 끝나야 확정하므로 닫기 실패는 변경 없는 실패다.
+                using (factScope?.Begin())
+                {
+                    // Gate 판정 결과는 여기서만 읽으므로 뒤의 계획 평가가 같은 재사용 결과를 덮어도 된다.
+                    evaluator.EvaluateScratch(instance, instance.ElapsedTime).TryGetNode(taskID, out var task);
+                    accepted = task.CanAcceptInput;
+                    if (accepted)
+                    {
+                        candidate = PlanCandidate(Command.EditProgress(progressID, edit), false, out next);
+                    }
+                }
+
+                if (!accepted)
+                {
+                    return false;
+                }
+
+                changed = CommitCandidate(candidate, next);
             }
+
+            FlushChanges();
+            return changed;
         }
 
         // ------------------------------------------------------------
@@ -320,8 +361,12 @@ namespace inonego.Xeri.Game.Objective
                 return false;
             }
 
-            cached.Delta = delta;
-            return Execute(cached.Advance);
+            if (TryCommitSettledTime(delta))
+            {
+                return true;
+            }
+
+            return Execute(Command.Advance(delta));
         }
 
         // ------------------------------------------------------------
@@ -336,7 +381,12 @@ namespace inonego.Xeri.Game.Objective
                 return false;
             }
 
-            return Execute(noCommand);
+            if (IsSettledNow())
+            {
+                return false;
+            }
+
+            return Execute(Command.None());
         }
 
         // ------------------------------------------------------------
@@ -352,7 +402,7 @@ namespace inonego.Xeri.Game.Objective
                 return ObjectiveSubmitResult.None;
             }
 
-            Execute(noCommand, submit: true);
+            Execute(Command.None(), submit: true);
             return instance.Status switch
             {
                 ObjectiveStatus.Succeeded => ObjectiveSubmitResult.Succeeded,
@@ -390,8 +440,14 @@ namespace inonego.Xeri.Game.Objective
             using (Enter())
             {
                 // 강제 명령은 외부 Condition 대신 Instance 전이 불변식만 확인한다.
-                cached.Status = terminalStatus;
-                changed = instance.Apply(cached.ForceStatus);
+                ObjectiveInstance candidate;
+                using (var plan = instance.BeginPlan())
+                {
+                    plan.Candidate.ChangeStatus(terminalStatus);
+                    candidate = plan.Finish();
+                }
+
+                changed = instance.Commit(candidate);
                 if (changed)
                 {
                     QueueStatusTransition(before);
@@ -416,16 +472,7 @@ namespace inonego.Xeri.Game.Objective
                 throw new ArgumentNullException(nameof(edit));
             }
 
-            RequireNotExecuting();
-            cached.Edit = edit;
-            try
-            {
-                return Execute(cached.ForceProgress);
-            }
-            finally
-            {
-                cached.Edit = null;
-            }
+            return Execute(Command.ForceProgress(edit));
         }
 
     #endregion
@@ -498,12 +545,12 @@ namespace inonego.Xeri.Game.Objective
 
         // Flow의 시작 조건을 이 Engine의 현재 상태로 평가한다. 평가 규칙(Fact Scope·재진입 거부)은 일반 평가와 같다.
         // reads를 주면 조건이 읽은 다른 Objective·Fact 소스를 기록한다.
-        internal bool CheckActivation(ICond<ObjectiveContext> condition, HashSet<(string Scope, string Name)> reads)
+        internal bool CheckActivation(ICond<ObjectiveContext> condition, ObjectiveReads reads)
         {
             using (Enter())
             {
                 using var scope = factScope?.Begin();
-                return condition.Check(instance.CreateContext(directory, reads));
+                return condition.Check(evaluator.PrepareContext(instance, reads));
             }
         }
 
@@ -511,7 +558,9 @@ namespace inonego.Xeri.Game.Objective
         internal ObjectiveInstance PlanCancelForChoice()
         {
             RequireNotExecuting();
-            return instance.Plan(candidate => candidate.ChangeStatus(ObjectiveStatus.Cancelled));
+            using var plan = instance.BeginPlan();
+            plan.Candidate.ChangeStatus(ObjectiveStatus.Cancelled);
+            return plan.Finish();
         }
 
         // 계획한 Choice 취소를 확정하고 변경을 대기열에 둔다. 발행은 Flow가 모든 확정 뒤에 한다.
@@ -528,71 +577,64 @@ namespace inonego.Xeri.Game.Objective
 
     #endregion
 
-    #region 원자 실행
+    #region 후보 계획·확정
 
-        // 재진입을 막는 실행 구간 표시.
-        private bool executing;
+        private enum CommandKind { None, Activate, Advance, EditProgress, ForceProgress }
 
-        // 명령 실행 중에만 쓰는 계획 상태. 재진입이 막혀 있어 Engine마다 하나면 충분하다.
-        private readonly Action<ObjectiveInstance> planStep;
-        private Func<ObjectiveInstance, bool> planCommand;
-        private bool planSubmit;
-        private ObjectiveEvaluation planned;
-
-        // 명령마다 클로저를 만들지 않도록 한 번 만들어 두는 명령과 그 인자.
-        private readonly CachedCommands cached = new();
-
-        // 입력 Gate 판정에만 쓰고 버리는 재사용 평가 결과.
-        private ObjectiveEvaluation gateBuffer;
-
-        private bool ExecuteProgress(string progressID, Func<ObjectiveInstance, bool> command)
+        // ============================================================
+        /// <summary>
+        /// 후보에 적용할 입력 명령과 그 인자. 대리자 없이 값으로 넘긴다.
+        /// </summary>
+        // ============================================================
+        private readonly struct Command
         {
-            RequireNotExecuting();
-            if (progressID == null || !progressOwners.TryGetValue(progressID, out var taskID))
+            internal readonly CommandKind Kind;
+            internal readonly double Delta;
+            internal readonly string ProgressID;
+            internal readonly Action<ValueRegistry> Edit;
+
+            private Command(CommandKind kind, double delta = 0, string progressID = null, Action<ValueRegistry> edit = null)
             {
-                throw new ArgumentException($"Unknown or nonlocal Progress ID: '{progressID}'.", nameof(progressID));
+                Kind = kind;
+                Delta = delta;
+                ProgressID = progressID;
+                Edit = edit;
             }
 
-            bool changed;
-            using (Enter())
+            // 상태를 바꾸지 않고 평가와 확정만 하는 명령.
+            internal static Command None() => new(CommandKind.None);
+
+            internal static Command Activate() => new(CommandKind.Activate);
+
+            internal static Command Advance(double delta) => new(CommandKind.Advance, delta: delta);
+
+            internal static Command EditProgress(string progressID, Action<ValueRegistry> edit) =>
+                new(CommandKind.EditProgress, progressID: progressID, edit: edit);
+
+            internal static Command ForceProgress(Action<ValueRegistry> edit) => new(CommandKind.ForceProgress, edit: edit);
+
+            // 명령을 후보에 적용한다.
+            internal void ApplyTo(ObjectiveInstance candidate)
             {
-                ObjectiveInstance candidate = null;
-                ObjectiveEvaluation next = null;
-                bool accepted;
-
-                // 입력 Gate 판정과 후보 계획은 같은 Fact 시점에서 한다.
-                // Scope 닫기까지 끝나야 확정하므로 닫기 실패는 변경 없는 실패다.
-                using (factScope?.Begin())
+                switch (Kind)
                 {
-                    gateBuffer ??= new ObjectiveEvaluation(spec.Index);
-                    gateBuffer.Clear();
-                    evaluator.Fill(instance, gateBuffer, false);
-                    gateBuffer.TryGetNode(taskID, out var task);
-                    accepted = task.CanAcceptInput;
-                    if (accepted)
-                    {
-                        candidate = PlanCandidate(command, false, out next);
-                    }
+                    case CommandKind.Activate:
+                        candidate.ChangeStatus(ObjectiveStatus.Active);
+                        break;
+                    case CommandKind.Advance:
+                        candidate.AdvanceTime(Delta);
+                        break;
+                    case CommandKind.EditProgress:
+                        candidate.EditProgress(ProgressID, Edit);
+                        break;
+                    case CommandKind.ForceProgress:
+                        candidate.ForceProgress(Edit);
+                        break;
                 }
-
-                if (!accepted)
-                {
-                    return false;
-                }
-
-                changed = CommitCandidate(candidate, next);
             }
-
-            FlushChanges();
-            return changed;
         }
 
-        // 상태를 바꾸지 않고 평가와 확정만 하는 명령. 호출마다 대리자를 만들지 않도록 한 번만 만든다.
-        private static bool NoCommand(ObjectiveInstance candidate) => false;
-
-        private static readonly Func<ObjectiveInstance, bool> noCommand = NoCommand;
-
-        private bool Execute(Func<ObjectiveInstance, bool> command, bool submit = false)
+        private bool Execute(in Command command, bool submit = false)
         {
             bool changed;
             using (Enter())
@@ -614,52 +656,41 @@ namespace inonego.Xeri.Game.Objective
         }
 
         // 명령·순차 안정화·최종 Status까지 후보에서 계획하고, 확정 뒤 기준이 될 평가를 함께 돌려준다.
-        private ObjectiveInstance PlanCandidate
-        (
-            Func<ObjectiveInstance, bool> command, bool submit, out ObjectiveEvaluation next
-        )
+        private ObjectiveInstance PlanCandidate(in Command command, bool submit, out ObjectiveEvaluation next)
         {
-            planCommand = command;
-            planSubmit = submit;
-            planned = null;
-            try
-            {
-                var result = instance.Plan(planStep);
-                next = planned;
-                return result;
-            }
-            finally
-            {
-                planCommand = null;
-                planned = null;
-            }
+            using var plan = instance.BeginPlan();
+            command.ApplyTo(plan.Candidate);
+            next = Settle(plan.Candidate, submit);
+            return plan.Finish();
         }
 
-        // 명령을 적용한 뒤 후보를 안정화하고 최종 Status까지 계획한다.
-        private void PlanStep(ObjectiveInstance candidate)
+        // 명령을 적용한 후보를 안정화하고 최종 Status까지 정한 뒤 그 평가를 돌려준다.
+        // 평가는 Evaluator의 재사용 결과이며, 확정 평가로 남길 때 QueueChanges가 복사한다.
+        private ObjectiveEvaluation Settle(ObjectiveInstance candidate, bool submit)
         {
-            planCommand(candidate);
             if (candidate.Status != ObjectiveStatus.Active)
             {
-                planned = evaluator.Evaluate(candidate);
-                return;
+                return evaluator.EvaluateScratch(candidate, candidate.ElapsedTime);
             }
 
             // 안정된 평가가 곧 계획 평가다. 최종 Status를 바꾼 때만 다시 평가한다.
-            planned = stabilizer.Stabilize(candidate);
-            var root = planned.RootResult;
+            var settled = stabilizer.Stabilize(candidate);
+            var root = settled.RootResult;
             if (root == TaskResult.Failed
-                && (planSubmit || spec.FailureCommitMode == ObjectiveCommitMode.Automatic))
+                && (submit || spec.FailureCommitMode == ObjectiveCommitMode.Automatic))
             {
                 candidate.ChangeStatus(ObjectiveStatus.Failed);
-                planned = evaluator.Evaluate(candidate);
+                return evaluator.EvaluateScratch(candidate, candidate.ElapsedTime);
             }
-            else if (root == TaskResult.Succeeded
-                && (planSubmit || spec.SuccessCommitMode == ObjectiveCommitMode.Automatic))
+
+            if (root == TaskResult.Succeeded
+                && (submit || spec.SuccessCommitMode == ObjectiveCommitMode.Automatic))
             {
                 candidate.ChangeStatus(ObjectiveStatus.Succeeded);
-                planned = evaluator.Evaluate(candidate);
+                return evaluator.EvaluateScratch(candidate, candidate.ElapsedTime);
             }
+
+            return settled;
         }
 
         // 계획한 후보를 확정하고 그 뒤에만 변경을 대기열에 둔다.
@@ -667,9 +698,86 @@ namespace inonego.Xeri.Game.Objective
         {
             var before = instance.Status;
             bool changed = instance.Commit(candidate);
+
+            // Active로 남은 확정의 평가는 순차 안정화를 마친 평가이므로 빠른 경로의 기준이 된다.
+            settledMark = instance.Status == ObjectiveStatus.Active ? RevisionMark.Capture(instance) : default;
+
+            // 계획의 마지막 평가가 읽은 대상이 확정 상태가 읽는 대상이다.
+            UpdateReads(evaluator.ScratchReads);
             QueueChanges(changed, next, before);
             return changed;
         }
+
+    #endregion
+
+    #region 확정 평가 재사용
+
+        // lastEvaluation이 안정화를 마친 Active 원본의 평가일 때 그 원본의 번호. 현재가 아니면 빠른 경로를 쓰지 않는다.
+        private RevisionMark settledMark;
+
+        // 시간만 더해도 평가가 그대로면 후보 없이 원본에 시간만 확정하고 Changed를 알린다.
+        // 평가가 달라지거나 기준 평가가 없으면 false를 돌려주고 호출자가 일반 명령으로 처리한다.
+        private bool TryCommitSettledTime(double delta)
+        {
+            double evaluatedTime = instance.ElapsedTime + delta;
+            if (double.IsInfinity(evaluatedTime))
+            {
+                return false;
+            }
+
+            var before = instance.Status;
+            using (Enter())
+            {
+                // 일반 명령처럼 평가한 Fact Scope를 닫은 뒤에 확정한다.
+                using (factScope?.Begin())
+                {
+                    if (!MatchesSettled(evaluatedTime))
+                    {
+                        return false;
+                    }
+                }
+
+                instance.CommitTimeAdvance(delta);
+                settledMark = RevisionMark.Capture(instance);
+                QueueChanges(true, lastEvaluation, before);
+            }
+
+            FlushChanges();
+            return true;
+        }
+
+        // 지금 다시 평가해도 확정 평가와 같으면 Refresh가 확정할 것이 없다.
+        private bool IsSettledNow()
+        {
+            using (Enter())
+            {
+                using (factScope?.Begin())
+                {
+                    return MatchesSettled(instance.ElapsedTime);
+                }
+            }
+        }
+
+        // 확정 평가가 지금 원본의 안정 평가이고, evaluatedTime 시점에서 다시 평가해도 결과와 읽은 대상이 같은지 확인한다.
+        // 순차 경계·참여 기록·최종 Status는 이 평가와 원본 이력으로만 정해지므로, 같으면 후보 계획도 아무것도 바꾸지 않는다.
+        private bool MatchesSettled(double evaluatedTime)
+        {
+            if (lastEvaluation == null || !settledMark.IsCurrent)
+            {
+                return false;
+            }
+
+            var current = evaluator.EvaluateScratch(instance, evaluatedTime);
+            return current.IsEquivalentTo(lastEvaluation)
+                && evaluator.ScratchReads.IsEquivalentTo(lastReads);
+        }
+
+    #endregion
+
+    #region 실행 구간 보호
+
+        // 재진입을 막는 실행 구간 표시.
+        private bool executing;
 
         private void RequireNotExecuting()
         {
@@ -704,33 +812,6 @@ namespace inonego.Xeri.Game.Objective
             public void Dispose()
             {
                 owner.executing = false;
-            }
-        }
-
-        // ================================================================================
-        /// <summary>
-        /// <br/>입력 명령이 Plan에 넘기는 delegate를 한 번만 만들어 두고, 명령마다 인자만 바꿔 쓴다.
-        /// <br/>재진입이 막혀 있어 Engine마다 하나면 충분하며, 인자는 명령이 끝나면 호출자가 비운다.
-        /// </summary>
-        // ================================================================================
-        private sealed class CachedCommands
-        {
-            internal double Delta;
-            internal string ProgressID;
-            internal Action<ValueRegistry> Edit;
-            internal ObjectiveStatus Status;
-
-            internal readonly Func<ObjectiveInstance, bool> Advance;
-            internal readonly Func<ObjectiveInstance, bool> EditProgress;
-            internal readonly Func<ObjectiveInstance, bool> ForceProgress;
-            internal readonly Action<ObjectiveInstance> ForceStatus;
-
-            internal CachedCommands()
-            {
-                Advance = candidate => candidate.AdvanceTime(Delta);
-                EditProgress = candidate => candidate.EditProgress(ProgressID, Edit);
-                ForceProgress = candidate => candidate.ForceProgress(Edit);
-                ForceStatus = candidate => candidate.ChangeStatus(Status);
             }
         }
 
@@ -777,6 +858,8 @@ namespace inonego.Xeri.Game.Objective
         private void QueueStatusTransition(ObjectiveStatus before)
         {
             lastEvaluation = null;
+            settledMark = default;
+            UpdateReads(default);
             QueueChanges(true, null, before);
         }
 
@@ -785,8 +868,17 @@ namespace inonego.Xeri.Game.Objective
         {
             var previous = lastEvaluation;
             bool viewChanged = next != null && !next.IsEquivalentTo(previous);
-            lastEvaluation = next;
-            directory?.SyncReads(this);
+
+            // 계획 평가는 재사용 결과이므로 보이는 결과가 바뀐 때만 새 결과로 복사하고, 같으면 이전 확정 평가를 그대로 쓴다.
+            if (next == null)
+            {
+                lastEvaluation = null;
+            }
+            else if (viewChanged)
+            {
+                lastEvaluation = next.Copy();
+            }
+
             if (changed)
             {
                 Action handler = Changed;
@@ -829,7 +921,7 @@ namespace inonego.Xeri.Game.Objective
                 Action<ObjectiveEvaluation> handler = EvaluationChanged;
                 if (handler != null)
                 {
-                    changes.Enqueue(handler, next);
+                    changes.Enqueue(handler, lastEvaluation);
                 }
             }
         }

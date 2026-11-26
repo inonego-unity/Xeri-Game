@@ -32,31 +32,11 @@ namespace inonego.Xeri.Game.Objective
     public sealed class ObjectiveDirectory
     {
 
-    #region 필드
+    #region 등록
 
         private readonly Dictionary<(string ScopeID, string SpecID), ObjectiveEngine> engines = new();
         private readonly List<ObjectiveEngine> order = new();
         private readonly Dictionary<ObjectiveEngine, Action> changeHandlers = new();
-        private readonly Dictionary<string, IValueLookup> sources = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, Action> sourceHandlers = new(StringComparer.Ordinal);
-
-        // 읽기 대상(다른 Objective의 (Scope, Spec) 또는 Fact 소스의 (null, 이름)) → 그것을 읽은 Engine들.
-        private readonly Dictionary<(string Scope, string Name), HashSet<ObjectiveEngine>> readers = new();
-        private readonly Dictionary<ObjectiveEngine, ReadOnlySetView<(string Scope, string Name)>> reading = new();
-        private readonly HashSet<ObjectiveEngine> dirty = new();
-
-        // Flow도 시작 조건이 읽은 대상을 같은 방식으로 기록한다.
-        private readonly List<ObjectiveFlow> flows = new();
-        private readonly Dictionary<(string Scope, string Name), HashSet<ObjectiveFlow>> flowReaders = new();
-        private readonly Dictionary<ObjectiveFlow, HashSet<(string Scope, string Name)>> flowReading = new();
-        private readonly HashSet<ObjectiveFlow> dirtyFlows = new();
-
-        // 이 Directory의 Engine들이 함께 쓰는 변경 대기열. 일괄 처리는 이 대기열의 발행을 미뤘다가 한 번에 푼다.
-        internal ObjectiveChangeQueue ChangeQueue { get; } = new();
-
-    #endregion
-
-    #region 등록
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -96,7 +76,7 @@ namespace inonego.Xeri.Game.Objective
             Action handler = () => OnEngineChanged(engine);
             changeHandlers[engine] = handler;
             engine.Changed += handler;
-            SyncReads(engine);
+            engineReads.Sync(engine, engine.Reads);
             MarkReaders(key, engine);
         }
 
@@ -136,12 +116,14 @@ namespace inonego.Xeri.Game.Objective
 
             order.Remove(engine);
             dirty.Remove(engine);
-            ClearReads(engine);
+            engineReads.Remove(engine);
         }
 
     #endregion
 
     #region Flow 등록
+
+        private readonly List<ObjectiveFlow> flows = new();
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -165,7 +147,7 @@ namespace inonego.Xeri.Game.Objective
 
             flow.Attach(this);
             flows.Add(flow);
-            SyncFlowReads(flow, null);
+            flowReads.Remove(flow);
         }
 
         // ------------------------------------------------------------
@@ -185,7 +167,7 @@ namespace inonego.Xeri.Game.Objective
                 return false;
             }
 
-            ClearFlowReads(flow);
+            flowReads.Remove(flow);
             dirtyFlows.Remove(flow);
             flow.Detach();
             return true;
@@ -194,6 +176,9 @@ namespace inonego.Xeri.Game.Objective
     #endregion
 
     #region Fact 소스
+
+        private readonly Dictionary<string, IValueLookup> sources = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Action> sourceHandlers = new(StringComparer.Ordinal);
 
         // --------------------------------------------------------------------------------
         /// <summary>
@@ -370,7 +355,70 @@ namespace inonego.Xeri.Game.Objective
 
     #endregion
 
-    #region 변경 전파
+    #region 읽기 기록·dirty 표시
+
+        // ============================================================
+        /// <summary>
+        /// 읽기 대상과 그것을 읽은 쪽(Engine·Flow)을 양방향으로 기록한다.
+        /// </summary>
+        // ============================================================
+        private sealed class ReadIndex<TReader>
+        where TReader : class
+        {
+            // 읽기 대상(다른 Objective의 (Scope, Spec) 또는 Fact 소스의 (null, 이름)) → 그것을 읽은 쪽들.
+            private readonly Dictionary<(string Scope, string Name), HashSet<TReader>> readers = new();
+
+            // 읽은 쪽 → 마지막으로 넘겨받은 읽기 집합. 넘긴 쪽은 이 집합을 고치지 않고, 바뀌면 새 집합을 넘긴다.
+            private readonly Dictionary<TReader, ObjectiveReads> reading = new();
+
+            internal bool TryGetReaders((string Scope, string Name) key, out HashSet<TReader> set)
+            {
+                return readers.TryGetValue(key, out set);
+            }
+
+            // 읽은 쪽의 기록을 current로 바꾼다. 비어 있으면 기록을 지우기만 한다.
+            internal void Sync(TReader reader, ObjectiveReads current)
+            {
+                Remove(reader);
+                if (current.Count == 0)
+                {
+                    return;
+                }
+
+                reading[reader] = current;
+                foreach (var key in current.View)
+                {
+                    if (!readers.TryGetValue(key, out var set))
+                    {
+                        set = new HashSet<TReader>();
+                        readers.Add(key, set);
+                    }
+
+                    set.Add(reader);
+                }
+            }
+
+            internal void Remove(TReader reader)
+            {
+                if (!reading.TryGetValue(reader, out var previous))
+                {
+                    return;
+                }
+
+                foreach (var key in previous.View)
+                {
+                    readers[key].Remove(reader);
+                }
+
+                reading.Remove(reader);
+            }
+        }
+
+        // Engine과 Flow가 읽은 대상의 역색인과 다음 RefreshDirty에서 갱신할 대상.
+        private readonly ReadIndex<ObjectiveEngine> engineReads = new();
+        private readonly ReadIndex<ObjectiveFlow> flowReads = new();
+        private readonly HashSet<ObjectiveEngine> dirty = new();
+        private readonly HashSet<ObjectiveFlow> dirtyFlows = new();
 
         // Engine의 확정이 끝나면 그것을 읽은 다른 Engine을 dirty로 표시한다.
         private void OnEngineChanged(ObjectiveEngine engine)
@@ -380,9 +428,9 @@ namespace inonego.Xeri.Game.Objective
 
         private void MarkReaders((string Scope, string Name) key, ObjectiveEngine except = null)
         {
-            if (readers.TryGetValue(key, out var set))
+            if (engineReads.TryGetReaders(key, out var engineSet))
             {
-                foreach (var reader in set)
+                foreach (var reader in engineSet)
                 {
                     if (!ReferenceEquals(reader, except) && reader.Instance.Status == ObjectiveStatus.Active)
                     {
@@ -391,7 +439,7 @@ namespace inonego.Xeri.Game.Objective
                 }
             }
 
-            if (flowReaders.TryGetValue(key, out var flowSet))
+            if (flowReads.TryGetReaders(key, out var flowSet))
             {
                 foreach (var flow in flowSet)
                 {
@@ -403,115 +451,30 @@ namespace inonego.Xeri.Game.Objective
             }
         }
 
-        // Engine이 마지막 평가에서 읽은 대상을 역색인에 맞춘다. Engine이 확정·초기 평가를 마칠 때 부른다.
-        internal void SyncReads(ObjectiveEngine engine)
+        // Engine이 읽은 대상이 바뀌었을 때 역색인에 맞춘다. 등록되지 않은 Engine은 기록하지 않는다.
+        internal void SyncReads(ObjectiveEngine engine, ObjectiveReads reads)
         {
-            if (!changeHandlers.ContainsKey(engine))
+            if (changeHandlers.ContainsKey(engine))
             {
-                return;
-            }
-
-            ClearReads(engine);
-            var current = engine.Reads;
-            if (current.Count == 0)
-            {
-                return;
-            }
-
-            reading[engine] = current;
-            foreach (var key in current)
-            {
-                if (!readers.TryGetValue(key, out var set))
-                {
-                    set = new HashSet<ObjectiveEngine>();
-                    readers.Add(key, set);
-                }
-
-                set.Add(engine);
+                engineReads.Sync(engine, reads);
             }
         }
 
-        // Engine의 읽기 기록을 역색인에서 지운다.
-        private void ClearReads(ObjectiveEngine engine)
+        // Flow의 시작 조건이 읽은 대상이 바뀌었을 때 역색인에 맞춘다. 이 Directory에 등록한 Flow만 기록한다.
+        internal void SyncFlowReads(ObjectiveFlow flow, ObjectiveReads reads)
         {
-            if (reading.TryGetValue(engine, out var previous))
+            if (ReferenceEquals(flow.Directory, this))
             {
-                foreach (var key in previous)
-                {
-                    readers[key].Remove(engine);
-                }
-
-                reading.Remove(engine);
+                flowReads.Sync(flow, reads);
             }
         }
 
-        // Flow가 마지막 확인에서 시작 조건이 읽은 대상을 역색인에 맞춘다.
-        internal void SyncFlowReads(ObjectiveFlow flow, HashSet<(string Scope, string Name)> current)
-        {
-            if (!ReferenceEquals(flow.Directory, this))
-            {
-                return;
-            }
+    #endregion
 
-            ClearFlowReads(flow);
-            if (current == null || current.Count == 0)
-            {
-                return;
-            }
+    #region 갱신·시간 진행
 
-            flowReading[flow] = current;
-            foreach (var key in current)
-            {
-                if (!flowReaders.TryGetValue(key, out var set))
-                {
-                    set = new HashSet<ObjectiveFlow>();
-                    flowReaders.Add(key, set);
-                }
-
-                set.Add(flow);
-            }
-        }
-
-        private void ClearFlowReads(ObjectiveFlow flow)
-        {
-            if (flowReading.TryGetValue(flow, out var previous))
-            {
-                foreach (var key in previous)
-                {
-                    flowReaders[key].Remove(flow);
-                }
-
-                flowReading.Remove(flow);
-            }
-        }
-
-        // 두 읽기 집합이 같은지 비교한다. null은 빈 집합으로 본다. 개수가 같으면 한쪽이 다른 쪽을 모두 포함할 때 같다.
-        internal static bool HasSameReads
-        (
-            HashSet<(string Scope, string Name)> left, HashSet<(string Scope, string Name)> right
-        )
-        {
-            int count = left?.Count ?? 0;
-            if (count != (right?.Count ?? 0))
-            {
-                return false;
-            }
-
-            if (count == 0)
-            {
-                return true;
-            }
-
-            foreach (var key in left)
-            {
-                if (!right.Contains(key))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
+        // 이 Directory의 Engine들이 함께 쓰는 변경 대기열. 일괄 처리는 이 대기열의 발행을 미뤘다가 한 번에 푼다.
+        internal ObjectiveChangeQueue ChangeQueue { get; } = new();
 
         // --------------------------------------------------------------------------------
         /// <summary>

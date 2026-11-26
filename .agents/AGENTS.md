@@ -6,3 +6,4 @@
 - Preserve Unity .meta GUIDs when migrating existing assets, and check serialized managed type identities separately.
 - Do not change external repositories or worktrees without explicit permission.
 - Initial setup excludes API documentation and documentation-site generation.
+- Never stage documentation files (including planning, specifications, progress logs, and scenario Markdown) during Stage workflows. Stage only implementation code and its directly required Unity .meta/.asmdef/.asmref files, and only when Git Index changes are explicitly authorized.

@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_ObjectiveCond.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 표준 Condition(ObjectiveCond·대상 Entry를 지정한 TaskGroupCond)의 판정, 닫힌 사유, 정적 검사(참조·임계값)를 검증한다.
@@ -214,7 +214,7 @@ namespace inonego.Xeri.Game.TEST.Objective
         // Group 집계 Condition을 직접 판정해 보는 Context. a·b·c의 결과를 지정한다.
         private static TaskGroupContext Context(TaskResult a, TaskResult b, TaskResult c, bool cParticipating = true)
         {
-            var objective = new ObjectiveInstance("quest", 1, "run", "world").CreateContext(null, null);
+            var objective = new ObjectiveContext(new ValueRegistry(), 0, ObjectiveStatus.Inactive);
             var results = new TaskEntryResult[]
             {
                 new("a", true, a),

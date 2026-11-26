@@ -1,13 +1,14 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : ObjectiveEvaluator.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 한 Spec의 Composite 평가를 읽기 전용으로 계산한다.
 
 # 특이사항, 제약사항
 Instance와 평가 결과는 호출자가 소유하며 이 클래스는 아무것도 바꾸지 않는다. Fact Scope와 재진입 가드는 Engine이 맡는다.
-읽은 대상 집합은 재사용하므로 한 Engine이 한 번에 하나만 평가한다.
+평가 결과·읽은 대상 집합·Objective·Group Context는 재사용하므로 한 Engine이 한 번에 하나만 평가한다.
+EvaluateScratch는 재사용 결과를 돌려주므로 다음 호출 전까지만 유효하다. 보관할 결과는 호출자가 Copy한다.
 ========================================================================= BLOCK_HEADER_END */
 
 using System;
@@ -33,13 +34,23 @@ namespace inonego.Xeri.Game.Objective
     internal sealed class ObjectiveEvaluator
     {
 
-    #region 생성자
+    #region 필드·생성자
 
         private readonly ObjectiveSpec spec;
         private readonly ObjectiveDirectory directory;
 
-        // 평가가 읽은 대상을 모으는 재사용 집합. 읽은 대상이 있으면 결과에 넘기고 새로 만든다.
-        private HashSet<(string Scope, string Name)> readsBuffer;
+        // 평가마다 다시 채워 쓰는 Context.
+        // Group 문맥은 자식 평가가 모두 끝난 뒤 그 Group의 판정 동안만 채우므로 중첩 Group이 하나를 함께 쓴다.
+        private readonly ObjectiveContext context = new();
+        private readonly TaskGroupContext groupContext = new();
+
+        // 재사용 평가 결과와 그 읽기 집합. Engine이 재진입을 막으므로 동시에 둘이 필요한 순간이 없다.
+        private ObjectiveEvaluation scratch;
+
+        // 마지막 EvaluateScratch에서 Condition이 읽은 대상. Directory가 없으면 기록하지 않는다(default).
+        // 다음 EvaluateScratch에서 덮이므로 보관하려는 호출자는 Copy한다.
+        internal ObjectiveReads ScratchReads => scratchReads;
+        private ObjectiveReads scratchReads;
 
         internal ObjectiveEvaluator(ObjectiveSpec spec, ObjectiveDirectory directory)
         {
@@ -49,42 +60,64 @@ namespace inonego.Xeri.Game.Objective
 
     #endregion
 
-    #region 평가
+    #region 평가 진입
 
-        // 새 결과를 만들어 평가를 채운다. 조건이 읽은 대상도 결과에 기록한다.
-        internal ObjectiveEvaluation Evaluate(ObjectiveInstance source)
+        // 경과 시간을 evaluatedTime으로 본 평가를 재사용 결과에 채워 돌려준다. 읽은 대상은 ScratchReads에 기록한다.
+        // 결과는 다음 EvaluateScratch에서 덮이므로 보관하려는 호출자는 Copy한다.
+        internal ObjectiveEvaluation EvaluateScratch(ObjectiveInstance source, double evaluatedTime)
         {
-            var snapshot = new ObjectiveEvaluation(spec.Index);
-            Fill(source, snapshot, true);
-            return snapshot;
+            scratch ??= new ObjectiveEvaluation(spec.Index);
+
+            ObjectiveReads reads = default;
+            if (directory != null)
+            {
+                if (!scratchReads.IsTracking)
+                {
+                    scratchReads = ObjectiveReads.Create();
+                }
+
+                reads = scratchReads;
+            }
+
+            Fill(source, scratch, evaluatedTime, reads);
+            return scratch;
         }
 
-        // 평가를 주어진 결과에 채운다. trackReads가 참이면 조건이 읽은 대상을 결과에 기록한다.
-        internal void Fill(ObjectiveInstance source, ObjectiveEvaluation snapshot, bool trackReads)
+        // 경과 시간을 evaluatedTime으로 본 평가로 target을 비우고 다시 채운다. 읽은 대상은 reads에 기록하며 기록하지 않으면 default를 넘긴다.
+        internal void Fill
+        (
+            ObjectiveInstance source, ObjectiveEvaluation target, double evaluatedTime,
+            ObjectiveReads reads
+        )
         {
-            // 읽은 대상이 없으면 집합을 다음 평가에 다시 쓰고, 있으면 결과(와 Directory)에 넘겨 새로 만든다.
-            HashSet<(string Scope, string Name)> reads = null;
-            if (trackReads && directory != null)
-            {
-                reads = readsBuffer ??= new HashSet<(string Scope, string Name)>();
-                reads.Clear();
-            }
-
-            var context = source.CreateContext(directory, reads);
-            snapshot.RootResult = EvaluateNode(spec.Root, context, source, true, snapshot);
-            if (reads != null && reads.Count > 0)
-            {
-                snapshot.Reads = reads;
-                readsBuffer = null;
-            }
+            target.Clear();
+            reads.Clear();
+            source.PrepareContext(context, directory, reads, evaluatedTime);
+            target.RootResult = EvaluateNode(spec.Root, source, true, target);
 
             bool active = source.Status == ObjectiveStatus.Active;
-            SetInputGates(spec.Root, snapshot, active);
+            SetInputGates(spec.Root, target, active);
         }
 
-        private static TaskResult EvaluateNode
+        // --------------------------------------------------------------------------------
+        /// <summary>
+        /// <br/>현재 상태로 채운 재사용 Context를 돌려준다. Flow의 시작 조건 확인처럼 평가 밖의
+        /// <br/>단일 판정에 쓰며, 다음 평가나 판정 전까지만 유효하다.
+        /// </summary>
+        // --------------------------------------------------------------------------------
+        internal ObjectiveContext PrepareContext(ObjectiveInstance source, ObjectiveReads reads)
+        {
+            source.PrepareContext(context, directory, reads, source.ElapsedTime);
+            return context;
+        }
+
+    #endregion
+
+    #region 노드 평가
+
+        private TaskResult EvaluateNode
         (
-            TaskNodeSpec node, ObjectiveContext context, ObjectiveInstance source,
+            TaskNodeSpec node, ObjectiveInstance source,
             bool participating, ObjectiveEvaluation snapshot
         )
         {
@@ -106,7 +139,7 @@ namespace inonego.Xeri.Game.Objective
             }
             else
             {
-                result = EvaluateGroup((TaskGroupSpec)node, context, source, participating, snapshot);
+                result = EvaluateGroup((TaskGroupSpec)node, source, participating, snapshot);
             }
 
             snapshot.SetNode(node.NodeID, participating, result);
@@ -114,9 +147,9 @@ namespace inonego.Xeri.Game.Objective
         }
 
         // Group의 Entry를 평가하고 자식 결과를 집계한다. 자식 결과 목록은 평가 동안만 쓰므로 풀에서 빌린다.
-        private static TaskResult EvaluateGroup
+        private TaskResult EvaluateGroup
         (
-            TaskGroupSpec group, ObjectiveContext context, ObjectiveInstance source,
+            TaskGroupSpec group, ObjectiveInstance source,
             bool participating, ObjectiveEvaluation snapshot
         )
         {
@@ -142,7 +175,7 @@ namespace inonego.Xeri.Game.Objective
                     }
 
                     bool opened = closedBy == TaskClosedBy.None;
-                    TaskResult childRaw = EvaluateNode(entry.Node, context, source, opened, snapshot);
+                    TaskResult childRaw = EvaluateNode(entry.Node, source, opened, snapshot);
                     TaskResult effective = opened ? childRaw : TaskResult.Pending;
                     if (opened && group.ExecutionMode == TaskExecutionMode.Sequential
                         && entry.RevalidationMode == TaskRevalidationMode.OncePassed
@@ -159,7 +192,8 @@ namespace inonego.Xeri.Game.Objective
                     }
                 }
 
-                var groupContext = TaskGroupContext.ForEvaluation(context, children);
+                // 자식 평가가 모두 끝난 뒤에 이 Group의 문맥을 채운다. 판정 동안 다른 Group 평가가 끼지 않는다.
+                groupContext.Prepare(context, children);
                 if (group.FailureCond?.Check(groupContext) == true)
                 {
                     return TaskResult.Failed;
@@ -174,6 +208,8 @@ namespace inonego.Xeri.Game.Objective
             }
             finally
             {
+                // 자식 결과 목록은 풀에 돌려주므로 문맥이 그 목록을 계속 가리키지 않게 먼저 놓는다.
+                groupContext.Clear();
                 ListPool<TaskEntryResult>.Release(children);
             }
         }

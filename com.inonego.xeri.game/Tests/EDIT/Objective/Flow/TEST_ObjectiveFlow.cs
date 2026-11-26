@@ -1,6 +1,6 @@
 /* BLOCK_HEADER_BEGIN =======================================================================
 파일명 : TEST_ObjectiveFlow.cs
-수정일 : 2026-11-25
+수정일 : 2026-11-26
 
 # 설명
 ObjectiveFlow의 선행·Choice, 시작 조건·Auto 시작, 새 회차 교체·Choice 재개방, 실행 소유와 명세·저장 검증을 검증한다.
@@ -432,6 +432,47 @@ namespace inonego.Xeri.Game.TEST.Objective
 
             Assert.Throws<InvalidOperationException>(() => flow.SelectChoice("choice", "a"));
             Assert.That(cChanged, Is.EqualTo(1));
+        }
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>취소한 대안의 구독자가 실패해도, 다른 구독자가 연 Auto Entry는
+        /// <br/>선택 뒤에 시작하고 실패는 호출자에게 전달한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveFlow_선택알림이실패해도열린Auto를시작한다()
+        {
+            var opened = new ToggleCond();
+            var alternatives = new[]
+            {
+                "left",
+                "right"
+            };
+            var entries = new ObjectiveFlowEntry[]
+            {
+                new("left"),
+                new("right"),
+                new("gate", activationCond: opened, auto: true)
+            };
+            var choices = new ObjectiveFlowChoice[]
+            {
+                new("route", alternatives)
+            };
+            var values = new[]
+            {
+                Engine("left"),
+                Engine("right"),
+                Engine("gate")
+            };
+            using var flow = BuildFlow(entries, values, choices);
+            values[1].Changed += () => throw new InvalidOperationException("Subscriber failed.");
+            values[1].StatusChanged += (before, after) => opened.Value = true;
+
+            Assert.Throws<InvalidOperationException>(() => flow.SelectChoice("route", "left"));
+
+            Assert.That(values[1].Instance.Status, Is.EqualTo(ObjectiveStatus.Cancelled));
+            Assert.That(values[2].Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
         }
 
         // ------------------------------------------------------------
@@ -1132,9 +1173,128 @@ namespace inonego.Xeri.Game.TEST.Objective
             Assert.That(intro.Flow, Is.Null);
         }
 
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>시작한 Objective의 구독자가 실패해도 나머지 Auto Entry는 같은 확인에서
+        /// <br/>시작하고, 실패는 확인이 끝난 뒤 호출자에게 전달한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveFlow_구독자가실패해도나머지Auto시작을이어간다()
+        {
+            var first = Engine("first");
+            var second = Engine("second");
+            var entries = new ObjectiveFlowEntry[]
+            {
+                new("first", auto: true),
+                new("second", auto: true)
+            };
+            var values = new[]
+            {
+                first,
+                second
+            };
+            using var flow = BuildFlow(entries, values);
+            first.StatusChanged += (before, after) => throw new InvalidOperationException("Subscriber failed.");
+
+            Assert.Throws<InvalidOperationException>(() => flow.Refresh());
+
+            Assert.That(first.Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+            Assert.That(second.Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/>시작 확인이 실패한 Entry는 같은 확인에서 다시 시도하지 않고,
+        /// <br/>다른 Entry의 시작으로 열린 Entry는 이어서 시작한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveFlow_시작확인이실패한Entry는다시시도하지않는다()
+        {
+            int calls = 0;
+            var broken = new Hook
+            {
+                During = () =>
+                {
+                    calls++;
+                    throw new InvalidOperationException("Activation check failed.");
+                }
+            };
+            var opened = new ToggleCond();
+            var entries = new ObjectiveFlowEntry[]
+            {
+                new("broken", activationCond: broken, auto: true),
+                new("second", activationCond: opened, auto: true),
+                new("first", auto: true)
+            };
+            var values = new[]
+            {
+                Engine("broken"),
+                Engine("second"),
+                Engine("first")
+            };
+            using var flow = BuildFlow(entries, values);
+            values[2].StatusChanged += (before, after) => opened.Value = true;
+
+            Assert.Throws<InvalidOperationException>(() => flow.Refresh());
+
+            Assert.That(calls, Is.EqualTo(1));
+            Assert.That(values[0].Instance.Status, Is.EqualTo(ObjectiveStatus.Inactive));
+            Assert.That(values[1].Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+            Assert.That(values[2].Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+        }
+
     #endregion
 
     #region Directory 변경 전파
+
+        // ----------------------------------------------------------------------
+        /// <summary>
+        /// <br/>앞 Entry의 시작 확인이 실패해도 뒤 Entry가 읽은 대상까지 기록해,
+        /// <br/>그 대상이 바뀌면 RefreshDirty가 Flow를 갱신한다.
+        /// </summary>
+        // ----------------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveFlow_시작확인이실패해도뒤Entry의읽기를기록한다()
+        {
+            var directory = new ObjectiveDirectory();
+            var outside = RegisteredEngine("outside", directory);
+            var broken = RegisteredEngine("broken", directory);
+            var bonus = RegisteredEngine("bonus", directory);
+            int calls = 0;
+            var once = new Hook
+            {
+                During = () =>
+                {
+                    if (calls++ == 0)
+                    {
+                        throw new InvalidOperationException("Activation check failed once.");
+                    }
+                }
+            };
+            var dependsOn = ObjectiveCond.DependsOn("outside", ObjectiveStatus.Succeeded);
+            var entries = new ObjectiveFlowEntry[]
+            {
+                new("broken", activationCond: once, auto: true),
+                new("bonus", activationCond: dependsOn, auto: true)
+            };
+            var values = new[]
+            {
+                broken,
+                bonus
+            };
+            using var flow = BuildFlow(entries, values);
+            directory.RegisterFlow(flow);
+            outside.Activate();
+            Assert.Throws<InvalidOperationException>(() => flow.Refresh());
+
+            outside.Force(ObjectiveStatus.Succeeded);
+
+            Assert.That(bonus.Instance.Status, Is.EqualTo(ObjectiveStatus.Inactive));
+            Assert.That(directory.RefreshDirty(), Is.EqualTo(1));
+            Assert.That(bonus.Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
+        }
 
         // ----------------------------------------------------------------------
         /// <summary>
@@ -1469,6 +1629,50 @@ namespace inonego.Xeri.Game.TEST.Objective
             Assert.That(flow.GetEngine("left"), Is.SameAs(sources[1]));
             Assert.That(flow.GetEngine("right"), Is.SameAs(sources[2]));
             Assert.That(sources[1].Instance.Status, Is.Not.EqualTo(ObjectiveStatus.Cancelled));
+        }
+
+        // ------------------------------------------------------------
+        /// <summary>
+        /// <br/>선택한 대안의 종료 알림에서 구독자가 실패해도, 다른 구독자가 연
+        /// <br/>Auto Entry는 재개방 뒤에 시작하고 실패는 호출자에게 전달한다.
+        /// </summary>
+        // ------------------------------------------------------------
+        [Test]
+        public void TEST_ObjectiveFlow_재개방알림이실패해도열린Auto를시작한다()
+        {
+            var opened = new ToggleCond();
+            var alternatives = new[]
+            {
+                "left",
+                "right"
+            };
+            var entries = new ObjectiveFlowEntry[]
+            {
+                new("left"),
+                new("right"),
+                new("gate", activationCond: opened, auto: true)
+            };
+            var choices = new ObjectiveFlowChoice[]
+            {
+                new("route", alternatives)
+            };
+            var values = new[]
+            {
+                RepeatEngine("left"),
+                RepeatEngine("right"),
+                RepeatEngine("gate", repeatable: false)
+            };
+            using var flow = BuildFlow(entries, values, choices);
+            flow.SelectChoice("route", "left");
+            flow.Activate("left");
+            values[0].Changed += () => throw new InvalidOperationException("Subscriber failed.");
+            values[0].StatusChanged += (before, after) => opened.Value = true;
+
+            Assert.Throws<InvalidOperationException>(() => flow.ReopenChoice("route", NextRun));
+
+            Assert.That(values[0].Instance.Status, Is.EqualTo(ObjectiveStatus.Cancelled));
+            Assert.That(flow.State.TryGetSelection("route", out _), Is.False);
+            Assert.That(values[2].Instance.Status, Is.EqualTo(ObjectiveStatus.Active));
         }
 
     #endregion

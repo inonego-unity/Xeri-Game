@@ -11,6 +11,7 @@ Choice는 모든 대안의 취소를 계획한 뒤 선택 기록과 함께 확�
 한 FlowState와 한 Engine은 살아 있는 Flow 하나만 실행한다. Dispose로 소유를 놓아야 같은 객체로 다시 만들 수 있다.
 Objective마다 현재 회차 Engine 하나를 가진다. 새 회차 교체는 종료한 회차를 되살리지 않고 새 Instance의 Engine으로 바꾼다.
 Auto Entry는 Engine의 StatusChanged와 Flow 명령 뒤에 시작 조건을 다시 확인해 자동으로 시작한다. 생성자는 시작하지 않는다.
+Auto Entry의 시작·알림이나 Choice 명령의 알림이 실패해도 Auto 시작은 끝까지 확인하고, 실패는 모아 마지막에 던진다.
 Directory에 등록하면 시작 조건이 읽은 다른 Objective·Fact 소스가 바뀔 때 Directory의 RefreshDirty가 Refresh를 대신 부른다.
 ========================================================================= BLOCK_HEADER_END */
 
@@ -39,15 +40,19 @@ namespace inonego.Xeri.Game.Objective
         private readonly Dictionary<string, ObjectiveFlowEntry> entries = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ObjectiveFlowChoice> choices = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ObjectiveEngine> engines = new(StringComparer.Ordinal);
-        private readonly Dictionary<ObjectiveEngine, Action<ObjectiveStatus, ObjectiveStatus>> statusHandlers = new();
+        
+        // 소유한 모든 Engine이 함께 쓰는 Status 변경 처리기. Auto Entry를 다시 확인한다.
+        private readonly Action<ObjectiveStatus, ObjectiveStatus> statusHandler;
+
         private bool advancing;
 
         // 이 Flow를 변경 전파 대상으로 등록한 Directory. 등록하지 않았으면 null이다.
         internal ObjectiveDirectory Directory { get; private set; }
 
-        // 시작 조건이 읽은 대상의 두 집합. 하나는 Directory에 넘긴 마지막 기록이고, 다른 하나에 다음 확인을 모은다.
-        private HashSet<(string Scope, string Name)> syncedReads;
-        private HashSet<(string Scope, string Name)> spareReads;
+        // 시작 조건 확인마다 읽은 대상을 모으는 재사용 집합과 Directory 역색인에 넘긴 마지막 기록.
+        // 넘긴 기록은 고치지 않고, 읽은 대상이 바뀌면 새로 복사해 넘긴다.
+        private ObjectiveReads activationReads;
+        private ObjectiveReads lastReads;
 
         // ------------------------------------------------------------
         /// <summary>
@@ -163,6 +168,7 @@ namespace inonego.Xeri.Game.Objective
             }
 
             state.Owner = this;
+            statusHandler = (before, after) => Advance();
             foreach (var engine in engines.Values)
             {
                 Claim(engine);
@@ -200,20 +206,14 @@ namespace inonego.Xeri.Game.Objective
         private void Claim(ObjectiveEngine engine)
         {
             engine.Flow = this;
-            Action<ObjectiveStatus, ObjectiveStatus> handler = (before, after) => Advance();
-            statusHandlers[engine] = handler;
-            engine.StatusChanged += handler;
+            engine.StatusChanged += statusHandler;
         }
 
         // Claim한 Engine의 소유와 구독을 놓는다.
         private void Release(ObjectiveEngine engine)
         {
             engine.Flow = null;
-            if (statusHandlers.TryGetValue(engine, out var handler))
-            {
-                engine.StatusChanged -= handler;
-                statusHandlers.Remove(engine);
-            }
+            engine.StatusChanged -= statusHandler;
         }
 
         // Directory에 등록될 때 호출한다. 모든 Engine이 같은 Directory를 써야 읽기 기록이 전파에 맞는다.
@@ -237,13 +237,13 @@ namespace inonego.Xeri.Game.Objective
             }
 
             Directory = directory;
-            syncedReads = null;
+            lastReads = default;
         }
 
         internal void Detach()
         {
             Directory = null;
-            syncedReads = null;
+            lastReads = default;
         }
 
         internal bool IsDisposed => disposed;
@@ -286,10 +286,10 @@ namespace inonego.Xeri.Game.Objective
         /// Choice 선택과 모든 선행 성공을 만족할 때만 개방한다.
         /// </summary>
         // ------------------------------------------------------------
-        public bool CanActivate(string objectiveID) => CanActivate(objectiveID, null);
+        public bool CanActivate(string objectiveID) => CanActivate(objectiveID, default);
 
         // reads를 주면 시작 조건이 읽은 대상을 기록한다.
-        private bool CanActivate(string objectiveID, HashSet<(string Scope, string Name)> reads)
+        private bool CanActivate(string objectiveID, ObjectiveReads reads)
         {
             RequireNotDisposed();
             if (objectiveID == null || !entries.TryGetValue(objectiveID, out var entry))
@@ -310,13 +310,14 @@ namespace inonego.Xeri.Game.Objective
                 }
             }
 
-            if (entry.ActivationCond != null && !engines[objectiveID].CheckActivation(entry.ActivationCond, reads))
+            // 선택받지 못한 대안은 시작 조건과 무관하게 막히므로, 조건을 평가하거나 읽기를 기록하기 전에 거른다.
+            if (spec.TryGetChoice(objectiveID, out var choice)
+                && (!state.TryGetSelection(choice.ChoiceID, out var selected) || selected != objectiveID))
             {
                 return false;
             }
 
-            if (spec.TryGetChoice(objectiveID, out var choice)
-                && (!state.TryGetSelection(choice.ChoiceID, out var selected) || selected != objectiveID))
+            if (entry.ActivationCond != null && !engines[objectiveID].CheckActivation(entry.ActivationCond, reads))
             {
                 return false;
             }
@@ -334,22 +335,34 @@ namespace inonego.Xeri.Game.Objective
             return CanActivate(objectiveID) && engines[objectiveID].ActivateCore();
         }
 
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         /// <summary>
         /// <br/>Auto Entry의 시작 조건을 확인해 충족한 것을 시작한다.
         /// <br/>시작이 다른 Entry의 조건을 충족시키면 이어서 시작한다.
         /// <br/>외부 Fact가 바뀐 뒤에는 이 메서드를 불러야 한다.
         /// <br/>시작한 Objective 수를 돌려준다.
+        /// <br/>시작 확인이나 시작 뒤 알림이 실패해도 나머지 Entry는 끝까지 확인한다.
+        /// <br/>실패는 모아 마지막에 던진다. 하나면 원래 예외, 둘 이상이면 AggregateException이다.
         /// </summary>
-        // ------------------------------------------------------------
+        // --------------------------------------------------------------------------------
         public int Refresh()
         {
             RequireNotDisposed();
             return Advance();
         }
 
-        // 시작할 Auto Entry가 더 없을 때까지 반복한다. Engine 알림에서 다시 불려도 중첩 실행하지 않는다.
+        // 시작할 Auto Entry가 더 없을 때까지 반복하고, 모은 실패가 있으면 마지막에 던진다.
         private int Advance()
+        {
+            var failures = new ExceptionBuffer();
+            int started = Advance(ref failures);
+            failures.ThrowWhenAny("Flow auto activation failed for one or more Objectives.");
+            return started;
+        }
+
+        // 시작할 Auto Entry가 더 없을 때까지 반복한다. Engine 알림에서 다시 불려도 중첩 실행하지 않는다.
+        // 한 Entry의 시작 확인이나 시작 뒤 알림이 실패해도 나머지 Entry는 끝까지 확인하고 실패는 failures에 모은다.
+        private int Advance(ref ExceptionBuffer failures)
         {
             if (advancing || disposed)
             {
@@ -358,13 +371,20 @@ namespace inonego.Xeri.Game.Objective
 
             advancing = true;
             int started = 0;
-            HashSet<(string Scope, string Name)> reads = null;
+            ObjectiveReads reads = default;
             if (Directory != null)
             {
-                reads = spareReads ??= new HashSet<(string Scope, string Name)>();
+                if (!activationReads.IsTracking)
+                {
+                    activationReads = ObjectiveReads.Create();
+                }
+
+                reads = activationReads;
                 reads.Clear();
             }
 
+            // 실패한 Entry는 이번 확인에서 다시 시도하지 않는다. 실패 기록은 첫 실패 때만 빌린다.
+            HashSet<string> failed = null;
             try
             {
                 int maximum = entries.Count + 1;
@@ -373,14 +393,42 @@ namespace inonego.Xeri.Game.Objective
                     bool any = false;
                     foreach (var entry in spec.Entries)
                     {
-                        if (entry.Auto && CanActivate(entry.ObjectiveID, reads) && engines[entry.ObjectiveID].ActivateCore())
+                        // 알림 구독자가 Flow를 Dispose하면 더 시작하지 않는다.
+                        if (disposed)
                         {
-                            started++;
-                            any = true;
+                            break;
+                        }
+
+                        if (!entry.Auto || (failed != null && failed.Contains(entry.ObjectiveID)))
+                        {
+                            continue;
+                        }
+
+                        var engine = engines[entry.ObjectiveID];
+                        try
+                        {
+                            if (CanActivate(entry.ObjectiveID, reads) && engine.ActivateCore())
+                            {
+                                started++;
+                                any = true;
+                            }
+                        }
+                        catch (Exception exception)
+                        {
+                            failed ??= HashSetPool<string>.Get();
+                            failed.Add(entry.ObjectiveID);
+                            failures.Add(exception);
+
+                            // 시작을 확정한 뒤 알림만 실패했으면 시작한 것으로 센다. 다른 Entry의 조건을 바꿨을 수 있다.
+                            if (engine.Instance.Status != ObjectiveStatus.Inactive)
+                            {
+                                started++;
+                                any = true;
+                            }
                         }
                     }
 
-                    if (!any)
+                    if (!any || disposed)
                     {
                         break;
                     }
@@ -389,15 +437,17 @@ namespace inonego.Xeri.Game.Objective
             finally
             {
                 advancing = false;
+                if (failed != null)
+                {
+                    HashSetPool<string>.Release(failed);
+                }
             }
 
-            // 마지막 확인에서 시작 조건이 읽은 대상을 Directory가 변경 전파에 쓰도록 넘긴다.
-            // 지난번과 같으면 역색인을 그대로 두고, 바뀌었으면 넘긴 뒤 Directory가 놓은 이전 집합을 다음 확인에 쓴다.
-            if (Directory != null && !ObjectiveDirectory.HasSameReads(reads, syncedReads))
+            // 확인이 끝까지 돌았으므로 읽은 대상이 완전하다. 바뀌었을 때만 복사해 Directory 역색인에 넘긴다.
+            if (Directory != null && !reads.IsEquivalentTo(lastReads))
             {
-                Directory.SyncFlowReads(this, reads);
-                spareReads = syncedReads;
-                syncedReads = reads;
+                lastReads = reads.Copy();
+                Directory.SyncFlowReads(this, lastReads);
             }
 
             return started;
@@ -491,8 +541,9 @@ namespace inonego.Xeri.Game.Objective
                 ListPool<(ObjectiveEngine Engine, ObjectiveInstance Candidate)>.Release(plans);
             }
 
-            failures.ThrowWhenAny("Choice alternative change handlers failed.");
-            Advance();
+            // 알림이 실패해도 선택으로 열린 Auto Entry는 시작하고, 실패는 함께 모아 던진다.
+            Advance(ref failures);
+            failures.ThrowWhenAny("Choice change handlers or Flow auto activation failed.");
             return true;
         }
 
@@ -595,9 +646,19 @@ namespace inonego.Xeri.Game.Objective
                 ListPool<(string ObjectiveID, ObjectiveEngine Engine)>.Release(replacements);
             }
 
-            // 확정이 끝난 뒤에 알린다. 알림 예외는 확정을 되돌리지 않는다.
-            chosen.FlushChoiceChanges();
-            Advance();
+            // 확정이 끝난 뒤에 알린다. 알림 예외는 확정을 되돌리지 않고, 새 회차의 Auto Entry 시작도 막지 않는다.
+            var failures = new ExceptionBuffer();
+            try
+            {
+                chosen.FlushChoiceChanges();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            Advance(ref failures);
+            failures.ThrowWhenAny("Choice change handlers or Flow auto activation failed.");
             return result;
         }
 
